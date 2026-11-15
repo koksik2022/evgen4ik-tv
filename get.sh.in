@@ -8,6 +8,7 @@ main() {
   set -euo pipefail
   local VER="@VER@" SHA="@SHA@" NAME="evgen4ik-tv-install.sh"
   local SOURCES=(
+    "https://raw.githubusercontent.com/@GH_REPO@/v@VER@/$NAME"
     "https://github.com/@GH_REPO@/releases/download/v@VER@/$NAME"
 @MIRROR_LINE@
   )

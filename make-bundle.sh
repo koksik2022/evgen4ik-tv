@@ -20,6 +20,7 @@ sed -e "s|@GH_REPO@|$GH_REPO|g" -e "s|@VER@|$VER|g" -e "s|@SHA@|$SHA|g" get.sh.i
   | awk -v m="$MLINE" '{ if ($0=="@MIRROR_LINE@") { if (m!="") print m } else print }' > dist/get.sh
 chmod 755 dist/get.sh
 echo "$SHA  evgen4ik-tv-install.sh" > dist/evgen4ik-tv-install.sh.sha256
+cp "$inst" evgen4ik-tv-install.sh   # копия в корне репозитория: get.sh берёт её по тегу v<версия>
 echo "get.sh: версия $VER, sha256 $SHA, repo $GH_REPO, зеркало ${E4_MIRROR:-нет}"
 cp pc/Evgen4ik-TV.ps1 "$S/"; cp pc/Evgen4ik-TV-PC.ps1 "$P/"
 bat() { printf '@echo off\r\nchcp 65001 >nul\r\npowershell -NoProfile -ExecutionPolicy Bypass -File "%%~dp0%s" %s\r\n%s' "$2" "$3" "$4" > "$1"; }
