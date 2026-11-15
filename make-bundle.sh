@@ -16,7 +16,8 @@ E4_MIRROR="${E4_MIRROR:-}"                        # зеркало, напр. ht
 VER=$(sed -n 's/^E4_VER="\(.*\)"$/\1/p' install.sh)
 SHA=$(sha256sum "$inst" | cut -d' ' -f1)
 MLINE=""; [ -n "$E4_MIRROR" ] && MLINE="    \"${E4_MIRROR%/}/v$VER/\$NAME\""
-sed -e "s|@GH_REPO@|$GH_REPO|g" -e "s|@VER@|$VER|g" -e "s|@SHA@|$SHA|g" get.sh.in \
+E4_REF="${E4_REF:-v$VER}"   # тег или коммит, где лежит evgen4ik-tv-install.sh
+sed -e "s|@REF@|$E4_REF|g" -e "s|@GH_REPO@|$GH_REPO|g" -e "s|@VER@|$VER|g" -e "s|@SHA@|$SHA|g" get.sh.in \
   | awk -v m="$MLINE" '{ if ($0=="@MIRROR_LINE@") { if (m!="") print m } else print }' > dist/get.sh
 chmod 755 dist/get.sh
 echo "$SHA  evgen4ik-tv-install.sh" > dist/evgen4ik-tv-install.sh.sha256
