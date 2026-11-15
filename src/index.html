@@ -1,0 +1,1234 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Evgen4ik TV — редактор плейлистов</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23f59e0b'/%3E%3Ctext x='16' y='21.5' text-anchor='middle' font-family='Segoe UI,Arial,sans-serif' font-weight='800' font-size='14' fill='%2318181b'%3EE4%3C/text%3E%3C/svg%3E">
+<style>
+/* Оформление в духе m3u-editor (Filament): боковое меню, карточки, таблицы. Тёмная тема по умолчанию, светлая — по настройке системы. */
+:root{
+  --bg:#09090b; --side:#0c0c0f; --panel:#18181b; --panel2:#1f1f23; --ink:#fafafa; --muted:#a1a1aa; --line:rgba(255,255,255,.09);
+  --hover:rgba(255,255,255,.05); --accent:#f59e0b; --accent-ink:#18181b; --accent-soft:rgba(245,158,11,.12);
+  --sel:rgba(245,158,11,.10); --hid:#62626b; --ok:#4ade80; --ok-soft:rgba(74,222,128,.12); --warn:#fbbf24; --bad:#f87171; --bad-soft:rgba(248,113,113,.12);
+  --in:rgba(74,222,128,.08); --ring:rgba(255,255,255,.12);
+  --f:"Inter","Segoe UI",system-ui,-apple-system,Roboto,sans-serif; --mono:Consolas,"JetBrains Mono",ui-monospace,monospace;
+  color-scheme:dark;
+}
+@media (prefers-color-scheme:light){:root{
+  --bg:#f9fafb; --side:#ffffff; --panel:#ffffff; --panel2:#f4f4f5; --ink:#18181b; --muted:#71717a; --line:#e4e4e7;
+  --hover:#f4f4f5; --accent:#d97706; --accent-ink:#ffffff; --accent-soft:#fef3c7; --sel:#fffbeb; --hid:#a1a1aa;
+  --ok:#16a34a; --ok-soft:#dcfce7; --warn:#b45309; --bad:#dc2626; --bad-soft:#fee2e2; --in:#f0fdf4; --ring:#e4e4e7; color-scheme:light}}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--ink);font:14px/1.45 var(--f);display:flex}
+a{color:inherit}
+/* боковое меню */
+.sidebar{width:248px;flex:none;background:var(--side);border-right:1px solid var(--line);display:flex;flex-direction:column;height:100vh;position:sticky;top:0}
+.brand{display:flex;align-items:center;gap:10px;padding:18px 20px;font-weight:700;font-size:16px;letter-spacing:.01em}
+.brand{font-size:18px;font-weight:750;letter-spacing:-.01em}
+.brand .logo{width:32px;height:32px;border-radius:9px;background:var(--accent);color:var(--accent-ink);display:grid;place-items:center;font-size:13px;font-weight:800;letter-spacing:0;flex:none}
+.brand .tv{color:var(--accent)}
+.nav{padding:4px 12px 16px;overflow:auto;flex:1}
+.nav h3{font-size:11.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:600;margin:16px 10px 6px}
+.nav button{box-shadow:none;display:flex;align-items:center;gap:10px;width:100%;border:0;background:none;color:var(--ink);padding:8px 10px;border-radius:8px;font:inherit;cursor:pointer;text-align:left}
+.nav button svg{width:18px;height:18px;flex:none;color:var(--muted)}
+.nav button:hover{background:var(--hover)}
+.nav button.on{background:var(--accent-soft);color:var(--accent);font-weight:600}
+.nav button.on svg{color:var(--accent)}
+.nav .cnt{margin-left:auto;font-size:11.5px;padding:0 7px;border-radius:999px;background:var(--panel2);color:var(--muted)}
+.sidefoot{padding:12px 20px;border-top:1px solid var(--line);font-size:12px;color:var(--muted)}
+/* страница */
+.page{flex:1;min-width:0;display:flex;flex-direction:column;height:100vh;overflow:auto}
+.topbar{display:flex;flex-wrap:wrap;align-items:flex-end;gap:10px 16px;padding:18px 28px 14px}
+.titles{min-width:0}
+.crumbs{font-size:12.5px;color:var(--muted);margin-bottom:2px}
+.crumbs button{box-shadow:none;border:0;background:none;color:var(--muted);padding:0;font:inherit;cursor:pointer}
+.crumbs button:hover{color:var(--ink);text-decoration:underline}
+h1{font-size:24px;margin:0;font-weight:700;letter-spacing:-.01em}
+.stats{color:var(--muted);font-size:12.5px;font-variant-numeric:tabular-nums;margin-top:3px}
+.stats b{color:var(--ink)}
+.sp{flex:1}
+.actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+button{font:inherit;border:1px solid var(--ring);background:var(--panel);color:var(--ink);border-radius:8px;padding:6px 12px;cursor:pointer;font-weight:500;box-shadow:0 1px 2px rgba(0,0,0,.15)}
+button:hover{background:var(--panel2)}
+button.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);font-weight:600}
+button.primary:hover{filter:brightness(1.08)}
+button.danger{color:var(--bad)}
+button:disabled{opacity:.45;cursor:default}
+button.icon{padding:3px 7px;border-color:transparent;background:transparent;color:var(--muted);box-shadow:none}
+button.icon:hover{background:var(--hover);color:var(--ink)}
+button.sm{padding:3px 9px;font-size:12.5px}
+:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+input[type=text],input[type=search],input[type=number],select,textarea{font:inherit;border:1px solid var(--ring);border-radius:8px;padding:6px 10px;background:var(--panel);color:var(--ink)}
+input[type=checkbox],input[type=radio]{accent-color:var(--accent)}
+textarea{font:12.5px/1.5 var(--mono);width:100%;resize:vertical}
+.dirty{color:var(--warn);font-weight:600;font-size:12.5px}
+.muted{color:var(--muted);font-size:12.5px}
+/* карточки, формы */
+.content{flex:1;min-height:0;overflow:auto;padding:0 28px 28px;display:flex;flex-direction:column;gap:18px}
+.card{flex:none;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px 18px;box-shadow:0 1px 2px rgba(0,0,0,.2)}
+.card h2{font-size:15px;margin:0 0 4px;font-weight:650}
+.card .hint,.hint{color:var(--muted);font-size:12.5px;margin:0 0 12px}
+.fgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px}
+.field{display:flex;flex-direction:column;gap:5px}
+.field>span{font-size:12.5px;font-weight:600}
+.field small{color:var(--muted);font-size:12px}
+.switch{position:relative;display:inline-flex;align-items:center;gap:8px;cursor:pointer;user-select:none}
+.switch input{position:absolute;opacity:0;width:0;height:0}
+.switch i{width:36px;height:20px;border-radius:999px;background:var(--panel2);border:1px solid var(--ring);position:relative;transition:.15s}
+.switch i:after{content:"";position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;background:var(--muted);transition:.15s}
+.switch input:checked+i{background:var(--accent);border-color:var(--accent)}
+.switch input:checked+i:after{left:18px;background:var(--accent-ink)}
+.switch input:focus-visible+i{outline:2px solid var(--accent);outline-offset:2px}
+.badge{display:inline-flex;align-items:center;gap:4px;font-size:11.5px;font-weight:600;padding:2px 8px;border-radius:6px;background:var(--panel2);color:var(--muted);border:1px solid var(--line);white-space:nowrap}
+.badge.ok{background:var(--ok-soft);color:var(--ok);border-color:transparent}
+.badge.warn{background:var(--accent-soft);color:var(--warn);border-color:transparent}
+.badge.bad{background:var(--bad-soft);color:var(--bad);border-color:transparent}
+/* таблица */
+.tcard{padding:0;overflow:hidden}
+.thead{display:flex;flex-wrap:wrap;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid var(--line)}
+.tbl{width:100%;border-collapse:collapse}
+.tbl th{font-size:12.5px;font-weight:600;text-align:left;padding:10px 14px;color:var(--ink);background:var(--panel2);border-bottom:1px solid var(--line);white-space:nowrap}
+.tbl td{padding:11px 14px;border-bottom:1px solid var(--line);vertical-align:middle}
+.tbl tr:last-child td{border-bottom:0}
+.tbl tr:hover td{background:var(--hover)}
+.tbl td.num{font-variant-numeric:tabular-nums}
+.tbl .acts{display:flex;gap:6px;flex-wrap:nowrap;justify-content:flex-end}
+.tbl td.nw{white-space:nowrap}
+.tbl .name{text-align:left;font-weight:600;cursor:pointer;border:0;background:none;padding:0;box-shadow:none;color:var(--ink)}
+.tbl .name:hover{color:var(--accent);background:none}
+.twrap{overflow:auto}
+.empty{padding:40px 20px;color:var(--muted);text-align:center}
+/* редактор групп/каналов */
+.lbar{display:flex;flex-direction:column;gap:14px;padding:0 28px 14px}
+main{flex:1;display:grid;grid-template-columns:330px 1fr;min-height:520px;margin:0 28px 20px;border:1px solid var(--line);border-radius:12px;overflow:hidden;background:var(--panel)}
+.groups{border-right:1px solid var(--line);display:flex;flex-direction:column;min-height:0}
+.gtools{display:flex;gap:6px;padding:10px;border-bottom:1px solid var(--line)}
+.gtools input{flex:1;min-width:0}
+.glist{overflow:auto;flex:1}
+.g{display:flex;align-items:center;gap:6px;padding:7px 10px 7px 6px;border-bottom:1px solid var(--line);cursor:pointer;user-select:none}
+.g:hover{background:var(--hover)}
+.g.sel{background:var(--sel);box-shadow:inset 3px 0 0 var(--accent)}
+.g.hidden .gname{color:var(--hid);text-decoration:line-through}
+.g.dragover{box-shadow:inset 0 2px 0 var(--accent)}
+.grip{cursor:grab;color:var(--muted);padding:0 4px}
+.gname{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.gname small{display:block;color:var(--muted);font-size:11px}
+.cnt{font-variant-numeric:tabular-nums;color:var(--muted);font-size:12px;white-space:nowrap}
+.pane{display:flex;flex-direction:column;min-height:0;min-width:0}
+main.three{grid-template-columns:270px minmax(0,1fr) minmax(300px,380px)}
+.mine{border-left:1px solid var(--line);display:flex;flex-direction:column;min-height:0;min-width:0;background:var(--panel)}
+.mine .ptools{background:var(--accent-soft)}
+.m{display:grid;grid-template-columns:18px 30px 1fr auto;gap:8px;align-items:center;padding:6px 12px;border-bottom:1px solid var(--line);cursor:grab}
+.m:hover{background:var(--hover)} .m.dragover{box-shadow:inset 0 2px 0 var(--accent)}
+.m img{width:30px;height:20px;object-fit:contain;background:rgba(127,127,127,.12);border-radius:4px}
+.m .num{color:var(--muted);font-size:11.5px;font-variant-numeric:tabular-nums;text-align:right}
+.m.pend .cn{color:var(--warn)}
+#srcbar{flex-direction:column;align-items:stretch}
+#srcbar select{width:100%}
+.ptools{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:10px 14px;border-bottom:1px solid var(--line)}
+.ptools .title{font-weight:650;font-size:15px}
+.ptools input[type=search]{width:240px;max-width:100%}
+.bulk{display:flex;flex-wrap:wrap;gap:6px;align-items:center;padding:7px 14px;background:var(--sel);border-bottom:1px solid var(--line)}
+.clist{overflow:auto;flex:1}
+.c{display:grid;grid-template-columns:22px 34px 1fr auto auto auto auto auto;align-items:center;gap:8px;padding:6px 14px;border-bottom:1px solid var(--line)}
+.c.lm{grid-template-columns:22px 34px 1fr auto}
+.icon.play,.icon.pvplay{color:var(--accent);font-size:13px}
+.plbox{position:fixed;inset:0;background:rgba(0,0,0,.62);display:grid;place-items:center;z-index:60;padding:16px}
+.plwin{background:var(--panel);border:1px solid var(--line);border-radius:14px;width:min(880px,100%);max-height:100%;overflow:auto;padding:14px;box-shadow:0 20px 60px rgba(0,0,0,.45)}
+.plhead{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:10px}.plhead b{font-size:16px;margin-right:auto}
+#plV{width:100%;aspect-ratio:16/9;background:#000;border-radius:10px;display:block}
+.plst{margin-top:8px;font-size:13px;color:var(--muted);min-height:18px}.plst.bad{color:var(--bad)}
+.plinfo{margin-top:8px;padding:10px 12px;border-radius:10px;background:var(--accent-soft);font-size:13px;line-height:1.55}
+.c.lm.in{background:var(--in)}
+.c.lm.off{opacity:.55}
+.c:hover{background:var(--hover)}
+.c.dragover{box-shadow:inset 0 2px 0 var(--accent)}
+.c[draggable=true]{cursor:grab}
+.c.hidden .cn{color:var(--hid);text-decoration:line-through}
+.c img{width:34px;height:22px;object-fit:contain;background:rgba(127,127,127,.12);border-radius:4px}
+.cn{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cn small{color:var(--muted);font-size:11.5px;margin-left:6px}
+.tag{font-size:10.5px;padding:1px 6px;border-radius:6px;border:1px solid var(--line);color:var(--muted);margin-left:4px;background:var(--panel2)}
+.mod{color:var(--accent);font-size:11px;margin-left:6px}
+.c select{max-width:180px}
+.ued,.addf{padding:12px 14px 14px 78px;border-bottom:1px solid var(--line);background:var(--panel2);display:flex;flex-direction:column;gap:8px}
+.addf{padding-left:14px;flex-direction:row;flex-wrap:wrap;align-items:center}
+.addf input{flex:1 1 200px}
+.uhint{color:var(--muted);font-size:12.5px}
+.uorig{font:12px var(--mono);color:var(--muted);display:flex;flex-direction:column;gap:2px;word-break:break-all}
+.ubtns{display:flex;gap:6px;flex-wrap:wrap}
+.ufields{display:grid;grid-template-columns:130px 1fr;gap:6px 10px;align-items:center;max-width:900px}
+.ufields label{color:var(--muted);font-size:12.5px}
+.chk-res{font:12px var(--mono);display:flex;flex-direction:column;gap:2px}
+.log{font:12px var(--mono);white-space:pre-wrap;color:var(--muted);max-height:160px;overflow:auto;padding:8px 14px;border-top:1px solid var(--line)}
+.st-ok{color:var(--ok)} .st-run{color:var(--warn)} .st-bad{color:var(--bad)}
+.srow{display:grid;grid-template-columns:80px 150px minmax(120px,1fr) auto auto auto auto auto;gap:8px;align-items:center;padding:8px 0;border-bottom:1px solid var(--line)}
+.srow:last-child{border-bottom:0}
+.srow .st{color:var(--muted);font-size:12px}
+.srcfbar{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;padding:10px 14px;margin:0 28px 12px;border-radius:10px;background:var(--accent-soft);border:1px solid var(--accent);font-size:14px}
+.pvgrid{display:grid;grid-template-columns:230px 1fr;border:1px solid var(--line);border-radius:10px;overflow:hidden;height:min(52vh,460px)}
+.pvgrid>div{overflow:auto}.pvg{display:flex;justify-content:space-between;gap:8px;padding:8px 12px;cursor:pointer;border-bottom:1px solid var(--line)}
+.pvg:hover{background:var(--hover)}.pvg.on{background:var(--sel);color:var(--accent);font-weight:600}
+.pvc{display:grid;grid-template-columns:30px 1fr auto auto;
+gap:10px;align-items:center;padding:6px 12px;border-bottom:1px solid var(--line)}
+.pvedit{padding:10px 12px 12px 52px;border-bottom:1px solid var(--line);background:var(--panel2);display:flex;flex-direction:column;gap:8px}
+.pvc img,.pvc .nl{width:30px;height:30px;object-fit:contain;border-radius:6px}
+.pvwarn{margin:10px 0 0;padding:9px 12px;border-radius:10px;background:var(--bad-soft);font-size:13px;line-height:1.5}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}
+.chip{display:inline-flex;align-items:center;gap:4px;border:1px solid var(--ring);border-radius:8px;padding:2px 4px 2px 10px;font-size:13px;background:var(--panel2)}
+.psec{font-size:11.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);font-weight:600;margin:14px 0 8px}
+.ptiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px}
+.ptile{display:flex;flex-direction:column;align-items:flex-start;gap:6px;text-align:left;padding:12px;border-radius:10px;background:var(--panel2);border:1px solid var(--line);box-shadow:none;min-height:96px}
+.ptile:hover{border-color:var(--accent)} .ptile.on{border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent);background:var(--accent-soft)} .ptile.dis{cursor:default}
+.ptile b{font-size:13.5px} .ptile>span:last-child{font-size:11.5px;color:var(--muted)}
+.plg{width:34px;height:34px;border-radius:9px;display:grid;place-items:center;font-weight:800;font-size:12.5px;color:#fff;overflow:hidden;flex:none;position:relative}
+.plg svg{display:block}
+ol.steps{margin:6px 0 0 18px;padding:0;color:var(--muted);font-size:12.5px;line-height:1.7}
+.srcs{display:flex;flex-wrap:wrap;gap:6px 14px}
+.linkrow{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.linkrow input{flex:1 1 320px;font:12.5px var(--mono)}
+.warnbar{margin:0 28px 14px;padding:10px 14px;border-radius:10px;background:var(--bad-soft);color:var(--ink);display:flex;gap:10px;align-items:center;flex-wrap:wrap;font-size:13px}
+.warnbar b{color:var(--bad)}
+.modal{position:fixed;inset:0;background:rgba(0,0,0,.55);display:grid;place-items:center;z-index:20}
+.mbox{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px 20px;max-width:min(92vw,440px);text-align:center}
+.mbox svg{background:#fff;border-radius:8px;max-width:100%;height:auto}
+.mbox code{display:block;word-break:break-all;margin-top:8px;font-size:12px;color:var(--muted)}
+.toast{position:fixed;right:16px;bottom:16px;background:var(--ink);color:var(--bg);padding:10px 14px;border-radius:10px;opacity:0;transition:opacity .2s;pointer-events:none;max-width:80vw;z-index:9}
+.toast.on{opacity:.96}
+@media (max-width:900px){
+  body{flex-direction:column}
+  .sidebar{width:auto;height:auto;position:static;border-right:0;border-bottom:1px solid var(--line)}
+  .nav{display:flex;flex-wrap:wrap;gap:4px;padding:0 10px 10px}.nav h3{display:none}.nav button{width:auto}
+  .page{height:auto;min-height:0}
+  .topbar,.content,.lbar{padding-left:16px;padding-right:16px}
+  main,main.three{margin:0 16px 16px;grid-template-columns:1fr;grid-template-rows:40vh 1fr;min-height:80vh}
+  .mine{border-left:0;border-top:1px solid var(--line);min-height:50vh}
+  .groups{border-right:0;border-bottom:1px solid var(--line)}
+  .c{grid-template-columns:22px 28px 1fr auto auto}.c .mv,.c .ren{display:none}.ued{padding-left:14px}
+  .srow{grid-template-columns:1fr 1fr}.srcfbar{margin:0 16px 12px}.pvgrid{grid-template-columns:1fr;height:auto}.pvgrid>div:first-child{max-height:150px}.ufields{grid-template-columns:1fr}
+}
+</style>
+</head>
+<body>
+<aside class="sidebar">
+  <div class="brand" title="Evgen4ik TV — редактор плейлистов"><span class="logo">E4</span><span>Evgen4ik<span class="tv"> TV</span></span></div>
+  <nav class="nav" id="nav">
+    <h3>Плейлисты</h3>
+    <button data-mode="plist"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M6 6.878V6a2.25 2.25 0 0 1 2.25-2.25h7.5A2.25 2.25 0 0 1 18 6v.878m-12 0c.235-.083.487-.128.75-.128h10.5c.263 0 .515.045.75.128m-12 0A2.25 2.25 0 0 0 4.5 9v.878m13.5-3A2.25 2.25 0 0 1 19.5 9v.878m0 0a2.246 2.246 0 0 0-.75-.128H5.25c-.263 0-.515.045-.75.128m15 0A2.25 2.25 0 0 1 21 12v6a2.25 2.25 0 0 1-2.25 2.25H5.25A2.25 2.25 0 0 1 3 18v-6c0-.98.626-1.813 1.5-2.122"/></svg>Объединённые плейлисты<span class="cnt" id="navLists">0</span></button>
+    <button data-mode="main"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3.75 12h16.5m-16.5 3.75h16.5M3.75 19.5h16.5M5.625 4.5h12.75a1.875 1.875 0 0 1 0 3.75H5.625a1.875 1.875 0 0 1 0-3.75Z"/></svg>Группы и каналы</button>
+    <h3>Настройки</h3>
+    <button data-mode="sources"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M5.25 14.25h13.5m-13.5 0a3 3 0 0 1-3-3m3 3a3 3 0 1 0 0 6h13.5a3 3 0 1 0 0-6m-16.5-3a3 3 0 0 1 3-3h13.5a3 3 0 0 1 3 3m-19.5 0a4.5 4.5 0 0 1 .9-2.7L5.737 5.1a3.375 3.375 0 0 1 2.7-1.35h7.126c1.062 0 2.062.5 2.7 1.35l2.587 3.45a4.5 4.5 0 0 1 .9 2.7m0 0a3 3 0 0 1-3 3m0 3h.008v.008h-.008v-.008Zm0-6h.008v.008h-.008v-.008Zm-3 6h.008v.008h-.008v-.008Zm0-6h.008v.008h-.008v-.008Z"/></svg>Источники</button>
+    <button data-mode="filters"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M12 3c2.755 0 5.455.232 8.083.678.533.09.917.556.917 1.096v1.044a2.25 2.25 0 0 1-.659 1.591l-5.432 5.432a2.25 2.25 0 0 0-.659 1.591v2.927a2.25 2.25 0 0 1-1.244 2.013L9.75 21v-6.568a2.25 2.25 0 0 0-.659-1.591L3.659 7.409A2.25 2.25 0 0 1 3 5.818V4.774c0-.54.384-1.006.917-1.096A48.32 48.32 0 0 1 12 3Z"/></svg>Автоскрытие групп</button>
+    <button data-mode="rules"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.325.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 0 1 1.37.49l1.296 2.247a1.125 1.125 0 0 1-.26 1.431l-1.003.827c-.293.241-.438.613-.43.992a7.723 7.723 0 0 1 0 .255c-.008.378.137.75.43.991l1.004.827c.424.35.534.955.26 1.43l-1.298 2.247a1.125 1.125 0 0 1-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.47 6.47 0 0 1-.22.128c-.331.183-.581.495-.644.869l-.213 1.281c-.09.543-.56.94-1.11.94h-2.594c-.55 0-1.019-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 0 1-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 0 1-1.369-.49l-1.297-2.247a1.125 1.125 0 0 1 .26-1.431l1.004-.827c.292-.24.437-.613.43-.991a6.932 6.932 0 0 1 0-.255c.007-.38-.138-.751-.43-.992l-1.004-.827a1.125 1.125 0 0 1-.26-1.43l1.297-2.247a1.125 1.125 0 0 1 1.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.086.22-.128.332-.183.582-.495.644-.869l.214-1.28Z"/><path d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z"/></svg>Постоянные правила</button>
+    <button data-mode="history"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"/></svg>История и копии</button>
+  </nav>
+  <div class="sidefoot" id="sidefoot"></div>
+</aside>
+<div class="page">
+  <div class="topbar">
+    <div class="titles"><div class="crumbs" id="crumbs"></div><h1 id="ptitle">Редактор</h1><div class="stats" id="stats">загрузка…</div></div>
+    <div class="sp"></div>
+    <div class="actions">
+      <span class="dirty" id="dirty" hidden>● есть несохранённые изменения</span>
+      <button id="btnUndo" title="Отменить последнее действие (Ctrl+Z)" disabled>↶ Шаг назад</button>
+      <button id="btnReset" title="Отменить все несохранённые изменения">Отменить всё</button>
+      <button id="btnSave" title="Сохранить. Объединённые плейлисты обновятся сразу, основной плейлист — при утренней сборке или по «Применить»">Сохранить</button>
+      <button id="btnApply" class="primary" title="Сохранить и пересобрать плейлист (с HLS Proxy просмотр прервётся на несколько секунд)">Сохранить и применить</button>
+    </div>
+  </div>
+  <div class="warnbar" id="warnbar" hidden></div>
+  <div class="lbar" id="lbar" hidden></div>
+  <section class="content" id="settings" hidden></section>
+  <div id="srcFBar" class="srcfbar" hidden></div>
+  <main id="mainGrid">
+  <section class="groups">
+    <div class="gtools" id="gtools">
+      <input type="text" id="newGroup" placeholder="Новая группа…" maxlength="80">
+      <button id="btnAddGroup">Добавить</button>
+    </div>
+    <div class="gtools" id="srcbar" hidden></div>
+    <div class="glist" id="glist"></div>
+  </section>
+  <section class="pane">
+    <div class="ptools" id="ptools"></div>
+    <div class="bulk" id="bulk" hidden></div>
+    <div class="clist" id="clist"></div>
+    <div class="log" id="log"></div>
+  </section>
+  <section class="mine" id="mine" hidden>
+    <div class="ptools" id="mtools"></div>
+    <div class="clist" id="mlist"></div>
+  </section>
+</main>
+</div>
+<div class="toast" id="toast"></div>
+<div class="modal" id="modal" hidden><div class="mbox"><div id="mbody"></div><div style="text-align:right;margin-top:12px"><button id="mClose">Закрыть</button></div></div></div>
+<datalist id="epgl"></datalist>
+<script>
+"use strict";
+let srcF=null; const inSrcF=c=>!srcF||(c.msrc||c.src||[]).includes(srcF);   // фильтр «только этот источник» в «Группах и каналах»
+let lsrc="main", xsel=null, EXT={}, flt="", mergeOpen=false, undoStack=[], lastSnap=null, ALIAS={}, AR=[];
+let frOpen=false, frState={f:"",r:"",rx:false}, chkRes={}, chkState={total:0,done:0,ok:0,bad:0,stop:false};
+let ST=null, R=null, saved="", sel=null, q="", showHidden=true, checked=new Set();
+let mode=(()=>{try{return localStorage.getItem("m3uePage")||"plist"}catch(e){return "plist"}})(), curL=null, openU=null, addOpen=false, ALL=[], BASE="", LST={};
+const $=id=>document.getElementById(id);
+const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const clean=s=>String(s||"").replace(/[\x00-\x1f\x7f"]/g," ").trim().slice(0,100);
+const URLRX=/^(https?|rtmp|rtsp|udp|rtp):\/\/[^\s"]{1,2000}$/i;
+let EPG_URL="", CONF={}, booted=false;
+const PAGES={plist:"Объединённые плейлисты",lists:"Объединённые плейлисты",main:"Группы и каналы",sources:"Источники",filters:"Автоскрытие групп",history:"История и резервные копии",rules:"Постоянные правила"};
+function toast(t){const e=$("toast");e.textContent=t;e.classList.add("on");clearTimeout(e._t);e._t=setTimeout(()=>e.classList.remove("on"),3200)}
+function norm(r){r=r||{};return{version:1,hidden_patterns:r.hidden_patterns||(ST&&ST.default_hidden)||[],groups:r.groups||{},channels:r.channels||{},
+  group_order:r.group_order||[],custom_groups:r.custom_groups||[],custom_channels:r.custom_channels||[],lists:r.lists||[],
+  sources:r.sources||[],disabled_sources:r.disabled_sources||[],primary_source:r.primary_source||null,stream_limit:r.stream_limit||null,
+  lists_only_sources:r.lists_only_sources||[],channel_order:r.channel_order||{},auto_rules:r.auto_rules||[],free_sources:r.free_sources||[],free_edits:r.free_edits||{}}}
+function isDirty(){return JSON.stringify(R)!==saved}
+function markDirty(){$("dirty").hidden=!isDirty()}
+
+async function load(){
+  const r=await fetch("/api/state");const j=await r.json();
+  ST=j.state; BASE=j.public_base||""; LST=(j.status&&j.status.lists)||{};
+  CONF=j.conf||{}; EPG_URL=CONF.epg_url||"";
+  $("sidefoot").innerHTML=esc(CONF.host||location.host)+(CONF.login?' · <a href="/logout">Выйти</a>':"");
+  if(!ST){$("clist").innerHTML='<div class="empty">Снимок каналов ещё не создан. Нажмите «Сохранить и применить», чтобы запустить первую сборку.</div>'}
+  R=norm(j.rules); saved=JSON.stringify(R); checked.clear(); openU=null; addOpen=false;
+  if(!booted){booted=true; if(!R.sources.length&&!(ST&&ST.channels&&ST.channels.length)) mode="sources"}   // первый запуск: сразу к источникам
+  if(curL&&!R.lists.some(l=>l.id===curL)) curL=null;
+  if(!curL&&R.lists.length) curL=R.lists[0].id;
+  buildAll();
+  if(!sel) sel=groupsOrdered()[0]||null;
+  showStatus(j.status); render();
+}
+/* ---------- модель ---------- */
+function buildAll(){
+  const base=ST?ST.channels:[];
+  const cust=R.custom_channels.map((c,i)=>({k:c.name.toLowerCase(),n:c.name,g:c.group,src:["Свой"],logo:c.logo||"",u:c.urls.map(u=>["Свой",u]),custom:true,ci:i}));
+  ALL=base.concat(cust);
+  // постоянные правила (как в build.py) и склеенные каналы
+  AR=[]; for(const r of R.auto_rules){try{const src=r.rx?r.find:r.find.replace(/[.*+?^${}()|[\]\\]/g,"\\$&");
+    AR.push({t:r.t,re:new RegExp(src,r.t==="rename"?"gi":"i"),val:r.t==="rename"?(r.repl||""):r.group,r})}catch(e){}}
+  ALIAS={}; for(const mk in R.channels) for(const a of (R.channels[mk].merge||[])) if(a!==mk&&!ALIAS[a]) ALIAS[a]=mk;
+  const byK=new Map(ALL.map(c=>[c.k,c]));
+  for(const c of ALL){c.alias=ALIAS[c.k]&&byK.has(ALIAS[c.k])?ALIAS[c.k]:null; c.msrc=null}
+  for(const c of ALL) if(c.alias){const m=byK.get(c.alias); m.msrc=[...new Set([...(m.msrc||m.src),...c.src])]}
+}
+function autoName(n){let x=n; for(const a of AR) if(a.t==="rename"){a.re.lastIndex=0; x=x.replace(a.re,()=>a.val).replace(/\s{2,}/g," ").trim()} return x||n}
+function autoGroup(n){for(const a of AR) if(a.t==="group"&&a.re.test(n)) return a.val; return null}
+const dispName=c=>chRule(c.k).rename||(c.custom?c.n:autoName(c.n));
+const findC=k=>ALL.find(x=>x.k===k);
+const pat=(g,p)=>p.some(x=>x.endsWith("*")?g.startsWith(x.slice(0,-1)):g===x);
+const chRule=k=>R.channels[k]||{};
+const grRule=g=>R.groups[g]||{};
+const effGroup=c=>{if(c.alias){const m=findC(c.alias); if(m&&!m.alias) return effGroup(m)} return chRule(c.k).group||(c.custom?null:autoGroup(c.n))||c.g};
+const groupHidden=g=>{const r=grRule(g);return typeof r.hidden==="boolean"?r.hidden:pat(g,R.hidden_patterns)};
+const chHidden=c=>chRule(c.k).hidden===true;
+const visMain=c=>!c.alias&&!chHidden(c)&&!groupHidden(effGroup(c));
+const dispG=g=>grRule(g).rename||g;
+const curUrls=c=>c.custom?c.u.map(x=>x[1]):(chRule(c.k).urls||c.u.map(x=>x[1]));
+function groupsOrdered(){
+  const all=[...(ST?ST.auto_order:[])];
+  for(const g of R.custom_groups) if(!all.includes(g)) all.push(g);
+  for(const c of ALL){const g=effGroup(c); if(!all.includes(g)) all.push(g)}
+  const head=R.group_order.filter(g=>all.includes(g));
+  return [...head,...all.filter(g=>!head.includes(g))];
+}
+function chansOf(g){return ALL.filter(c=>effGroup(c)===g)}
+function setCh(k,patch){const r={...chRule(k),...patch};for(const x in r) if(r[x]===null||r[x]===""||r[x]===undefined||(Array.isArray(r[x])&&!r[x].length)) delete r[x];
+  if(Object.keys(r).length) R.channels[k]=r; else delete R.channels[k]}
+function setGr(g,patch){const r={...grRule(g),...patch};for(const x in r) if(r[x]===null||r[x]===""||r[x]===undefined) delete r[x];
+  if(Object.keys(r).length) R.groups[g]=r; else delete R.groups[g]}
+/* листы */
+const LL=()=>R.lists.find(l=>l.id===curL)||null;
+const gIn=(L,g)=>L.all?!(L.xgroups||[]).includes(g):L.groups.includes(g);
+function inList(L,c){return (gIn(L,effGroup(c))&&!L.exclude.includes(c.k))||L.channels.includes(c.k)}
+const pull=(a,v)=>{const i=a.indexOf(v);if(i>=0)a.splice(i,1)};
+const push=(a,v)=>{if(!a.includes(v))a.push(v)};
+function setIn(L,c,on){const g=effGroup(c);
+  if(on){pull(L.exclude,c.k); if(!gIn(L,g)) push(L.channels,c.k)}
+  else{pull(L.channels,c.k); if(gIn(L,g)) push(L.exclude,c.k)}}
+function groupState(L,g){const ch=chansOf(g).filter(c=>visMain(c)&&srcOk(L,c)); if(!ch.length) return gIn(L,g)?2:0;
+  const n=ch.filter(c=>member(L,c)).length; return n===0?0:n===ch.length?2:1}
+function setGroupIn(L,g,on){const ks=chansOf(g).map(c=>c.k);
+  L.channels=L.channels.filter(k=>!ks.includes(k)); L.exclude=L.exclude.filter(k=>!ks.includes(k));
+  if(L.all){L.xgroups=L.xgroups||[]; if(on) pull(L.xgroups,g); else push(L.xgroups,g)}
+  else if(on) push(L.groups,g); else pull(L.groups,g)}
+// источники: отмеченные в плейлисте; если не отмечены — все, кроме «только для плейлистов»
+const srcOk=(L,c)=>(L.sources&&L.sources.length)?c.src.some(x=>L.sources.includes(x)):!(R.lists_only_sources.length&&c.src.length&&c.src.every(x=>R.lists_only_sources.includes(x)));
+// в плейлисте: выбран вручную (из любого источника) или входит группой с учётом источников
+const member=(L,c)=>visMain(c)&&!L.exclude.includes(c.k)&&!(L.no_adult&&effGroup(c)==="18+")&&(L.channels.includes(c.k)||(srcOk(L,c)&&gIn(L,effGroup(c))));
+const listCount=L=>ALL.filter(c=>member(L,c)).length+(typeof freeItems==="function"?freeItems(L).length:0);
+function allSources(){const n=[...((ST&&ST.builtin_sources)||[]),...R.sources.map(x=>x.name)]; if(R.custom_channels.length) n.push("Свой"); return n}
+function newList(){const lid=Math.random().toString(36).slice(2,10).replace(/[^a-z0-9]/g,"")||"l"+Date.now();
+  R.lists.push({id:lid,name:"Новый плейлист "+(R.lists.length+1),token:"",groups:[],channels:[],exclude:[],enabled:true,sources:[],chno:null,all:false,xgroups:[],order:[]});
+  curL=lid; go("lists"); toast("Отметьте группы слева и каналы справа, затем «Сохранить» — появится ссылка")}
+function go(m){mode=m; try{localStorage.setItem("m3uePage",m==="lists"?"plist":m)}catch(e){} checked.clear(); openU=null; addOpen=false; render(); const c=$("settings"); if(c) c.scrollTop=0}
+/* ---------- отрисовка ---------- */
+function snapUndo(){const cur=JSON.stringify(R); if(lastSnap!==null&&cur!==lastSnap){undoStack.push(lastSnap); if(undoStack.length>60) undoStack.shift()} lastSnap=cur; const b=$("btnUndo"); if(b) b.disabled=!undoStack.length}
+function undo(){if(!undoStack.length) return; R=JSON.parse(undoStack.pop()); lastSnap=JSON.stringify(R); checked.clear(); openU=null; mergeOpen=false; render(); toast("Отменено")}
+addEventListener("keydown",e=>{if((e.ctrlKey||e.metaKey)&&!e.shiftKey&&(e.key==="z"||e.key==="я"||e.code==="KeyZ")){const t=e.target; if(t&&(t.tagName==="INPUT"||t.tagName==="TEXTAREA")) return; e.preventDefault(); undo()}});
+function render(){buildAll(); snapUndo();
+  if(mode==="lists"&&!LL()) mode="plist";
+  const grid=mode==="main"||mode==="lists";
+  document.querySelectorAll("#nav button").forEach(b=>b.classList.toggle("on",b.dataset.mode===mode||(mode==="lists"&&b.dataset.mode==="plist")));
+  $("navLists").textContent=R.lists.length;
+  $("gtools").hidden=mode!=="main";
+  $("settings").hidden=grid; $("mainGrid").hidden=!grid;
+  $("mainGrid").classList.toggle("three",mode==="lists"); $("mine").hidden=mode!=="lists"; $("srcbar").hidden=mode!=="lists";
+  if(mode!=="lists") lsrc="main";
+  const L=LL();
+  $("ptitle").textContent=mode==="lists"&&L?L.name:PAGES[mode]||"Редактор";
+  $("crumbs").innerHTML=mode==="lists"?`<button data-go="plist">Объединённые плейлисты</button> › Изменить`:mode==="main"?"Основной плейлист":mode==="plist"?"Плейлисты":"Настройки";
+  renderStats();renderLbar();
+  const fb=$("srcFBar"); if(mode==="main"&&srcF){const ch=ALL.filter(c=>!c.alias&&inSrcF(c)), gN=new Set(ch.map(effGroup)).size;
+    fb.innerHTML=`<span style="font-size:16px">🔎</span><b>Источник: ${esc(srcF)}</b><span class="muted">${ch.length} каналов в ${gN} группах — прячьте, переименовывайте, переносите и смотрите ▶ прямо здесь</span><span style="flex:1"></span><button id="srcFClear">✕ Показать все источники</button>`;
+    fb.hidden=false} else fb.hidden=true;
+  if(mode==="plist") renderPlist(); else if(mode==="history") renderHistory(); else if(mode==="rules") renderRules(); else if(mode==="sources"||mode==="filters") renderSettings(mode);
+  else if(mode==="lists"&&lsrc!=="main"){renderSrcbar();renderGroupsExt();renderPaneExt();renderMine()}
+  else {if(mode==="lists"){renderSrcbar();renderMine()} renderGroups();renderPane()}
+  markDirty()}
+function renderWarn(){const w=(ST&&ST.warnings)||[]; const b=$("warnbar"); b.hidden=!w.length; if(!w.length) return;
+  b.innerHTML=`<b>Источник «похудел»:</b> ${w.map(esc).join("; ")}. Плейлист собран из прошлой рабочей копии этого источника. <span class="sp"></span><button id="wForce" title="Если вы сами уменьшили источник — принять новые данные">Принять новые данные</button>`}
+$("warnbar").addEventListener("click",async e=>{if(e.target.id!=="wForce") return; if(!confirm("Собрать плейлист из новых данных источника, даже если каналов стало намного меньше? HLS Proxy перезапустится.")) return;
+  const r=await fetch("/api/force",{method:"POST",headers:{"Content-Type":"application/json","X-M3U-Editor":"1"},body:"{}"}); if(r.ok){toast("Пересборка запущена…"); poll(Date.now())}});
+function renderStats(){renderWarn();
+  if(!ST){$("stats").textContent="нет данных";return}
+  const vis=ALL.filter(visMain).length;
+  const gs=groupsOrdered(), gv=gs.filter(g=>!groupHidden(g)&&chansOf(g).some(c=>!chHidden(c))).length;
+  $("stats").innerHTML=`В плейлисте <b>${vis}</b> из ${ALL.length} каналов · групп <b>${gv}</b> из ${gs.length} · сборка ${esc(ST.built_at||"—")}`;
+}
+function renderLbar(){
+  const b=$("lbar"); b.hidden=mode!=="lists"; if(b.hidden) return;
+  const L=LL(); if(!L) return;
+  const st=(LST.lists||{})[L.id], link=BASE+L.token+".m3u8", savedL=JSON.parse(saved).lists.find(x=>x.id===L.id&&x.token===L.token);
+  const srcs=allSources();
+  b.innerHTML=`<div class="fgrid">
+    <div class="card"><h2>Основное</h2>
+      <div class="field"><span>Название</span><input type="text" id="lName" value="${esc(L.name)}" maxlength="80"></div>
+      <div style="margin-top:12px;display:flex;gap:16px;align-items:center;flex-wrap:wrap">
+        <label class="switch"><input type="checkbox" id="lEn" ${L.enabled!==false?"checked":""}><i></i>Включён</label>
+        <label class="switch" title="Все группы основного плейлиста, в том числе новые; ненужные снимите слева"><input type="checkbox" id="lAll" ${L.all?"checked":""}><i></i>Все группы</label>
+        <label class="switch" title="Группа 18+ никогда не попадёт в этот плейлист"><input type="checkbox" id="lKids" ${L.no_adult?"checked":""}><i></i>Детский (без 18+)</label>
+        <span class="muted">в плейлисте <b style="color:var(--ink)">${listCount(L)}</b> каналов${st?` · в файле ${st.channels}, групп ${st.groups??"—"}`:""}</span></div></div>
+    <div class="card"><h2>Источники</h2><p class="hint">Брать каналы только из отмеченных. Ничего не отмечено — из всех${R.lists_only_sources.length?", кроме «только для плейлистов» ("+esc(R.lists_only_sources.join(", "))+")":""}.</p>
+      <div class="srcs">${srcs.map(n=>`<label><input type="checkbox" class="lSrc" value="${esc(n)}" ${(L.sources||[]).includes(n)?"checked":""}> ${esc(n)}</label>`).join("")}</div>
+      <div class="linkrow" style="margin-top:12px"><input type="text" id="lUrl" placeholder="Вставьте ссылку на любой M3U-плейлист" spellcheck="false"><button id="lUrlAdd" class="primary">Загрузить</button></div>
+      <small class="muted">Каналы появятся слева — отмечайте нужные, справа соберётся ваш плейлист.</small></div>
+    <div class="card"><h2>Нумерация каналов</h2><p class="hint">Проставить номера (tvg-chno) по порядку — для телевизоров и плееров с переключением по номеру.</p>
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><label class="switch"><input type="checkbox" id="lNumOn" ${L.chno?"checked":""}><i></i>Нумеровать</label>
+      <label class="muted">с номера <input type="number" id="lNum" min="1" max="99999" value="${L.chno||1}" style="width:90px" ${L.chno?"":"disabled"}></label></div></div>
+  </div>
+  <div class="card"><h2>Ссылки</h2>
+    ${L.token&&savedL?`<div class="linkrow"><span class="badge">M3U</span><input type="text" id="lLink" readonly value="${esc(link)}"><button id="lCopy">Копировать</button><button id="lQr">QR</button><button id="lOpen">Скачать</button></div>`:`<p class="hint">Ссылка появится после сохранения.</p>`}
+    <div class="linkrow" style="margin-top:8px"><span class="badge">Коротко</span><span class="muted">${esc(BASE)}</span><input type="text" id="lSlug" value="${esc(L.slug||"")}" placeholder="например kuhnya-7x" maxlength="32" style="flex:0 1 200px;font:inherit">.m3u8
+      <button id="lSlugGen" title="Придумать из названия">Предложить</button>${L.slug&&savedL&&savedL.slug===L.slug?`<button id="lCopyS">Копировать</button><button id="lQrS">QR</button>`:L.slug?'<span class="muted">заработает после сохранения</span>':""}</div>
+    <div class="fgrid" style="margin-top:12px">
+      <div class="field"><span>Пароль на ссылку</span><div class="linkrow"><input type="text" id="lPass" value="${esc(L.password||"")}" placeholder="без пароля" maxlength="64" style="font:inherit"><button id="lPassGen">Придумать</button></div>
+        <small>Плеер спросит логин <b>tv</b> и этот пароль. Только латиница, цифры, - и _ (от 4 знаков).</small></div>
+      <div class="field"><span>Действует до</span><div class="linkrow"><input type="date" id="lExp" value="${esc(L.expires||"")}" style="flex:0 1 180px"><button id="lExpClr" ${L.expires?"":"disabled"}>Бессрочно</button></div>
+        <small>${L.expires?((LST.expired||[]).includes(L.id)?'<span class="st-bad">срок истёк — ссылка не работает</span>':"после этой даты ссылка перестанет работать"):"ссылка работает, пока плейлист включён"}</small></div>
+    </div>
+    ${L.password&&savedL&&savedL.password===L.password&&L.token?`<div class="linkrow" style="margin-top:8px"><span class="badge">С паролем</span><input type="text" id="lLinkP" readonly value="${esc(credLink(L))}"><button id="lCopyP">Копировать</button><button id="lQrP">QR</button></div><small class="muted">Если плеер не спрашивает пароль, используйте эту ссылку — логин и пароль уже внутри.</small>`:""}
+    <div class="linkrow" style="margin-top:8px"><span class="badge">EPG</span><input type="text" id="lEpg" readonly value="${EPG_URL}"><button id="lCopyEpg">Копировать</button></div>
+    <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap"><button id="lRegen" title="Старая ссылка перестанет работать">Новая ссылка</button><button id="lDel" class="danger">Удалить плейлист</button>
+    <span class="sp"></span><span class="muted">${st?`файл обновлён ${esc(LST.at||"")}`:""}${LST.error?` · <span class="st-bad">ошибка: ${esc(LST.error)}</span>`:""}</span></div></div>
+  <p class="hint" style="margin:0">Слева выберите, откуда брать каналы — основной плейлист или загруженный по ссылке, отмечайте группы и каналы. Справа — ваш плейлист: порядок меняется перетаскиванием, ✕ убирает канал.</p>`;
+}
+function renderGroups(){
+  const gs=groupsOrdered(), L=mode==="lists"?LL():null;
+  $("glist").innerHTML=gs.map((g,i)=>{const ch=mode==="main"&&srcF?chansOf(g).filter(inSrcF):chansOf(g),v=ch.filter(c=>!chHidden(c)).length,h=groupHidden(g);
+    if(mode==="main"&&srcF&&!ch.length) return "";
+    const lc=L?`<input type="checkbox" class="gin" ${h?"disabled":""} title="${h?"Группа скрыта в основном плейлисте":"Вся группа в плейлисте"}" data-st="${h?0:groupState(L,g)}">`:"";
+    return `<div class="g${g===sel?" sel":""}${h?" hidden":""}" draggable="${mode==="main"}" data-g="${esc(g)}" data-i="${i}">
+      ${L?lc:`<span class="grip" title="Перетащите, чтобы изменить порядок">⋮⋮</span>`}
+      <span class="gname">${esc(dispG(g))}${grRule(g).rename?`<small>было: ${esc(g)}</small>`:""}</span>
+      <span class="cnt">${h?"скрыта":L?ch.filter(c=>member(L,c)).length+"/"+ch.filter(c=>visMain(c)&&srcOk(L,c)).length:v+(v!==ch.length?"/"+ch.length:"")}</span>
+      ${mode==="main"?`<button class="icon" data-act="up" title="Выше">▲</button><button class="icon" data-act="down" title="Ниже">▼</button>
+      <button class="icon" data-act="eye" title="${h?"Показать группу":"Скрыть группу"}">${h?"🚫":"👁"}</button>`:""}</div>`}).join("");
+  document.querySelectorAll(".gin").forEach(x=>{const s=+x.dataset.st;x.checked=s===2;x.indeterminate=s===1});
+}
+const normName=n=>n.toLowerCase().replace(/\b(hd|fhd|uhd|sd|4k|8k|orig|original|premium|hevc|h265|h264|50|\+1|\+2|\+4|\+7)\b/g," ").replace(/[^a-zа-яё0-9]+/g," ").replace(/\s+/g," ").trim();
+const FLT={"":"Все каналы",noepg:"Без программы (EPG)",nologo:"Без логотипа",edited:"С моими правками",hidden:"Скрытые",merged:"Склеенные",similar:"Похожие названия"};
+function fltList(){let l;
+  if(flt==="noepg") l=ALL.filter(c=>visMain(c)&&!c.id&&!chRule(c.k).tvg_id&&!(c.custom&&R.custom_channels[c.ci].tvg_id));
+  else if(flt==="nologo") l=ALL.filter(c=>visMain(c)&&!logoOf(c));
+  else if(flt==="edited") l=ALL.filter(c=>R.channels[c.k]&&Object.keys(R.channels[c.k]).length);
+  else if(flt==="hidden") l=ALL.filter(c=>!c.alias&&!visMain(c));
+  else if(flt==="merged") l=ALL.filter(c=>c.alias||c.msrc);
+  else if(flt==="similar"){const m=new Map(); for(const c of ALL){if(c.alias||!visMain(c)) continue; const n=normName(dispName(c)); if(!n) continue; if(!m.has(n)) m.set(n,[]); m.get(n).push(c)}
+    l=[...m.entries()].filter(x=>x[1].length>1).sort((a,b)=>a[0].localeCompare(b[0],"ru")).flatMap(x=>x[1])}
+  else l=ALL;
+  if(q) l=l.filter(c=>(c.n+" "+dispName(c)).toLowerCase().includes(q));
+  return l}
+function paneList(){
+  let list;
+  if(flt&&mode==="main") list=fltList(); else if(q) list=ALL.filter(c=>(c.n+" "+dispName(c)).toLowerCase().includes(q));
+  else if(sel){list=chansOf(sel); const o=R.channel_order[sel]; if(o&&o.length){const ix=new Map(o.map((k,i)=>[k,i])); list=list.map((c,i)=>[c,i]).sort((a,b)=>((ix.has(a[0].k)?ix.get(a[0].k):1e6+a[1])-(ix.has(b[0].k)?ix.get(b[0].k):1e6+b[1]))).map(x=>x[0])}}
+  else list=[];
+  if(mode==="lists") list=list.filter(c=>visMain(c)||showHidden);
+  else if(!showHidden) list=list.filter(c=>!chHidden(c));
+  if(mode==="main"&&srcF) list=list.filter(inSrcF);
+  return list;
+}
+function renderPane(){
+  const gs=groupsOrdered(), L=mode==="lists"?LL():null;
+  const opts=gs.map(g=>`<option value="${esc(g)}">${esc(dispG(g))}</option>`).join("");
+  const list=paneList();
+  const gh=sel&&groupHidden(sel);
+  let tools;
+  if(mode==="lists") tools=(q?`<span class="title">Поиск: «${esc(q)}» — ${list.length}</span>`:sel?`<span class="title">${esc(dispG(sel))}</span>`:"")
+      +(L&&list.length?`<button id="lAddAll">Добавить в плейлист все показанные</button><button id="lRemAll">Убрать показанные</button>`:"");
+  else tools=q?`<span class="title">Поиск: «${esc(q)}» — ${list.length}</span>`:sel?`<input type="text" id="gRename" value="${esc(dispG(sel))}" maxlength="80" title="Название группы в плейлисте" style="font-weight:650;width:260px">
+      <button id="gEye">${gh?"Показать группу":"Скрыть группу"}</button>${grRule(sel).rename?`<button id="gUnrename" title="Вернуть исходное название «${esc(sel)}»">↺ название</button>`:""}
+      <button id="gAddCh" title="Добавить свой канал со своей ссылкой в эту группу">+ Канал</button>
+      <button id="gSort" title="Расставить каналы группы по алфавиту">А→Я</button>${R.channel_order[sel]?`<button id="gUnsort" title="Вернуть порядок каналов как у источника">↺ порядок</button>`:""}`:"";
+  if(mode==="main") tools=(flt?`<span class="title">${esc(FLT[flt])} — ${list.length}</span>`:tools)+`<select id="fltSel" title="Фильтр каналов по всем группам">${Object.entries(FLT).map(([k,v])=>`<option value="${k}"${k===flt?" selected":""}>${v}</option>`).join("")}</select>`
+    +(allSources().length>1||srcF?`<select id="srcSel" title="Показать каналы одного источника"><option value="">Все источники</option>${allSources().map(n=>`<option value="${esc(n)}"${n===srcF?" selected":""}>Источник: ${esc(n)}</option>`).join("")}</select>`:"");
+  if(mode==="main"&&list.length) tools+=`<button id="gCheck" title="Проверить, отвечают ли потоки (первая ссылка каждого канала)">Проверить потоки</button><button id="gFr" title="Найти и заменить текст в названиях">Найти/заменить</button>`;
+  $("ptools").innerHTML=tools+`<span class="sp"></span><label><input type="checkbox" id="showHidden" ${showHidden?"checked":""}> скрытые</label>
+      <input type="search" id="q" placeholder="Поиск канала во всех группах" value="${esc(q)}">`;
+  let html="";
+  if(mode==="main"&&addOpen&&sel&&!q) html+=`<div class="addf"><b>Свой канал в «${esc(dispG(sel))}»</b>
+      <input type="text" id="acName" placeholder="Название канала" maxlength="100">
+      <input type="text" id="acUrl" placeholder="Ссылка на поток: https://…/index.m3u8" spellcheck="false">
+      <input type="text" id="acLogo" placeholder="Логотип (ссылка, необязательно)" spellcheck="false">
+      <button id="acOk" class="primary">Добавить</button><button id="acCancel">Отмена</button></div>`;
+  if(mode==="main"&&frOpen) html+=`<div class="addf"><b>Найти и заменить в названиях</b> <span class="muted">(${checked.size?"у выбранных: "+checked.size:"у показанных: "+list.length})</span>
+      <input type="text" id="frFind" placeholder="Найти, например: orig" value="${esc(frState.f)}"><input type="text" id="frRepl" placeholder="Заменить на (пусто — удалить)" value="${esc(frState.r)}">
+      <label><input type="checkbox" id="frRx" ${frState.rx?"checked":""}> регулярное выражение</label><button id="frPrev">Показать</button><button id="frOk" class="primary">Заменить</button><button id="frCancel">Закрыть</button>
+      <div class="chk-res" id="frRes" style="flex-basis:100%"></div></div>`;
+  if(mode==="main"&&chkState.total) html+=`<div class="bulk" style="background:var(--panel2)"><b>Проверка потоков:</b> ${chkState.done}/${chkState.total} · <span class="st-ok">✔ ${chkState.ok}</span> · <span class="st-bad">✖ ${chkState.bad}</span>
+      ${chkState.done<chkState.total?`<button id="chkStop">Остановить</button>`:""}${chkState.bad?`<button id="chkHide">Скрыть нерабочие (${chkState.bad})</button><button id="chkSel">Выбрать нерабочие</button>`:""}<button id="chkClear">Убрать отметки</button></div>`;
+  html+=list.length?list.map(c=>mode==="lists"?rowL(L,c):rowMain(c,opts)).join("")
+    :`<div class="empty">${ST?(mode==="lists"&&!L?"Создайте плейлист в разделе «Объединённые плейлисты»":"Нет каналов"):""}</div>`;
+  $("clist").innerHTML=html;
+  renderBulk(opts);
+  const gi=$("gRename"); if(gi) gi.onchange=()=>{setGr(sel,{rename:clean(gi.value)===sel?null:clean(gi.value)});render()};
+  const ge=$("gEye"); if(ge) ge.onclick=()=>{setGr(sel,{hidden:!groupHidden(sel)});render()};
+  const gu=$("gUnrename"); if(gu) gu.onclick=()=>{setGr(sel,{rename:null});render()};
+  const ga=$("gAddCh"); if(ga) ga.onclick=()=>{addOpen=true;renderPane();$("acName").focus()};
+  const gs2=$("gSort"); if(gs2) gs2.onclick=()=>{R.channel_order[sel]=chansOf(sel).slice().sort((a,b)=>dispName(a).localeCompare(dispName(b),"ru")).map(c=>c.k);render();toast("Каналы расставлены по алфавиту — «Сохранить и применить»")};
+  const gu2=$("gUnsort"); if(gu2) gu2.onclick=()=>{delete R.channel_order[sel];render()};
+  const ss=$("srcSel"); if(ss) ss.onchange=()=>setSrcF(ss.value||null);
+  const fs=$("fltSel"); if(fs) fs.onchange=()=>{flt=fs.value; checked.clear(); openU=null; renderPane(); if(flt==="similar"&&paneList().length) toast("Отметьте варианты одного канала и нажмите «Склеить»")};
+  const gc=$("gCheck"); if(gc) gc.onclick=()=>runCheck(list.filter(c=>!chHidden(c)));
+  const gf=$("gFr"); if(gf) gf.onclick=()=>{frOpen=!frOpen;renderPane();const f=$("frFind");if(f)f.focus()};
+  const la=$("lAddAll"); if(la) la.onclick=()=>{list.filter(visMain).forEach(c=>setIn(L,c,true));render()};
+  const lr=$("lRemAll"); if(lr) lr.onclick=()=>{list.forEach(c=>setIn(L,c,false));render()};
+  $("showHidden").onchange=e=>{showHidden=e.target.checked;renderPane()};
+  const qi=$("q"); qi.oninput=()=>{q=qi.value.trim().toLowerCase();checked.clear();openU=null;renderPane();const n=$("q");n.focus();n.setSelectionRange(n.value.length,n.value.length)};
+  const ta=document.querySelector(".ued textarea"); if(ta){ta.focus()}
+}
+function nameHtml(c,eg){const dn=dispName(c);
+  return `${c.alias?'<button class="sm unm" title="Снова сделать отдельным каналом">Расклеить</button> ':""}${esc(dn)}${dn!==c.n?`<small>(${esc(c.n)})</small>`:""}${(c.msrc||c.src).map(s=>`<span class="tag">${esc(s)}</span>`).join("")}${c.msrc?`<span class="mod">склеено: ${ALL.filter(x=>x.alias===c.k).length+1}</span>`:""}${c.alias?`<span class="mod">склеен с «${esc(dispName(findC(c.alias)))}»</span>`:""}${q?`<small>· ${esc(dispG(eg))}</small>`:""}`}
+const logoOf=c=>chRule(c.k).logo||c.logo;
+function rowMain(c,opts){const r=chRule(c.k),h=chHidden(c),eg=effGroup(c),lg=logoOf(c);
+  const cr=chkRes[c.k], dr=!!sel&&!q;
+  let s=`<div class="c${h?" hidden":""}" data-k="${esc(c.k)}" draggable="${dr}">
+      <input type="checkbox" class="chk" ${checked.has(c.k)?"checked":""} aria-label="Выбрать">
+      ${lg?`<img loading="lazy" src="${esc(lg)}" alt="" onerror="this.style.visibility='hidden'">`:"<span></span>"}
+      <span class="cn" title="${esc(c.n)}">${cr?`<span class="${cr.ok?"st-ok":"st-bad"}" title="${esc(cr.msg)}">${cr.ok?"✔":"✖"}</span> `:""}${nameHtml(c,eg)}${r.group&&!c.custom?`<span class="mod">перенесён из «${esc(dispG(c.g))}»</span>`:""}${r.urls?`<span class="mod">своя ссылка</span>`:""}${r.tvg_id?`<span class="mod">EPG: ${esc(r.tvg_id)}</span>`:""}${r.logo?`<span class="mod">свой логотип</span>`:""}</span>
+      <select class="mv" title="Переместить в группу">${opts.replace(`value="${esc(eg)}"`,`value="${esc(eg)}" selected`)}</select>
+      <button class="icon play" title="Смотреть канал">▶</button>
+      <button class="icon url" title="Ссылки на поток, программа передач (EPG), логотип">🔗</button>
+      <button class="icon ren" title="Переименовать">✎</button>
+      <button class="icon eye" title="${h?"Показать":"Скрыть"}">${h?"🚫":"👁"}</button></div>`;
+  if(openU===c.k){const us=curUrls(c);
+    s+=`<div class="ued" data-k="${esc(c.k)}">
+      <div class="uhint">Ссылки на поток — по одной в строке. Первая — основная, остальные — резерв: HLS Proxy переключится на них, если основная не отвечает. Изменение вступит в силу после «Сохранить и применить».</div>
+      <textarea rows="${Math.min(8,Math.max(2,us.length+1))}" spellcheck="false">${esc(us.join("\n"))}</textarea>
+      ${!c.custom?`<div class="uorig"><span>Исходные ссылки:</span>${c.u.map(([s,u])=>`<span><span class="tag">${esc(s)}</span> ${esc(u)}</span>`).join("")}</div>`:""}
+      <div class="chk-res" id="chkRes"></div>
+      <div class="ufields">
+        <label for="uEpg">Программа (EPG)</label><input type="text" id="uEpg" list="epgl" spellcheck="false" placeholder="${esc(c.id?"сейчас: "+c.id+" — начните вводить название канала":"начните вводить название канала")}" value="${esc(c.custom?(R.custom_channels[c.ci].tvg_id||""):(r.tvg_id||""))}">
+        <label for="uLogo">Логотип</label><input type="text" id="uLogo" spellcheck="false" placeholder="${esc(c.logo||"ссылка на картинку")}" value="${esc(c.custom?(c.logo||""):(r.logo||""))}">
+      </div>
+      <div class="ubtns"><button data-u="ok" class="primary">Готово</button><button data-u="check">Проверить ссылки</button>${!c.custom&&(r.urls||r.tvg_id||r.logo)?`<button data-u="orig">Вернуть исходные</button>`:""}<button data-u="cancel">Отмена</button>${c.custom?`<button data-u="del" class="danger">Удалить канал</button>`:""}</div></div>`}
+  return s}
+function rowL(L,c){const v=visMain(c),on=member(L,c),so=on||srcOk(L,c);
+  return `<div class="c lm${on?" in":""}${v?"":" hidden"}${so?"":" off"}" data-k="${esc(c.k)}">
+      <input type="checkbox" class="lin" ${on?"checked":""} ${v?"":"disabled"} aria-label="В плейлисте">
+      ${c.logo?`<img loading="lazy" src="${esc(c.logo)}" alt="" onerror="this.style.visibility='hidden'">`:"<span></span>"}
+      <span class="cn" title="${esc(c.n)}">${nameHtml(c,effGroup(c))}${v?"":`<small>скрыт в основном плейлисте</small>`}${so?"":`<small>нет в выбранных источниках</small>`}</span></div>`}
+function renderBulk(opts){
+  const b=$("bulk"); if(!checked.size||mode!=="main"){b.hidden=true;return}
+  b.hidden=false;
+  const sel2=[...checked].map(findC).filter(c=>c&&!c.alias);
+  if(mergeOpen&&sel2.length>1){b.innerHTML=`<b>Склеить в один канал.</b> Основной:${sel2.map((c,i)=>`<label style="margin-left:8px"><input type="radio" name="mmain" value="${esc(c.k)}" ${i===0?"checked":""}> ${esc(dispName(c))}</label>`).join("")}
+    <span class="muted">— остальные станут его резервными потоками</span><button data-b="mok" class="primary">Склеить</button><button data-b="mcancel">Отмена</button>`; return}
+  b.innerHTML=`<b>Выбрано: ${checked.size}</b>${sel2.length>1?`<button data-b="merge" title="Объединить варианты одного канала: один основной, остальные — резерв">Склеить…</button>`:""}<button data-b="hide">Скрыть</button><button data-b="show">Показать</button>
+    <select id="bMove"><option value="">Переместить в…</option>${opts}</select><button data-b="reset" title="Убрать все правки у выбранных каналов">↺ Сбросить</button><button data-b="none">Снять выбор</button>`;
+}
+/* ---------- события ---------- */
+$("srcbar").addEventListener("change",e=>{if(e.target.id!=="lsrcSel") return; lsrc=e.target.value; q=""; xsel=EXT[lsrc]&&EXT[lsrc].groups?EXT[lsrc].groups[0]:null; if(lsrc!=="main"&&(!EXT[lsrc]||EXT[lsrc].error)) loadExt(lsrc); else render()});
+$("glist").addEventListener("click",e=>{if(mode!=="lists"||lsrc==="main") return; e.stopImmediatePropagation(); const L=LL();
+  if(e.target.id==="extRetry"){loadExt(lsrc);return}
+  const row=e.target.closest("[data-xg]"); if(!row) return; const g=row.dataset.xg;
+  if(e.target.classList.contains("xgin")){setExtGroup(L,g,+e.target.dataset.st!==2); render(); return}
+  xsel=g; q=""; render()},true);
+$("clist").addEventListener("click",e=>{if(mode!=="lists"||lsrc==="main") return; const r=e.target.closest("[data-xk]"); if(!r||!e.target.classList.contains("xin")) return; e.stopImmediatePropagation();
+  const L=LL(), x=(EXT[lsrc].chans||[]).find(y=>y.k===r.dataset.xk); if(x){setExt(L,x,e.target.checked); render()}},true);
+$("mine").addEventListener("click",e=>{const L=LL(); if(!L) return;
+  if(e.target.id==="mClear"){if(!confirm("Убрать все каналы из плейлиста «"+L.name+"»?")) return; L.groups=[];L.channels=[];L.exclude=[];L.all=false;L.xgroups=[];L.order=[];L.fgroups=[];render();return}
+  if(e.target.id==="mUnord"){L.order=[];render();return}
+  if(e.target.classList.contains("mDel")){const k=e.target.closest("[data-mk]").dataset.mk, c=findC(k);
+    if(k.startsWith("f:")){const id=k.split(":")[1], E=EXT["f:"+id], x=E&&E.chans&&E.chans.find(y=>y.fk===k); if(x) setExt(L,x,false); else pull(L.channels,k)}
+    else if(c) setIn(L,c,false); else pull(L.channels,k); if(L.order) pull(L.order,k); render()}});
+let dragM=null;
+$("mlist").addEventListener("dragstart",e=>{const r=e.target.closest&&e.target.closest("[data-mk]"); if(r){dragM=r.dataset.mk; e.dataTransfer.effectAllowed="move"}});
+$("mlist").addEventListener("dragover",e=>{const r=e.target.closest("[data-mk]"); if(!r||!dragM) return; e.preventDefault(); document.querySelectorAll(".m.dragover").forEach(x=>x.classList.remove("dragover")); r.classList.add("dragover")});
+$("mlist").addEventListener("drop",e=>{const r=e.target.closest("[data-mk]"), L=LL(); if(!r||!dragM||!L) return; e.preventDefault();
+  const ks=mineItems(L).map(x=>x.k).filter(k=>k!==dragM); ks.splice(ks.indexOf(r.dataset.mk),0,dragM); L.order=ks; dragM=null; render()});
+$("mlist").addEventListener("dragend",()=>{dragM=null;document.querySelectorAll(".m.dragover").forEach(x=>x.classList.remove("dragover"))});
+$("nav").addEventListener("click",e=>{const b=e.target.closest("button[data-mode]"); if(b) go(b.dataset.mode)});
+$("crumbs").addEventListener("click",e=>{const b=e.target.closest("[data-go]"); if(b) go(b.dataset.go)});
+$("lbar").addEventListener("click",e=>{const id=e.target.id, L=LL(); if(!L) return;
+  if(id==="lCopy"){copyText($("lLink").value,"Ссылка на плейлист скопирована");return}
+  if(id==="lCopyEpg"){copyText(EPG_URL,"Ссылка на EPG скопирована");return}
+  if(id==="lOpen"){window.open($("lLink").value,"_blank","noopener");return}
+  if(id==="lUrlAdd"){addUrl();return}
+  if(id==="lQr"){showQr($("lLink").value,L.name);return}
+  if(id==="lQrS"){showQr(shortLink(L),L.name+" — короткая ссылка");return}
+  if(id==="lCopyS"){copyText(shortLink(L),"Короткая ссылка скопирована");return}
+  if(id==="lQrP"){showQr(credLink(L),L.name+" — с паролем");return}
+  if(id==="lCopyP"){copyText(credLink(L),"Ссылка с паролем скопирована");return}
+  if(id==="lSlugGen"){L.slug=slugify(L.name); render(); return}
+  if(id==="lPassGen"){const a="abcdefghjkmnpqrstuvwxyz23456789"; L.password=Array.from(crypto.getRandomValues(new Uint8Array(8)),x=>a[x%a.length]).join(""); render(); return}
+  if(id==="lExpClr"){L.expires=""; render(); return}
+  if(id==="lRegen"){if(!confirm("Сделать новую ссылку для «"+L.name+"»? Старая перестанет работать после сохранения.")) return; L.token=""; render(); toast("Сохраните — появится новая ссылка"); return}
+  if(id==="lDel"){if(!confirm("Удалить плейлист «"+L.name+"»? Его ссылка перестанет работать после сохранения.")) return;
+    R.lists=R.lists.filter(x=>x!==L); curL=null; go("plist"); return}
+});
+$("lbar").addEventListener("keydown",e=>{if(e.target.id==="lUrl"&&e.key==="Enter") addUrl()});
+$("lbar").addEventListener("change",e=>{const L=LL(), t=e.target; if(!L) return;
+  if(t.id==="lName"){L.name=clean(t.value).slice(0,80)||L.name;render()}
+  if(t.id==="lEn"){L.enabled=t.checked;markDirty()}
+  if(t.id==="lKids"){L.no_adult=t.checked;render()}
+  if(t.id==="lSlug"){const v=t.value.trim().toLowerCase(); if(v&&!/^[a-z0-9][a-z0-9-]{2,31}$/.test(v)){toast("Короткая ссылка: латиница, цифры и -, от 3 знаков");t.value=L.slug||"";return}
+    if(v&&R.lists.some(x=>x!==L&&x.slug===v)){toast("Такая короткая ссылка уже есть");t.value=L.slug||"";return} L.slug=v; render()}
+  if(t.id==="lPass"){const v=t.value.trim(); if(v&&!/^[A-Za-z0-9_-]{4,64}$/.test(v)){toast("Пароль: латиница, цифры, - и _, от 4 знаков");t.value=L.password||"";return} L.password=v; render()}
+  if(t.id==="lExp"){L.expires=t.value||""; render()}
+  if(t.id==="lAll"){const gs=groupsOrdered(); L.xgroups=L.xgroups||[];
+    if(t.checked){L.xgroups=L.groups.length?gs.filter(g=>!L.groups.includes(g)):[]; L.all=true}
+    else{L.groups=gs.filter(g=>!L.xgroups.includes(g)); L.all=false}
+    render()}
+  if(t.classList.contains("lSrc")){L.sources=[...document.querySelectorAll(".lSrc:checked")].map(x=>x.value);render()}
+  if(t.id==="lNumOn"){L.chno=t.checked?(+$("lNum").value||1):null;render()}
+  if(t.id==="lNum"){const v=Math.max(1,Math.min(99999,parseInt(t.value)||1)); if(L.chno) L.chno=v; t.value=v; markDirty()}
+});
+$("settings").addEventListener("input",e=>{if(mode!=="rules"||!["arFind","arRx"].includes(e.target.id)) return;
+  const r={t:$("arT").value,find:$("arFind").value,rx:$("arRx").checked}; if(!r.find){$("arPrev").textContent="";return}
+  let re; try{re=new RegExp(r.rx?r.find:r.find.replace(/[.*+?^${}()|[\]\\]/g,"\\$&"),"i")}catch(err){$("arPrev").textContent="Ошибка: "+err.message;return}
+  const l=ALL.filter(c=>!c.custom&&re.test(c.n)); $("arPrev").innerHTML=`Подходит каналов: ${l.length}`+l.slice(0,12).map(c=>`<span>${esc(c.n)}</span>`).join("")});
+$("settings").addEventListener("change",e=>{if(mode==="rules"&&e.target.id==="arT"){const g=e.target.value==="group"; $("arGroup").hidden=!g; $("arRepl").hidden=g}});
+$("settings").addEventListener("click",e=>{if(mode!=="rules") return; const t=e.target;
+  if(t.id==="arAdd"){const r={t:$("arT").value,find:$("arFind").value,rx:$("arRx").checked}; if(!r.find.trim()){toast("Введите текст");return}
+    try{new RegExp(r.rx?r.find:"x")}catch(err){toast("Ошибка в выражении: "+err.message);return}
+    if(r.t==="rename") r.repl=clean($("arRepl").value); else r.group=$("arGroup").value;
+    R.auto_rules.push(r); render(); toast("Правило добавлено — «Сохранить и применить»"); return}
+  const tr=t.closest("tr[data-i]"), a=t.dataset.ra; if(!tr||!a) return; const i=+tr.dataset.i, A=R.auto_rules;
+  if(a==="del") A.splice(i,1); if(a==="up"&&i>0) [A[i-1],A[i]]=[A[i],A[i-1]]; if(a==="down"&&i<A.length-1) [A[i+1],A[i]]=[A[i],A[i+1]]; render()});
+$("settings").addEventListener("click",async e=>{if(mode!=="history") return; const t=e.target;
+  if(t.id==="hExp"){const a=document.createElement("a"); a.href=URL.createObjectURL(new Blob([JSON.stringify(R,null,1)],{type:"application/json"})); a.download="m3u-editor-rules-"+new Date().toISOString().slice(0,10)+".json"; a.click(); setTimeout(()=>URL.revokeObjectURL(a.href),2000); return}
+  if(t.id==="hImp"){$("hFile").click();return}
+  const rb=t.closest("[data-restore]"); if(rb){if(isDirty()&&!confirm("Несохранённые изменения пропадут. Продолжить?")) return;
+    if(!confirm("Восстановить правила из копии "+rb.dataset.restore+"? Текущие сохранятся отдельной копией.")) return;
+    const r=await fetch("/api/restore",{method:"POST",headers:{"Content-Type":"application/json","X-M3U-Editor":"1"},body:JSON.stringify({name:rb.dataset.restore})}); const j=await r.json();
+    if(!r.ok){toast("Ошибка: "+(j.error||r.status));return} R=norm(j.rules); saved=JSON.stringify(R); render(); toast("Правила восстановлены. Чтобы применить к основному плейлисту — «Сохранить и применить»")}
+});
+$("settings").addEventListener("change",e=>{if(mode!=="history"||e.target.id!=="hFile") return; const f=e.target.files[0]; if(!f) return;
+  const rd=new FileReader(); rd.onload=()=>{try{const j=JSON.parse(rd.result); if(!j||typeof j!=="object"||!("channels" in j||"groups" in j||"lists" in j)) throw new Error("это не файл правил");
+    R=norm(j); render(); toast("Загружено. Проверьте и нажмите «Сохранить»")}catch(err){toast("Не удалось загрузить: "+err.message)}}; rd.readAsText(f)});
+$("settings").addEventListener("click",e=>{if(mode!=="plist") return; const t=e.target;
+  if(t.id==="pNew"||t.id==="pNew2"){newList();return}
+  if(t.id==="mainCopy"){copyText(CONF.main_url,"Ссылка на основной плейлист скопирована");return}
+  if(t.id==="mainEpg"){copyText(EPG_URL,"Ссылка на EPG скопирована");return}
+  const tr=t.closest("tr[data-id]"), a=t.closest("[data-act]"); if(!tr||!a) return;
+  const L=R.lists.find(x=>x.id===tr.dataset.id); if(!L) return; const act=a.dataset.act;
+  if(act==="edit"){curL=L.id; go("lists"); return}
+  if(act==="copy"){copyText(L.slug?shortLink(L):BASE+L.token+".m3u8","Ссылка «"+L.name+"» скопирована");return}
+  if(act==="qr"){showQr(L.password?credLink(L):(L.slug?shortLink(L):BASE+L.token+".m3u8"),L.name);return}
+  if(act==="epg"){copyText(EPG_URL,"Ссылка на EPG скопирована");return}
+  if(act==="dl"){window.open(BASE+L.token+".m3u8","_blank","noopener");return}
+  if(act==="del"){if(!confirm("Удалить плейлист «"+L.name+"»? Его ссылка перестанет работать после сохранения.")) return; R.lists=R.lists.filter(x=>x!==L); render(); return}
+});
+$("settings").addEventListener("change",e=>{if(mode!=="plist") return; const t=e.target; if(!t.classList.contains("pEn")) return;
+  const L=R.lists.find(x=>x.id===t.closest("tr").dataset.id); if(L){L.enabled=t.checked; render(); toast(t.checked?"Включится после сохранения":"Ссылка перестанет работать после сохранения")}});
+$("glist").addEventListener("click",e=>{
+  const row=e.target.closest(".g"); if(!row) return; const g=row.dataset.g, act=e.target.dataset.act;
+  if(e.target.classList.contains("gin")){const L=LL(); if(!L) return; setGroupIn(L,g,+e.target.dataset.st!==2); render(); return}
+  if(act==="eye"){setGr(g,{hidden:!groupHidden(g)});render();return}
+  if(act==="up"||act==="down"){const gs=groupsOrdered(),i=gs.indexOf(g),j=act==="up"?i-1:i+1; if(j<0||j>=gs.length) return;
+    [gs[i],gs[j]]=[gs[j],gs[i]]; R.group_order=gs; render(); return}
+  sel=g; q=""; checked.clear(); openU=null; addOpen=false; render();
+});
+let dragG=null;
+$("glist").addEventListener("dragstart",e=>{if(mode!=="main")return;const r=e.target.closest(".g");if(r){dragG=r.dataset.g;e.dataTransfer.effectAllowed="move"}});
+$("glist").addEventListener("dragover",e=>{const r=e.target.closest(".g");if(!r||!dragG)return;e.preventDefault();document.querySelectorAll(".g.dragover").forEach(x=>x.classList.remove("dragover"));r.classList.add("dragover")});
+$("glist").addEventListener("drop",e=>{const r=e.target.closest(".g");if(!r||!dragG)return;e.preventDefault();
+  const gs=groupsOrdered().filter(x=>x!==dragG); gs.splice(gs.indexOf(r.dataset.g),0,dragG); R.group_order=gs; dragG=null; render()});
+$("glist").addEventListener("dragend",()=>{dragG=null;document.querySelectorAll(".g.dragover").forEach(x=>x.classList.remove("dragover"))});
+function renameCustom(c,nn){const nk=nn.toLowerCase(); if(nk!==c.k&&findC(nk)){toast("Канал «"+nn+"» уже есть");return false}
+  const d=R.custom_channels[c.ci]; if(R.channels[c.k]&&nk!==c.k){R.channels[nk]=R.channels[c.k];delete R.channels[c.k]; delete R.channels[nk].rename; if(!Object.keys(R.channels[nk]).length) delete R.channels[nk]}
+  for(const L of R.lists){for(const a of [L.channels,L.exclude]){const i=a.indexOf(c.k); if(i>=0) a[i]=nk}}
+  d.name=nn; return true}
+$("clist").addEventListener("click",e=>{
+  const id=e.target.id;
+  if(id==="frCancel"){frOpen=false;renderPane();return} if(id==="frPrev"){frApply(true);return} if(id==="frOk"){frApply(false);return}
+  if(id==="chkStop"){chkState.stop=true;return}
+  if(id==="chkClear"){chkRes={};chkState={total:0,done:0,ok:0,bad:0,stop:false};renderPane();return}
+  if(id==="chkHide"){let n=0; for(const k in chkRes) if(!chkRes[k].ok){setCh(k,{hidden:true});n++} render(); toast("Скрыто каналов: "+n+" — «Сохранить и применить»"); return}
+  if(id==="chkSel"){checked=new Set(Object.keys(chkRes).filter(k=>!chkRes[k].ok)); renderPane(); return}
+  if(e.target.id==="acCancel"){addOpen=false;renderPane();return}
+  if(e.target.id==="acOk"){const n=clean($("acName").value), u=$("acUrl").value.trim(), lg=$("acLogo").value.trim();
+    if(!n){toast("Введите название");return} if(!URLRX.test(u)){toast("Ссылка должна начинаться с http:// или https:// (или rtmp/udp) и быть без пробелов");return}
+    if(lg&&!URLRX.test(lg)){toast("Ссылка на логотип неверная");return}
+    if(findC(n.toLowerCase())){toast("Канал «"+n+"» уже есть — добавьте ему резервную ссылку через 🔗");return}
+    R.custom_channels.push({name:n,group:sel,urls:[u],logo:lg,tvg_id:""}); if(!groupsOrdered().includes(sel)) push(R.custom_groups,sel);
+    addOpen=false; render(); toast("Канал добавлен. «Сохранить и применить» — и он появится в плейлисте"); return}
+  const ued=e.target.closest(".ued");
+  if(ued){const a=e.target.dataset.u; if(!a) return; const c=findC(ued.dataset.k);
+    if(a==="cancel"){openU=null;renderPane();return}
+    if(a==="orig"){setCh(c.k,{urls:null,tvg_id:null,logo:null});openU=null;render();return}
+    if(a==="check"){checkUrls(ued.querySelector("textarea").value.split(/\n+/).map(x=>x.trim()).filter(Boolean),$("chkRes"));return}
+    if(a==="del"){if(!confirm("Удалить канал «"+c.n+"»?")) return; R.custom_channels.splice(c.ci,1); delete R.channels[c.k]; openU=null; render(); return}
+    if(a==="ok"){const us=ued.querySelector("textarea").value.split(/\n+/).map(x=>x.trim()).filter(Boolean);
+      const bad=us.find(x=>!URLRX.test(x)); if(bad){toast("Неверная ссылка: "+bad.slice(0,80));return}
+      if(us.length>10){toast("Не больше 10 ссылок");return}
+      const ep=clean($("uEpg").value), lg=$("uLogo").value.trim();
+      if(lg&&!URLRX.test(lg)){toast("Ссылка на логотип неверная");return}
+      if(c.custom){if(!us.length){toast("Нужна хотя бы одна ссылка (или удалите канал)");return} const d=R.custom_channels[c.ci]; d.urls=us; d.tvg_id=ep; d.logo=lg}
+      else{const orig=c.u.map(x=>x[1]); setCh(c.k,{urls:!us.length||JSON.stringify(us)===JSON.stringify(orig)?null:us,tvg_id:ep&&ep!==c.id?ep:null,logo:lg&&lg!==c.logo?lg:null})}
+      openU=null; render(); return}
+    return}
+  const row=e.target.closest(".c"); if(!row) return; const k=row.dataset.k, c=findC(k); if(!c) return;
+  if(e.target.classList.contains("unm")){const mk=c.alias; setCh(mk,{merge:(chRule(mk).merge||[]).filter(x=>x!==k)}); render(); toast("Канал снова отдельный"); return}
+  if(e.target.classList.contains("lin")){const L=LL(); if(L){setIn(L,c,e.target.checked); render()} return}
+  if(e.target.classList.contains("chk")){e.target.checked?checked.add(k):checked.delete(k);renderBulk(groupsOrdered().map(g=>`<option value="${esc(g)}">${esc(dispG(g))}</option>`).join(""));return}
+  if(e.target.classList.contains("eye")){setCh(k,{hidden:chHidden(c)?null:true});render();return}
+  if(e.target.classList.contains("url")){openU=openU===k?null:k;renderPane();if(openU)loadEpg();return}
+  if(e.target.classList.contains("ren")){
+    const span=row.querySelector(".cn"); const cur=dispName(c);
+    span.innerHTML=`<input type="text" value="${esc(cur)}" maxlength="100" style="width:100%">`; const inp=span.firstChild; inp.focus(); inp.select();
+    let fin=false;
+    const done=()=>{if(fin)return;fin=true;const v=clean(inp.value);
+      if(c.custom){if(v&&v!==c.n) renameCustom(c,v)} else setCh(k,{rename:v&&v!==c.n?v:null});
+      render()};
+    inp.onkeydown=ev=>{if(ev.key==="Enter")done();if(ev.key==="Escape"){fin=true;render()}}; inp.onblur=done;
+  }
+});
+$("clist").addEventListener("keydown",e=>{if(e.key==="Enter"&&e.target.closest(".addf")) $("acOk").click()});
+let dragK=null;
+$("clist").addEventListener("dragstart",e=>{const r=e.target.closest&&e.target.closest(".c[draggable=true]"); if(mode!=="main"||!r) return; dragK=r.dataset.k; e.dataTransfer.effectAllowed="move"});
+$("clist").addEventListener("dragover",e=>{const r=e.target.closest(".c[draggable=true]"); if(!r||!dragK) return; e.preventDefault(); document.querySelectorAll(".c.dragover").forEach(x=>x.classList.remove("dragover")); r.classList.add("dragover")});
+$("clist").addEventListener("drop",e=>{const r=e.target.closest(".c[draggable=true]"); if(!r||!dragK) return; e.preventDefault();
+  const ks=paneList().map(c=>c.k).filter(k=>k!==dragK); ks.splice(ks.indexOf(r.dataset.k),0,dragK);
+  const all=chansOf(sel).map(c=>c.k); R.channel_order[sel]=[...ks,...all.filter(k=>!ks.includes(k))]; dragK=null; render()});
+$("clist").addEventListener("dragend",()=>{dragK=null;document.querySelectorAll(".c.dragover").forEach(x=>x.classList.remove("dragover"))});
+$("clist").addEventListener("change",e=>{
+  if(!e.target.classList.contains("mv")) return; const k=e.target.closest(".c").dataset.k, c=findC(k);
+  const g=e.target.value; if(c.custom) R.custom_channels[c.ci].group=g; else setCh(k,{group:g===c.g?null:g}); render();
+});
+$("bulk").addEventListener("click",e=>{
+  const a=e.target.dataset.b; if(!a) return;
+  if(a==="merge"){mergeOpen=true;renderBulk("");return}
+  if(a==="mcancel"){mergeOpen=false;renderBulk("");return}
+  if(a==="mok"){const mk=(document.querySelector('input[name=mmain]:checked')||{}).value; if(!mk) return;
+    const ks=[...checked].filter(k=>findC(k)&&!findC(k).alias); let mg=new Set(chRule(mk).merge||[]);
+    for(const k of ks){ if(k===mk) continue; mg.add(k); for(const x of (chRule(k).merge||[])) mg.add(x); setCh(k,{merge:null}) }
+    mg.delete(mk); setCh(mk,{merge:[...mg]}); mergeOpen=false; checked.clear(); render();
+    toast("Склеено каналов: "+(mg.size+1)+" — «Сохранить и применить»"); return}
+  for(const k of checked){ if(a==="hide") setCh(k,{hidden:true}); if(a==="show") setCh(k,{hidden:null}); if(a==="reset") delete R.channels[k]; }
+  if(a==="none"||a==="reset"||a==="hide"||a==="show"){ if(a!=="hide"&&a!=="show") checked.clear(); render(); }
+});
+$("bulk").addEventListener("change",e=>{
+  if(e.target.id!=="bMove"||!e.target.value) return; const g=e.target.value;
+  for(const k of checked){const c=findC(k); if(!c) continue; if(c.custom) R.custom_channels[c.ci].group=g; else setCh(k,{group:g===c.g?null:g})}
+  checked.clear(); render(); toast("Каналы перенесены в «"+dispG(g)+"»");
+});
+$("btnAddGroup").onclick=()=>{const v=clean($("newGroup").value); if(!v) return;
+  if(!groupsOrdered().includes(v)) R.custom_groups.push(v); $("newGroup").value=""; sel=v; q=""; render(); toast("Группа «"+v+"» добавлена — перенесите в неё каналы или добавьте свой")};
+$("newGroup").onkeydown=e=>{if(e.key==="Enter")$("btnAddGroup").click()};
+$("btnUndo").onclick=undo;
+$("btnReset").onclick=()=>{if(!isDirty())return; R=JSON.parse(saved); checked.clear(); openU=null; addOpen=false;
+  if(curL&&!R.lists.some(l=>l.id===curL)) curL=R.lists[0]?R.lists[0].id:null; render(); toast("Изменения отменены")};
+/* ---------- EPG, проверка ссылок ---------- */
+let epgLoaded=false;
+async function loadEpg(){if(epgLoaded)return;epgLoaded=true;
+  try{const l=await (await fetch("/api/epg")).json();
+    $("epgl").innerHTML=l.map(([i,n])=>`<option value="${esc(i)}">${esc(n)}</option>`).join("")}catch(e){epgLoaded=false}}
+async function checkUrls(us,box){if(!box)return; if(!us.length){box.textContent="Нет ссылок";return}
+  box.innerHTML=us.map((u,i)=>`<span id="cr${i}">⏳ ${esc(u.slice(0,90))}</span>`).join("");
+  for(let i=0;i<us.length;i++){let r;
+    try{r=await (await fetch("/api/check",{method:"POST",headers:{"Content-Type":"application/json","X-M3U-Editor":"1"},body:JSON.stringify({url:us[i]})})).json()}catch(e){r={ok:false,msg:String(e)}}
+    const el=document.getElementById("cr"+i); if(el) el.innerHTML=`<span class="${r.ok?"st-ok":"st-bad"}">${r.ok?"✔":"✖"} ${i===0?"основная":"резерв "+i}</span> ${esc(r.msg)} <span style="opacity:.6">${esc(us[i].slice(0,70))}</span>`}}
+const TR={а:"a",б:"b",в:"v",г:"g",д:"d",е:"e",ё:"e",ж:"zh",з:"z",и:"i",й:"y",к:"k",л:"l",м:"m",н:"n",о:"o",п:"p",р:"r",с:"s",т:"t",у:"u",ф:"f",х:"h",ц:"c",ч:"ch",ш:"sh",щ:"sch",ъ:"",ы:"y",ь:"",э:"e",ю:"yu",я:"ya"};
+function slugify(n){const x=n.toLowerCase().split("").map(ch=>TR[ch]??ch).join("").replace(/[^a-z0-9]+/g,"-").replace(/^-+|-+$/g,"").slice(0,24);
+  return (x.length>=3?x:"tv")+"-"+Math.random().toString(36).slice(2,5)}
+const shortLink=L=>BASE+L.slug+".m3u8";
+function credLink(L){const u=new URL(L.slug?shortLink(L):BASE+L.token+".m3u8"); u.username="tv"; u.password=L.password; return u.toString()}
+let qrLib=null;
+function loadQr(){if(qrLib) return qrLib; qrLib=new Promise((ok,no)=>{const sc=document.createElement("script"); sc.src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js"; sc.onload=()=>ok(window.qrcode); sc.onerror=()=>{qrLib=null;no(new Error("не загрузилась библиотека QR (нет интернета?)"))}; document.head.appendChild(sc)}); return qrLib}
+async function showQr(text,title){try{const q=await loadQr(); const g=q(0,"M"); g.addData(text); g.make();
+    $("mbody").innerHTML=`<h2 style="margin:0 0 10px;font-size:16px">${esc(title||"QR-код")}</h2>${g.createSvgTag({cellSize:6,margin:3,scalable:true})}<code>${esc(text)}</code><p class="hint" style="margin:8px 0 0">Наведите камеру телефона — ссылку можно отправить на телевизор или вставить в плеер.</p>`;
+    $("modal").hidden=false}catch(e){toast(String(e.message||e))}}
+$("modal").addEventListener("click",e=>{if(e.target.id==="modal"||e.target.id==="mClose") $("modal").hidden=true});
+/* ---------- конструктор: чужие плейлисты слева, ваш — справа ---------- */
+// lsrc: "main" | имя своего источника | "f:<id>" — отдельный (бесплатный) плейлист
+const isFree=v=>typeof v==="string"&&v.startsWith("f:");
+const freeById=id=>R.free_sources.find(x=>x.id===id);
+function extSrc(v){if(isFree(v)){const f=freeById(v.slice(2)); return f&&{name:f.name,url:f.url,free:true,id:f.id}} const x=R.sources.find(y=>y.name===v); return x&&{name:x.name,url:x.url}}
+async function loadExt(v,quiet){const src=extSrc(v); if(!src) return;
+  EXT[v]={loading:true}; if(!quiet) render();
+  try{const r=await (await fetch("/api/fetch",{method:"POST",headers:{"Content-Type":"application/json","X-M3U-Editor":"1"},body:JSON.stringify({url:src.url})})).json();
+    if(r.error) EXT[v]={error:r.error};
+    else{const gs=new Map(); r.channels.forEach(c=>{c.k=c.n.toLowerCase(); c.fk=src.free?`f:${src.id}:${c.k}`:null; if(!gs.has(c.g)) gs.set(c.g,[]); gs.get(c.g).push(c)});
+      EXT[v]={chans:r.channels,groups:[...gs.keys()],by:gs}; if(v===lsrc) xsel=EXT[v].groups[0]||null}}
+  catch(e){EXT[v]={error:String(e)}}
+  render()}
+const newId=()=>Math.random().toString(36).slice(2,10).replace(/[^a-z0-9]/g,"")||"s"+Date.now();
+function addFree(u,name,ic){const ex=R.free_sources.find(x=>x.url===u); if(ex) return ex;
+  const taken=new Set(R.free_sources.map(x=>x.name)); let n=clean(name).slice(0,40)||"Плейлист", i=2; while(taken.has(n)) n=clean(name).slice(0,36)+" "+(i++);
+  const f={id:newId(),name:n,url:u,ic:ic||""}; R.free_sources.push(f); return f}
+async function addUrl(){const L=LL(), u=$("lUrl").value.trim(); if(!L) return;
+  if(!URLRX.test(u)||!/^https?:/i.test(u)){toast("Нужна ссылка http(s)://… на M3U");return}
+  let host="плейлист"; try{host=new URL(u).hostname.replace(/^www\./,"")}catch(e){}
+  const f=addFree(u,host); lsrc="f:"+f.id; q=""; await loadExt(lsrc);
+  const E=EXT[lsrc]; if(E&&E.chans) toast(`Загружено ${E.chans.length} каналов из «${f.name}». Отметьте нужные и нажмите «Сохранить»`);
+  else if(E&&E.error) toast("Не загрузилось: "+E.error)}
+function renderSrcbar(){
+  $("srcbar").innerHTML=`<label class="muted">Откуда брать каналы</label><select id="lsrcSel"><option value="main">Основной плейлист</option>
+    ${R.sources.length?`<optgroup label="Свои источники">${R.sources.map(x=>`<option value="${esc(x.name)}"${lsrc===x.name?" selected":""}>${esc(x.name)}</option>`).join("")}</optgroup>`:""}
+    ${R.free_sources.length?`<optgroup label="Отдельные плейлисты (напрямую)">${R.free_sources.map(x=>`<option value="f:${esc(x.id)}"${lsrc==="f:"+x.id?" selected":""}>${esc(x.name)}</option>`).join("")}</optgroup>`:""}</select>`}
+function fgIn(L,id,g){return (L.fgroups||[]).includes(id+":"+g)}
+function extPicked(L,x){if(x.fk){const id=x.fk.split(":")[1]; return !L.exclude.includes(x.fk)&&(L.channels.includes(x.fk)||fgIn(L,id,x.g))}
+  const c=findC(x.k); return c?member(L,c):L.channels.includes(x.k)&&!L.exclude.includes(x.k)}
+function setExt(L,x,on){if(x.fk){const id=x.fk.split(":")[1], gi=fgIn(L,id,x.g);
+    if(on){pull(L.exclude,x.fk); if(!gi) push(L.channels,x.fk)} else{pull(L.channels,x.fk); if(gi) push(L.exclude,x.fk)} return}
+  const c=findC(x.k); if(c) return setIn(L,c,on); if(on){push(L.channels,x.k);pull(L.exclude,x.k)} else pull(L.channels,x.k)}
+function setExtGroup(L,g,on){const E=EXT[lsrc], ch=E.by.get(g)||[];
+  if(isFree(lsrc)){const id=lsrc.slice(2), ks=new Set(ch.map(x=>x.fk)); L.fgroups=L.fgroups||[];
+    L.channels=L.channels.filter(k=>!ks.has(k)); L.exclude=L.exclude.filter(k=>!ks.has(k)); if(on) push(L.fgroups,id+":"+g); else pull(L.fgroups,id+":"+g)}
+  else ch.forEach(x=>setExt(L,x,on))}
+function renderGroupsExt(){const L=LL(), E=EXT[lsrc];
+  if(!E||E.loading){$("glist").innerHTML='<div class="empty">загрузка…</div>';return}
+  if(E.error){$("glist").innerHTML=`<div class="empty">Не загрузилось: ${esc(E.error)}<br><br><button id="extRetry">Ещё раз</button></div>`;return}
+  $("glist").innerHTML=E.groups.map(g=>{const ch=E.by.get(g), n=ch.filter(x=>extPicked(L,x)).length;
+    return `<div class="g${g===xsel?" sel":""}" data-xg="${esc(g)}"><input type="checkbox" class="xgin" data-st="${n===0?0:n===ch.length?2:1}" title="${isFree(lsrc)?"Вся группа — с новыми каналами, которые появятся в ней потом":"Вся группа"}"><span class="gname">${esc(g)}</span><span class="cnt">${n}/${ch.length}</span></div>`}).join("");
+  document.querySelectorAll(".xgin").forEach(x=>{const s=+x.dataset.st;x.checked=s===2;x.indeterminate=s===1})}
+function renderPaneExt(){const L=LL(), E=EXT[lsrc], fr=isFree(lsrc), src=extSrc(lsrc)||{name:lsrc};
+  let list=!E||!E.chans?[]:q?E.chans.filter(x=>x.n.toLowerCase().includes(q)):(E.by.get(xsel)||[]);
+  $("ptools").innerHTML=`<span class="title">${q?`Поиск: «${esc(q)}» — ${list.length}`:esc(xsel||src.name)}</span>${list.length?`<button id="xAddAll">Добавить все показанные</button><button id="xRemAll">Убрать показанные</button>`:""}<span class="sp"></span>
+    <input type="search" id="q" placeholder="Поиск в «${esc(src.name)}»" value="${esc(q)}">`;
+  $("bulk").hidden=true;
+  $("clist").innerHTML=(fr?`<div class="bulk" style="background:var(--panel2)"><span class="muted">Отдельный плейлист: каналы попадут только в ваш плейлист, ссылки идут напрямую (без HLS Proxy), список обновляется сам раз в 6 часов. Достаточно «Сохранить».</span></div>`:"")
+   +(list.length?list.slice(0,3000).map(x=>{const on=extPicked(L,x), inMain=!!findC(x.k);
+    return `<div class="c lm${on?" in":""}" data-xk="${esc(x.k)}"><input type="checkbox" class="xin" ${on?"checked":""} aria-label="В плейлисте">
+      ${xLogo(x)?`<img loading="lazy" src="${esc(xLogo(x))}" alt="" onerror="this.style.visibility='hidden'">`:"<span></span>"}
+      <span class="cn">${esc(x.n)}${FE(x.fk).url?'<span class="mod">своя ссылка</span>':""}${FE(x.fk).logo?'<span class="mod">свой логотип</span>':""}${fr||inMain?"":`<small>появится после «Сохранить и применить»</small>`}</span>${x.u?'<button class="icon play" title="Смотреть канал">▶</button>':"<span></span>"}</div>`}).join("")+(list.length>3000?`<div class="empty">показаны первые 3000 — уточните поиском</div>`:"")
+    :`<div class="empty">${E&&E.chans?"Нет каналов":""}</div>`);
+  $("xAddAll")&&($("xAddAll").onclick=()=>{list.forEach(x=>setExt(L,x,true));render()});
+  $("xRemAll")&&($("xRemAll").onclick=()=>{list.forEach(x=>setExt(L,x,false));render()});
+  const qi=$("q"); qi.oninput=()=>{q=qi.value.trim().toLowerCase();renderPaneExt();const n=$("q");n.focus();n.setSelectionRange(n.value.length,n.value.length)}}
+function freeRefs(L){return new Set([...L.channels,...L.exclude].filter(k=>k.startsWith("f:")).map(k=>k.split(":")[1]).concat((L.fgroups||[]).map(g=>g.split(":")[0])))}
+function freeItems(L){const out=[]; let j=0;
+  for(const id of freeRefs(L)){const f=freeById(id); if(!f) continue; const E=EXT["f:"+id];
+    if(!E){loadExt("f:"+id,true); continue} if(!E.chans) continue;
+    for(const x of E.chans) if(extPicked(L,x)) out.push({k:x.fk,n:x.n,g:f.name+" · "+x.g,logo:xLogo(x),i:2e6+(j++),free:true})}
+  return out}
+function mineItems(L){const ord=new Map((L.order||[]).map((k,i)=>[k,i]));
+  const items=ALL.filter(c=>member(L,c)).map((c,i)=>({k:c.k,n:dispName(c),g:dispG(effGroup(c)),logo:logoOf(c),i}));
+  const have=new Set(items.map(x=>x.k));
+  L.channels.filter(k=>!k.startsWith("f:")&&!have.has(k)&&!findC(k)).forEach((k,j)=>{let x=null; for(const nm in EXT){const E=EXT[nm]; if(E.chans){x=E.chans.find(y=>y.k===k); if(x) break}}
+    items.push({k,n:x?x.n:k,g:"ожидает применения",logo:x?x.logo:"",i:1e6+j,pend:true})});
+  items.push(...freeItems(L));
+  return items.sort((a,b)=>(ord.has(a.k)?ord.get(a.k):1e7+a.i)-(ord.has(b.k)?ord.get(b.k):1e7+b.i))}
+function renderMine(){const L=LL(); if(!L) return; const it=mineItems(L);
+  $("mtools").innerHTML=`<span class="title">Ваш плейлист · ${it.length}</span><span class="sp"></span>${L.order&&L.order.length?`<button class="sm" id="mUnord" title="Порядок как в основном плейлисте">↺ порядок</button>`:""}${it.length?`<button class="sm danger" id="mClear">Очистить</button>`:""}`;
+  $("mlist").innerHTML=it.length?it.map((x,i)=>`<div class="m${x.pend?" pend":""}" draggable="true" data-mk="${esc(x.k)}"><span class="num">${L.chno?L.chno+i:i+1}</span>
+      ${x.logo?`<img loading="lazy" src="${esc(x.logo)}" alt="" onerror="this.style.visibility='hidden'">`:"<span></span>"}
+      <span class="cn" title="${esc(x.n)}">${esc(x.n)}<small>${esc(x.g)}</small></span><button class="icon mDel" title="Убрать из плейлиста">✕</button></div>`).join("")
+    :`<div class="empty">Пока пусто. Отмечайте каналы слева — они появятся здесь. Порядок меняется перетаскиванием.</div>`}
+/* ---------- проверка потоков ---------- */
+async function runCheck(list){
+  chkState={total:list.length,done:0,ok:0,bad:0,stop:false}; list.forEach(c=>delete chkRes[c.k]); renderPane();
+  if(list.length>300&&!confirm("Проверить "+list.length+" каналов? Это займёт несколько минут.")){chkState.total=0;renderPane();return}
+  let i=0;
+  const worker=async()=>{while(i<list.length&&!chkState.stop){const c=list[i++]; const u=curUrls(c)[0]; let r;
+    try{r=await (await fetch("/api/check",{method:"POST",headers:{"Content-Type":"application/json","X-M3U-Editor":"1"},body:JSON.stringify({url:u})})).json()}catch(e){r={ok:false,msg:String(e)}}
+    chkRes[c.k]=r; chkState.done++; r.ok?chkState.ok++:chkState.bad++;
+    if(chkState.done%5===0||chkState.done===chkState.total) renderPane()}};
+  await Promise.all([worker(),worker(),worker()]); renderPane();
+  toast(chkState.stop?"Проверка остановлена":`Проверено ${chkState.done}: работают ${chkState.ok}, не отвечают ${chkState.bad}`)}
+/* ---------- найти и заменить ---------- */
+function frTargets(){return checked.size?[...checked].map(findC).filter(Boolean):paneList()}
+function frApply(dry){const f=$("frFind").value, r=$("frRepl").value, rx=$("frRx").checked; frState={f,r,rx};
+  if(!f){toast("Введите, что искать");return}
+  let re; try{re=rx?new RegExp(f,"gi"):new RegExp(f.replace(/[.*+?^${}()|[\]\\]/g,"\\$&"),"gi")}catch(e){toast("Ошибка в выражении: "+e.message);return}
+  const ch=[]; for(const c of frTargets()){const cur=dispName(c); const nn=clean(cur.replace(re,r)).replace(/\s{2,}/g," ").trim();
+    if(nn&&nn!==cur) ch.push([c,cur,nn])}
+  $("frRes").innerHTML=ch.length?ch.slice(0,30).map(([c,a,b])=>`<span>${esc(a)} → <b>${esc(b)}</b></span>`).join("")+(ch.length>30?`<span>…и ещё ${ch.length-30}</span>`:""):"Совпадений нет";
+  if(dry||!ch.length) return;
+  for(const [c,,nn] of ch){ if(c.custom) renameCustom(c,nn); else setCh(c.k,{rename:nn===c.n?null:nn}) }
+  frOpen=false; render(); toast("Переименовано каналов: "+ch.length)}
+/* ---------- постоянные правила ---------- */
+function ruleHits(r){let re; try{re=new RegExp(r.rx?r.find:r.find.replace(/[.*+?^${}()|[\]\\]/g,"\\$&"),"i")}catch(e){return -1} return ALL.filter(c=>!c.custom&&re.test(c.n)).length}
+function renderRules(){
+  const gs=groupsOrdered();
+  const rows=R.auto_rules.map((r,i)=>{const n=ruleHits(r); return `<tr data-i="${i}"><td>${r.t==="rename"?'<span class="badge">переименовать</span>':'<span class="badge warn">в группу</span>'}</td>
+    <td><code>${esc(r.find)}</code>${r.rx?' <span class="badge">regex</span>':""}</td><td>${r.t==="rename"?(r.repl?`→ <b>${esc(r.repl)}</b>`:'<span class="muted">удалить</span>'):`→ <b>${esc(dispG(r.group))}</b>`}</td>
+    <td class="num">${n<0?'<span class="st-bad">ошибка</span>':n}</td><td><div class="acts"><button class="sm" data-ra="up" ${i?"":"disabled"}>▲</button><button class="sm" data-ra="down" ${i<R.auto_rules.length-1?"":"disabled"}>▼</button><button class="sm danger" data-ra="del">Удалить</button></div></td></tr>`}).join("");
+  $("settings").innerHTML=`<div class="card"><h2>Как это работает</h2><p class="hint" style="margin:0">Правила применяются при каждой сборке ко всем каналам — и к новым, которые провайдер добавит потом. Ручные правки канала (переименование, перенос) важнее правил. Правила выполняются сверху вниз. Если после переименования названия совпадут, каналы склеятся: один основной, остальные — резерв.</p></div>
+  <div class="card tcard"><div class="thead"><b>Правила</b></div>${R.auto_rules.length?`<div class="twrap"><table class="tbl"><thead><tr><th>Тип</th><th>Если в названии</th><th>То</th><th>Каналов</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`:`<div class="empty">Правил пока нет</div>`}</div>
+  <div class="card"><h2>Новое правило</h2><div class="addf" style="padding:0;background:none;border:0">
+    <select id="arT"><option value="rename">Переименовать: убрать / заменить текст</option><option value="group">Перенести в группу</option></select>
+    <input type="text" id="arFind" placeholder="Текст в названии, например: orig"><input type="text" id="arRepl" placeholder="Заменить на (пусто — удалить)">
+    <select id="arGroup" hidden>${gs.map(g=>`<option value="${esc(g)}">${esc(dispG(g))}</option>`).join("")}</select>
+    <label><input type="checkbox" id="arRx"> регулярное выражение</label><button id="arAdd" class="primary">Добавить</button></div>
+    <div class="chk-res" id="arPrev" style="margin-top:8px"></div></div>`;
+}
+/* ---------- история ---------- */
+async function renderHistory(){
+  $("settings").innerHTML=`<div class="card"><h2>Правила редактора — файл</h2><p class="hint">Все настройки редактора (группы, каналы, ссылки, плейлисты, источники) в одном файле. Можно сохранить к себе и потом загрузить обратно.</p>
+    <div style="display:flex;gap:8px;flex-wrap:wrap"><button id="hExp">Скачать правила (.json)</button><button id="hImp">Загрузить из файла…</button><input type="file" id="hFile" accept=".json,application/json" hidden></div></div>
+  <div class="card tcard"><div class="thead"><div><b>Резервные копии</b><div class="muted">Сервер сохраняет копию перед каждым сохранением (последние 30).</div></div></div><div id="hList" class="empty">загрузка…</div></div>`;
+  try{const l=await (await fetch("/api/backups")).json();
+    $("hList").outerHTML=l.length?`<div class="twrap"><table class="tbl"><thead><tr><th>Когда сохранено</th><th>Файл</th><th>Размер</th><th></th></tr></thead><tbody>${l.map(b=>`<tr><td class="nw">${esc(b.mtime)}</td><td class="muted">${esc(b.name)}</td><td class="num">${(b.size/1024).toFixed(1)} КБ</td><td><div class="acts"><button class="sm" data-restore="${esc(b.name)}">Восстановить</button></div></td></tr>`).join("")}</tbody></table></div>`:`<div class="empty">Копий пока нет</div>`}catch(e){$("hList").textContent="Ошибка: "+e}
+}
+/* ---------- настройки ---------- */
+function renderPlist(){
+  const svd=JSON.parse(saved).lists;
+  const rows=R.lists.map(L=>{const st=(LST.lists||{})[L.id], sv=svd.find(x=>x.id===L.id&&x.token===L.token), en=L.enabled!==false;
+    const exp=(LST.expired||[]).includes(L.id);
+    const badge=!sv?'<span class="badge warn">не сохранён</span>':!en?'<span class="badge">выключен</span>':exp?'<span class="badge bad">срок истёк</span>':LST.error?'<span class="badge bad">ошибка</span>':st?'<span class="badge ok">готов</span>':'<span class="badge warn">собирается</span>';
+    return `<tr data-id="${esc(L.id)}">
+      <td><button class="name" data-act="edit">${esc(L.name)}</button>${L.password?' <span title="Ссылка с паролем">🔒</span>':""}${L.no_adult?' <span class="badge">детский</span>':""}${L.expires?` <span class="badge" title="Действует до">до ${esc(L.expires.split("-").reverse().join("."))}</span>`:""}${L.slug?`<div class="muted">/${esc(L.slug)}</div>`:""}</td>
+      <td>${(L.sources&&L.sources.length?L.sources:["все"]).map(x=>`<span class="badge">${esc(x)}</span>`).join(" ")}</td>
+      <td class="num">${st&&en?(st.groups??"—"):"—"}</td>
+      <td class="num">${listCount(L)}</td>
+      <td>${L.chno?"с "+L.chno:"—"}</td>
+      <td>${badge}</td>
+      <td class="muted nw">${st&&en?esc(LST.at||""):"—"}</td>
+      <td><label class="switch" title="Включён"><input type="checkbox" class="pEn" ${en?"checked":""}><i></i></label></td>
+      <td><div class="acts"><button class="sm" data-act="copy" ${sv&&L.token&&en?"":"disabled"} title="Скопировать ссылку M3U">M3U</button><button class="sm" data-act="qr" ${sv&&L.token&&en?"":"disabled"} title="QR-код ссылки">QR</button><button class="sm" data-act="epg" title="Скопировать ссылку на программу передач">EPG</button>
+        <button class="sm" data-act="dl" ${sv&&L.token&&en?"":"disabled"}>Скачать</button><button class="sm" data-act="edit">Изменить</button><button class="sm danger" data-act="del">Удалить</button></div></td></tr>`}).join("");
+  $("settings").innerHTML=`<div class="card tcard">
+    <div class="thead"><div><b>Плейлисты для плееров</b><div class="muted">Каждый — своя подборка групп и каналов из основного плейлиста со своей ссылкой. ${CONF.mode==="hls"?"Потоки идут через HLS Proxy.":"Ссылки на потоки — напрямую от провайдера."}</div></div><span class="sp"></span><button class="primary" id="pNew">+ Новый плейлист</button></div>
+    ${R.lists.length?`<div class="twrap"><table class="tbl"><thead><tr><th>Название</th><th>Источники</th><th>Группы</th><th>Каналы</th><th>Нумерация</th><th>Статус</th><th>Обновлён</th><th>Вкл.</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`
+      :`<div class="empty">Пока нет ни одного плейлиста.<br><br><button class="primary" id="pNew2">+ Создать первый</button></div>`}
+  </div>
+  <div class="card"><h2>Основной плейлист</h2><p class="hint">Все каналы из всех источников. Состав настраивается в разделе «Группы и каналы», источники — в «Источниках».</p>
+    ${CONF.main_url?`<div class="linkrow"><span class="badge">M3U</span><input type="text" id="mainUrl" readonly value="${esc(CONF.main_url)}"><button id="mainCopy">Копировать</button></div>`:""}
+    ${EPG_URL?`<div class="linkrow" style="margin-top:8px"><span class="badge">EPG</span><input type="text" readonly value="${esc(EPG_URL)}"><button id="mainEpg">Копировать</button></div>`:""}
+    ${CONF.hls_url?`<p class="hint" style="margin:10px 0 0">Панель HLS Proxy: <a href="${esc(CONF.hls_url)}" target="_blank" rel="noopener">${esc(CONF.hls_url)}</a></p>`:""}</div>`;
+}
+function copyText(t,msg){navigator.clipboard.writeText(t).then(()=>toast(msg||"Скопировано"),()=>toast("Не удалось скопировать: "+t))}
+/* ---------- шаблоны провайдеров ---------- */
+// шаги — по описанию личных кабинетов (tv-ch.ru); формат личных ссылок провайдеры не публикуют, поэтому ссылку вставляют целиком
+const PROV=[
+ {id:"sharavoz",lim:2,limNote:"2 устройства одновременно. При третьем просмотр блокируется на всех устройствах на 15 минут. Лишние устройства докупаются в кабинете со скидкой",name:"Sharavoz TV",ab:"SH",c:"#dc2626",steps:["Войдите в личный кабинет Sharavoz TV","Пройдите шаги настройки плейлиста до «Шаг 4»","Скопируйте ссылку: https — для новых устройств, http — для старых"]},
+ {id:"tvteam",lim:2,limNote:"2 устройства одновременно, можно докупить (до 20)",name:"TV Team",ab:"TT",c:"#0891b2",steps:["Войдите в личный кабинет TV Team","Откройте список плейлистов","Нажмите «Копировать в буфер ссылку на плейлист m3u8»"]},
+ {id:"glanz",lim:3,limNote:"3 устройства одновременно",name:"Glanz TV",ab:"GL",c:"#ca8a04",steps:["Войдите в личный кабинет Glanz TV","Нажмите «Настройки»","Скопируйте персональную ссылку на плейлист"]},
+ {id:"viplime",lim:2,limNote:"2 устройства одновременно, бесплатно",name:"VipLime",ab:"VL",c:"#16a34a",steps:["Активируйте доступ (тест — через Telegram-бота провайдера)","Откройте личный кабинет","Скопируйте индивидуальную ссылку на плейлист"]},
+ {id:"antifriz",lim:2,limNote:"2 устройства и только с одного IP (одна домашняя сеть). Для другого адреса нужна отдельная подписка",name:"AntiFriz TV",ab:"AF",c:"#0284c7",steps:["Войдите в личный кабинет AntiFriz TV","Нажмите «Плейлист и настройки»","Скопируйте ссылку на ваш плейлист"]},
+ {id:"iptvbest",lim:2,limNote:"2 устройства (по одному обзору, не проверено)",name:"ip-tv.best",ab:"IB",c:"#db2777",steps:["Войдите в личный кабинет ip-tv.best","Откройте «Скачать плейлист»: страна, сервер, формат m3u","Скопируйте ссылку"]},
+ {id:"edem",lim:2,limNote:"2 устройства одновременно (семейство Edem/iLook), с третьего возможно отключение. Если ссылкой пользуется кто-то чужой — смените ключ: «Плейлист» → «Настройки» → «Сменить»",name:"EDEM",ab:"ED",c:"#2563eb",steps:["Войдите в личный кабинет EDEM", "Откройте раздел «Плейлист»", "Скопируйте ссылку на плейлист — вида http://….zatikov.net/playlists/uplist/…/playlist.m3u8 (домен у каждого может быть свой)"]},
+ {id:"bittv",lim:3,limNote:"3 устройства одновременно, без доплаты",name:"BitTV",ab:"BT",c:"#7c3aed",steps:["Войдите в личный кабинет BitTV (bittv.ltd)", "Откройте раздел с плейлистом", "Скопируйте ссылку M3U — вида https://bittv.ltd/…/логин:пароль/….m3u"]},
+ {id:"cbilling",lim:2,limNote:"2 устройства на тарифе (по разным обзорам от 1 до 3), дополнительные — со скидкой 25%",name:"Cbilling",ab:"CB",c:"#0f766e",steps:["Войдите в личный кабинет Cbilling", "Откройте страницу плейлиста и выберите формат M3U", "Скопируйте ссылку на плейлист"]},
+ {id:"rutv",lim:null,limNote:"Не нашёл в открытых источниках — уточните в кабинете или у поддержки (Telegram @rutv_vip)",media:"В той же ссылке замените tv.m3u на vod.m3u — будет медиатека фильмов, на series.m3u — сериалы. Добавьте их отдельными источниками (по отзывам пользователей)",name:"RUTV.VIP",ab:"RU",c:"#b91c1c",steps:["Войдите в личный кабинет my.rutv.vip", "Откройте раздел с плейлистом", "Скопируйте ссылку — вида http://pl.ru-tv.site/…/…/tv.m3u"]},
+ {id:"yosso",lim:null,limNote:"Сколько устройств по умолчанию, не нашёл. Мультискрин до 10 устройств — за доплату",media:"Медиатека: в ссылке замените /playlist/ЛОГИН/КЛЮЧ/playlist.m3u8 на /vod/ЛОГИН/КЛЮЧ/a/p.m3u8 и добавьте отдельным источником (по отзывам пользователей)",name:"Yosso",ab:"YO",c:"#9333ea",steps:["Войдите в личный кабинет Yosso", "Откройте раздел с плейлистом", "Скопируйте ссылку — вида https://p.rapidnas.org/playlist/…/…/playlist.m3u8"]},
+ {id:"iptvonline",lim:2,limNote:"2 устройства по умолчанию, до 5 — за доплату",name:"IPTV Online",ab:"IO",c:"#ea580c",steps:["Войдите в личный кабинет IPTV Online", "Откройте раздел с плейлистом", "Скопируйте ссылку — вида https://iptv.online/play/…/m3u8"]},
+ {id:"ilook",lim:2,limNote:"2 устройства одновременно, с третьего возможна блокировка. С платной подпиской ещё 2 — через Stalker Portal (отдельный логин и пароль)",name:"iLook TV",ab:"IL",c:"#0d9488",steps:["Войдите в личный кабинет iLook TV", "В верхнем меню: «Плейлисты» → «Скачать»", "Скопируйте ссылку на плейлист (.m3u8)"]}];
+const UNI=[{id:"m3u",name:"Любая M3U-ссылка",ab:"M3U",sub:"http(s)://…m3u"},{id:"xc",name:"Xtream Codes",ab:"XC",sub:"сервер + логин + пароль"},{id:"file",name:"Файл .m3u",ab:"📄",sub:"загрузить с компьютера"}];
+// бесплатная подборка: сервер сам собирает её из открытых списков iptv-org и Free-TV, убирает дубли и нерабочие ссылки (lists.py, PRESETS)
+const FREE=[
+ {id:"f_rumusic",ic:"rumusic",name:"Бесплатно: Россия + зарубежная музыка",url:"e4://ru-music",n:1270,
+  note:"Российские каналы из открытых списков iptv-org и Free-TV — по группам «РУ: Эфирные», «РУ: Новости», «РУ: Кино», «РУ: Детские» и т.д. — плюс зарубежные музыкальные каналы по регионам («Зарубежная музыка: Европа», «…: США и Канада» и др.). Дубли убраны, в список попадают только ссылки, которые сейчас отвечают: сервер проверяет их сам раз в 6 часов. Первая сборка — 2–5 минут"}];
+// значки бесплатных плейлистов: флаги стран (SVG — эмодзи-флаги Windows не рисует) и тематические эмодзи
+const SV=(b)=>`<svg viewBox="0 0 30 20" width="34" height="34" preserveAspectRatio="none">${b}</svg>`;
+const ICON={
+ ru:SV('<rect width="30" height="20" fill="#fff"/><rect y="6.67" width="30" height="6.67" fill="#0039a6"/><rect y="13.33" width="30" height="6.67" fill="#d52b1e"/>'),
+ by:SV('<rect width="30" height="20" fill="#c8313e"/><rect y="13.33" width="30" height="6.67" fill="#4aa657"/><rect width="4" height="20" fill="#fff"/><path d="M2 1l1.3 1.6L2 4.2 0.7 2.6zM2 6l1.3 1.6L2 9.2 0.7 7.6zM2 11l1.3 1.6L2 14.2 0.7 12.6zM2 16l1.3 1.6L2 19.2 0.7 17.6z" fill="#c8313e"/>'),
+ kz:SV('<rect width="30" height="20" fill="#00afca"/><circle cx="16" cy="9" r="3.6" fill="#fec50c"/><g stroke="#fec50c" stroke-width=".9">'+[0,30,60,90,120,150,180,210,240,270,300,330].map(a=>{const r=a*Math.PI/180;return `<line x1="${16+4.6*Math.cos(r)}" y1="${9+4.6*Math.sin(r)}" x2="${16+6*Math.cos(r)}" y2="${9+6*Math.sin(r)}"/>`}).join("")+'</g><path d="M9 15.5q7 3 14 0" stroke="#fec50c" stroke-width="1.2" fill="none"/><rect x="1.5" y="1" width="1.6" height="18" fill="#fec50c" opacity=".85"/>'),
+ rus:'<span style="font:800 13px Georgia,serif;letter-spacing:-.5px">Аа</span>', kids:'<span style="font-size:19px">🧸</span>', movies:'<span style="font-size:19px">🎬</span>', music:'<span style="font-size:19px">🎧</span>', freetv:'<span style="font-size:19px">📺</span>'};
+ICON.rumusic=ICON.ru.replace("<svg",'<svg style="border-radius:6px"')+'<span style="position:absolute;right:0;bottom:-1px;font-size:14px;filter:drop-shadow(0 1px 1px rgba(0,0,0,.4))">🎵</span>';
+const ICBG={rumusic:"#fff",ru:"#fff",by:"#c8313e",kz:"#00afca",rus:"#2563eb",kids:"#f472b6",movies:"#7c3aed",music:"#ccfbf1",freetv:"#334155"};
+let galSel=null;
+const tile=(id,ab,name,sub,c,cls)=>`<button class="ptile${galSel===id?" on":""}${cls||""}" data-pv="${id}"><span class="plg" style="background:${c}">${ab}</span><b>${esc(name)}</b><span>${sub}</span></button>`;
+function uniqName(n){const taken=new Set([...allSources(),"Свой"]); let x=n.slice(0,40), i=2; while(taken.has(x)) x=n.slice(0,36)+" "+(i++); return x}
+const FE=k=>(k&&R.free_edits&&R.free_edits[k])||{};
+const xLogo=x=>FE(x.fk).logo||x.logo;
+function freeCount(f){if(f.url.startsWith("e4://")){const ps=LST&&LST.presets&&LST.presets[f.url.slice(5)]; return ps?ps.alive:0}
+  const E=EXT["f:"+f.id]; return E&&E.chans?E.chans.length:0}
+function presetSub(f){const ps=LST&&LST.presets&&LST.presets[f.url.slice(5)];
+  return ps?`${ps.alive} рабочих каналов · проверено ${esc(ps.at)}`:`~${f.n} каналов · только рабочие`}
+function renderGallery(bs){
+  const prov=PROV.find(p=>p.id===galSel), uni=UNI.find(u=>u.id===galSel);
+  let form="";
+  const fr=FREE.find(f=>f.id===galSel), added=fr&&R.free_sources.some(x=>x.url===fr.url);
+  if(fr) form=`<div class="card" style="margin-top:14px;background:var(--panel2)"><h2>${esc(fr.name)}</h2>
+    <p class="hint">${esc(fr.note)}. Добавляется <b>отдельно</b>: в основной плейлист не попадает — только в ваши плейлисты, где вы отметите каналы или группы (ссылки напрямую).${fr.url.startsWith("e4://")?"":" Список с GitHub обновляется сам — сервер берёт свежую версию раз в 6 часов. Часть ссылок в таких списках не работает."}</p>
+    <div class="fgrid"><div class="field"><span>Откуда</span><input type="text" readonly value="${fr.url.startsWith("e4://")?"собирает сервер из открытых списков iptv-org и Free-TV":esc(fr.url)}"></div>
+    <div class="field"><span>Название в редакторе</span><input type="text" id="gName" value="${esc(uniqName(fr.name))}" maxlength="40"></div></div>
+    <div style="display:flex;gap:8px;margin-top:10px">${added?'<span class="badge ok">уже добавлен</span>':`${fr.url.startsWith("e4://")?"":'<button id="gChk">Проверить</button>'}<button id="gAdd" class="primary">Добавить</button>`}</div><div class="chk-res" id="gRes" style="margin-top:8px"></div></div>`;
+  else if(prov||galSel==="m3u") form=`<div class="card" style="margin-top:14px;background:var(--panel2)"><h2>${esc(prov?prov.name:"Любая M3U-ссылка")}</h2>
+    ${prov?`<div class="muted">Где взять ссылку:</div><ol class="steps">${prov.steps.map(x=>`<li>${esc(x)}</li>`).join("")}</ol>
+    <p class="hint" style="margin:6px 0 0">⚠️ <b>Лимит провайдера:</b> ${esc(prov.limNote)}. ${!prov.lim?"Число каналов одновременно задайте сами ниже, в «Сколько каналов одновременно».":CONF.mode==="hls"?"HLS Proxy будет держать не больше "+prov.lim+" каналов одновременно — это можно поменять ниже, в «Сколько каналов одновременно».":"Без HLS Proxy каждый телевизор подключается к провайдеру сам — следите, чтобы одновременно смотрели не больше "+prov.lim+"."} <span class="muted">Данные из обзоров на ноябрь 2026, точно — в кабинете провайдера.</span></p>
+    ${prov.media?`<p class="hint" style="margin:6px 0 0">🎬 <b>Медиатека:</b> ${esc(prov.media)}.</p>`:""}`:""}
+    <div class="fgrid" style="margin-top:10px"><div class="field"><span>Ссылка на плейлист</span><input type="text" id="gUrl" placeholder="${prov?"вставьте ссылку из личного кабинета":"https://…/playlist.m3u"}" spellcheck="false"></div>
+    <div class="field"><span>Название в редакторе</span><input type="text" id="gName" value="${esc(uniqName(prov?prov.name:"Мой плейлист"))}" maxlength="40"></div></div>
+    <div style="display:flex;gap:8px;margin-top:10px"><button id="gChk">Проверить</button><button id="gAdd" class="primary">Добавить</button></div><div class="chk-res" id="gRes" style="margin-top:8px"></div></div>`;
+  else if(galSel==="xc") form=`<div class="card" style="margin-top:14px;background:var(--panel2)"><h2>Xtream Codes</h2><p class="hint">Данные из письма или кабинета провайдера: адрес сервера, порт, логин и пароль.</p>
+    <div class="fgrid"><div class="field"><span>Сервер</span><input type="text" id="xSrv" placeholder="http://server.example" spellcheck="false"></div><div class="field"><span>Порт</span><input type="text" id="xPort" placeholder="8080 (если есть)"></div>
+    <div class="field"><span>Логин</span><input type="text" id="xUser" spellcheck="false"></div><div class="field"><span>Пароль</span><input type="text" id="xPass" spellcheck="false"></div></div>
+    <div class="field" style="margin-top:8px"><span>Получится ссылка</span><input type="text" id="xUrl" readonly placeholder="заполните поля выше"></div>
+    <div class="field" style="margin-top:8px"><span>Название в редакторе</span><input type="text" id="gName" value="${esc(uniqName("Xtream"))}" maxlength="40"></div>
+    <div style="display:flex;gap:8px;margin-top:10px"><button id="gChk">Проверить</button><button id="gAdd" class="primary">Добавить</button></div><div class="chk-res" id="gRes" style="margin-top:8px"></div></div>`;
+  else if(galSel==="file") form=`<div class="card" style="margin-top:14px;background:var(--panel2)"><h2>Файл .m3u с компьютера</h2>
+    <p class="hint">Файл сохранится на сервере и сам обновляться не будет — когда провайдер пришлёт новый, загрузите его снова (старый источник можно удалить).</p>
+    <div class="fgrid"><div class="field"><span>Файл</span><input type="file" id="fFile" accept=".m3u,.m3u8,audio/x-mpegurl,application/x-mpegURL,text/plain"></div>
+    <div class="field"><span>Название в редакторе</span><input type="text" id="gName" value="${esc(uniqName("Мой файл"))}" maxlength="40"></div></div>
+    <div style="display:flex;gap:8px;margin-top:10px"><button id="fUp" class="primary">Загрузить и добавить</button></div><div class="chk-res" id="gRes" style="margin-top:8px"></div></div>`;
+  return `<div class="card"><h2>Добавить источник</h2><p class="hint">Выберите провайдера — подскажу, где взять ссылку, проверю её и добавлю в список ниже.</p>
+    ${bs.length?`<div class="psec">Ваши</div><div class="ptiles">${bs.map(n=>tile("b_"+n,n.slice(0,2).toUpperCase(),n,R.disabled_sources.includes(n)?"выключен":'<span class="badge ok">подключён</span>',"#7c3aed"," dis")).join("")}</div>`:(R.sources.length?"":`<div style="margin:0 0 14px;padding:12px 14px;border-radius:10px;background:var(--accent-soft);line-height:1.5">👋 <b>Добро пожаловать!</b> Начните с источника: выберите своего провайдера ниже, вставьте ссылку на плейлист из его личного кабинета и нажмите «Сохранить и применить». Через минуту каналы появятся в «Группах и каналах».</div>`)}
+    <div class="psec">Популярные провайдеры — по ссылке из личного кабинета</div><div class="ptiles">${PROV.map(p=>tile(p.id,p.ab,p.name,"ссылка из кабинета · "+(p.lim?"до "+p.lim+" устр.":"лимит неизвестен"),p.c)).join("")}</div>
+    <div class="psec">Бесплатные плейлисты с GitHub — отдельно от основного, обновляются сами</div><div class="ptiles">${FREE.map(f=>tile(f.id,ICON[f.ic],f.name,R.free_sources.some(x=>x.url===f.url)?'<span class="badge ok">добавлен</span>':presetSub(f),ICBG[f.ic])).join("")}</div>
+    <div class="psec">Универсальные</div><div class="ptiles">${UNI.map(u=>tile(u.id,u.ab,u.name,u.sub,"#52525b")).join("")}</div>${form}</div>`}
+function xcUrl(){const srv=($("xSrv").value||"").trim().replace(/\/+$/,""), port=($("xPort").value||"").trim(), u=($("xUser").value||"").trim(), p=($("xPass").value||"").trim();
+  if(!/^https?:\/\/[^\s\/"]+$/i.test(srv)||!u||!p||(port&&!/^\d{1,5}$/.test(port))) return "";
+  const host=port&&!/:\d+$/.test(srv)?srv+":"+port:srv; return `${host}/get.php?username=${encodeURIComponent(u)}&password=${encodeURIComponent(p)}&type=m3u_plus&output=ts`}
+function galUrl(){const fr=FREE.find(f=>f.id===galSel); return fr?fr.url:galSel==="xc"?xcUrl():(($("gUrl")||{}).value||"").trim()}
+function provOf(x){return PROV.find(p=>p.id===x.prov)||PROV.find(p=>p.name===x.name)||null}
+function limRec(){const ls=R.sources.filter(x=>x.enabled!==false).map(provOf).filter(p=>p&&p.lim); if(!ls.length) return null;
+  const m=Math.min(...ls.map(p=>p.lim)); return {n:m,by:ls.filter(p=>p.lim===m).map(p=>p.name)}}
+function addSource(url,name,prov){name=clean(name).slice(0,40); if(!name){toast("Введите название");return false}
+  if(new Set([...allSources(),"Свой"]).has(name)){toast("Источник «"+name+"» уже есть — дайте другое название");return false}
+  if(R.sources.length>=10){toast("Своих источников не больше 10");return false}
+  R.sources.push({id:Math.random().toString(36).slice(2,10).replace(/[^a-z0-9]/g,"")||"s"+Date.now(),name,url,enabled:true,...(prov?{prov}:{})}); galSel=null;
+  const p=PROV.find(x=>x.id===prov); let extra="";
+  if(p&&p.lim&&CONF.mode==="hls"&&(!R.stream_limit||R.stream_limit>p.lim)){R.stream_limit=p.lim; extra=" Лимит: не больше "+p.lim+" каналов одновременно, как у "+p.name+"."}
+  render(); toast("Источник «"+name+"» добавлен — «Сохранить и применить», чтобы загрузить каналы."+extra); return true}
+function renderSettings(page){
+  const bs=(ST&&ST.builtin_sources)||[], info={}; ((ST&&ST.sources)||[]).forEach(x=>info[x.name]=x);
+  const prim=R.primary_source||(ST&&ST.primary_source)||(R.sources[0]&&R.sources[0].name)||"";
+  const st=n=>{const x=info[n];return x?`${x.count} каналов · ${esc(x.status)}`:"ещё не загружался"};
+  const rows=bs.map(n=>`<div class="srow" data-b="${esc(n)}"><label><input type="checkbox" class="sOn" ${R.disabled_sources.includes(n)?"":"checked"}> вкл.</label>
+      <b>${esc(n)}</b><span class="st">встроенный · ${st(n)}</span><label><input type="radio" name="prim" value="${esc(n)}" ${prim===n?"checked":""}> основной</label><label title="Каналы источника попадут только в объединённые плейлисты, где он отмечен"><input type="checkbox" class="sLO" ${R.lists_only_sources.includes(n)?"checked":""}> только для плейлистов</label>${info[n]&&info[n].count?`<button class="sChB primary" title="Открыть каналы источника в «Группах и каналах»">Каналы (${info[n].count}) ›</button>`:"<span></span>"}</div>`).join("")
+    +R.sources.map((x,i)=>`<div class="srow" data-i="${i}"><label><input type="checkbox" class="sOn" ${x.enabled?"checked":""}> вкл.</label>
+      <input type="text" class="sName" value="${esc(x.name)}" maxlength="40"><input type="text" class="sUrl" value="${esc(x.url.startsWith("file:")?"загруженный файл .m3u":x.url)}" spellcheck="false" ${x.url.startsWith("file:")?"readonly":""}>
+      <label><input type="radio" name="prim" value="${esc(x.name)}" ${prim===x.name?"checked":""}> основной</label>
+      <label title="Каналы источника попадут только в объединённые плейлисты, где он отмечен"><input type="checkbox" class="sLO" ${R.lists_only_sources.includes(x.name)?"checked":""}> только для плейлистов</label>
+      <button class="sCh primary" title="${info[x.name]&&info[x.name].count?"Открыть каналы источника в «Группах и каналах»":"Посмотреть, что внутри (источник ещё не применён)"}">Каналы${info[x.name]&&info[x.name].count?" ("+info[x.name].count+")":""} ›</button><button class="sChk" title="Проверить, что ссылка отдаёт плейлист">Проверить</button><button class="sDel danger">Удалить</button>
+      <span class="st" style="grid-column:2/-1">${st(x.name)}${provOf(x)?` · лимит провайдера: ${provOf(x).lim?provOf(x).lim+" устр.":"неизвестен"}`:""}</span></div>`).join("");
+  const srcCard=`
+  <div class="card"><h2>Источники каналов</h2>
+    <p class="hint">Плейлисты, из которых собирается общий список. Подойдёт любая M3U-ссылка; для Xtream Codes — ссылка вида <code>http://сервер:порт/get.php?username=…&amp;password=…&amp;type=m3u_plus&amp;output=ts</code>. Каналы с одинаковым названием из разных источников склеиваются: «основной» источник идёт первым, остальные — резервом. Применяется по «Сохранить и применить».</p>
+    <p class="hint"><b>«Только для плейлистов»</b> — каналы источника не берутся в объединённые плейлисты, пока источник явно не отмечен в самом плейлисте. В основном плейлисте они всё равно есть: чтобы их не было в плеере, подключите плеер к объединённому плейлисту с включённым «Все группы».</p>
+    <div id="srcRows">${rows}</div>
+    <div class="chk-res" id="srcChk" style="margin-top:8px"></div></div>`;
+  const rec=limRec(), cur=ST&&ST.stream_limit;
+  const limCard=CONF.mode==="hls"?`<div class="card"><h2>Сколько каналов одновременно</h2>
+    <p class="hint">У провайдеров есть лимит устройств или одновременных просмотров. HLS Proxy не откроет больше каналов, чем указано здесь, — провайдер не заблокирует за превышение. Один канал на нескольких телевизорах обычно идёт одним потоком. Применяется по «Сохранить и применить».</p>
+    <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center"><input type="number" id="sLim" min="1" max="50" style="width:90px" value="${R.stream_limit||cur||""}" placeholder="3"><span class="muted">каналов</span>
+    ${cur?`<span class="badge">сейчас в HLS Proxy: ${cur}</span>`:""}
+    ${rec?`<span class="hint" style="margin:0">Рекомендуется <b>${rec.n}</b> — по лимиту ${esc(rec.by.join(", "))}</span>${(R.stream_limit||cur)!==rec.n?`<button id="sLimRec">Поставить ${rec.n}</button>`:""}`:""}</div></div>`
+    :(rec?`<div class="card"><h2>Лимит провайдера</h2><p class="hint" style="margin:0">Без HLS Proxy каждый телевизор подключается к провайдеру сам. По лимиту ${esc(rec.by.join(", "))} одновременно можно смотреть не больше <b>${rec.n}</b> устройствам — иначе провайдер может заблокировать просмотр.</p></div>`:"");
+  const galCard=renderGallery(bs);
+  const frCard=R.free_sources.length?`<div class="card"><h2>Отдельные плейлисты</h2><p class="hint">Не входят в основной плейлист. Их каналы попадают только в ваши плейлисты (раздел «Объединённые плейлисты» → «Откуда брать каналы»), ссылки напрямую. Обновляются сами раз в 6 часов.</p>
+    ${R.free_sources.map(f=>`<div class="srow" data-fid="${esc(f.id)}" style="grid-template-columns:40px 200px 1fr auto auto auto"><span class="plg" style="background:${ICBG[f.ic]||"#24292f"}">${ICON[f.ic]||"GH"}</span><b>${esc(f.name)}</b><span class="st"${f.url.startsWith("e4://")?"":' style="word-break:break-all"'}>${f.url.startsWith("e4://")?presetSub(f)+" · собирает сервер, обновляется раз в 6 часов":esc(f.url)}</span>
+      <button class="fCh primary" title="Посмотреть, какие каналы внутри">Каналы${freeCount(f)?" ("+freeCount(f)+")":""} ›</button>${f.url.startsWith("e4://")?"<span></span>":'<button class="fChk">Проверить</button>'}<button class="fDel danger">Удалить</button></div>`).join("")}<div class="chk-res" id="frChk" style="margin-top:8px"></div></div>`:"";
+  const fltCard=`
+  <div class="card"><h2>Автоскрытие групп по шаблону</h2>
+    <p class="hint">Группы с такими названиями скрываются сами, в том числе новые. Звёздочка в конце — «все, что начинаются так»: <code>Страна: *</code>. Отдельную группу всегда можно показать вручную в разделе «Группы и каналы».</p>
+    <div class="chips">${R.hidden_patterns.map((p,i)=>`<span class="chip">${esc(p)}<button class="icon pDel" data-i="${i}" title="Убрать">✕</button></span>`).join("")||'<span class="hint">нет шаблонов</span>'}</div>
+    <div class="addf" style="padding:0;background:none;border:0"><input type="text" id="npVal" placeholder="Например: Кинозал: *" maxlength="100"><button id="npAdd">Добавить шаблон</button></div></div>`;
+  $("settings").innerHTML=page==="filters"?fltCard:galCard+frCard+srcCard+limCard;
+}
+$("settings").addEventListener("input",e=>{if(mode==="sources"&&["xSrv","xPort","xUser","xPass"].includes(e.target.id)) $("xUrl").value=xcUrl()});
+$("settings").addEventListener("change",e=>{if(mode!=="sources"||e.target.id!=="sLim") return; const v=parseInt(e.target.value,10);
+  R.stream_limit=v>=1&&v<=50?v:null; if(!R.stream_limit) e.target.value=""; markDirty()});
+$("settings").addEventListener("click",e=>{if(mode!=="sources"||e.target.id!=="sLimRec") return; const r=limRec(); if(!r) return;
+  R.stream_limit=r.n; render(); toast("Лимит "+r.n+" — нажмите «Сохранить и применить»")});
+$("settings").addEventListener("click",async e=>{if(mode!=="sources") return; const t=e.target, pv=t.closest("[data-pv]");
+  if(pv){const id=pv.dataset.pv; if(id.startsWith("b_")){toast("Этот источник уже подключён — включить/выключить можно в списке ниже");return} galSel=galSel===id?null:id; renderSettings("sources"); const f=$("gUrl")||$("xSrv")||$("fFile"); if(f) f.focus(); return}
+  if(t.id==="gChk"){const u=galUrl(); if(!u||!URLRX.test(u)){toast(galSel==="xc"?"Заполните сервер, логин и пароль":"Вставьте ссылку http(s)://…");return} checkUrls([u],$("gRes")); return}
+  if(t.id==="gAdd"){const u=galUrl(); if(!u||!(URLRX.test(u)||u.startsWith("e4://"))){toast(galSel==="xc"?"Заполните сервер, логин и пароль":"Вставьте ссылку http(s)://…");return}
+    const fr=FREE.find(f=>f.id===galSel);
+    if(fr){const f=addFree(fr.url,$("gName").value,fr.ic); galSel=null; render(); toast("«"+f.name+"» добавлен отдельно. Откройте свой плейлист → «Откуда брать каналы» → выберите его"); return}
+    addSource(u,$("gName").value,PROV.some(p=>p.id===galSel)?galSel:null); return}
+  if(t.id==="fUp"){const f=$("fFile").files[0]; if(!f){toast("Выберите файл");return} if(f.size>30*1024*1024){toast("Файл больше 30 МБ");return}
+    const name=$("gName").value; $("gRes").textContent="загрузка…";
+    try{const r=await fetch("/api/upload",{method:"POST",headers:{"Content-Type":"application/json","X-M3U-Editor":"1"},body:JSON.stringify({data:await f.text()})}); const j=await r.json();
+      if(!r.ok){$("gRes").innerHTML=`<span class="st-bad">✖ ${esc(j.error||r.status)}</span>`;return} addSource(j.url,name)}catch(err){$("gRes").textContent="Ошибка: "+err}}
+});
+$("settings").addEventListener("click",e=>{if(mode!=="sources") return; const fr=e.target.closest("[data-fid]"); if(!fr) return; const id=fr.dataset.fid, f=freeById(id); if(!f) return;
+  if(e.target.classList.contains("fCh")){previewSource({name:f.name,url:f.url,fid:f.id},true); return}
+  if(e.target.classList.contains("fChk")){checkUrls([f.url],$("frChk")); return}
+  if(e.target.classList.contains("fDel")){if(!confirm("Удалить «"+f.name+"»? Его каналы пропадут из ваших плейлистов после сохранения.")) return;
+    R.free_sources=R.free_sources.filter(x=>x!==f); const pre="f:"+id+":";
+    for(const L of R.lists){L.channels=L.channels.filter(k=>!k.startsWith(pre)); L.exclude=L.exclude.filter(k=>!k.startsWith(pre)); L.fgroups=(L.fgroups||[]).filter(g=>!g.startsWith(id+":")); if(L.order) L.order=L.order.filter(k=>!k.startsWith(pre))}
+    delete EXT["f:"+id]; render()}});
+$("settings").addEventListener("click",e=>{const t=e.target, row=t.closest(".srow"); if(t.closest("[data-fid]")) return;
+  if(t.id==="nsAdd"){const n=clean($("nsName").value).slice(0,40), u=$("nsUrl").value.trim();
+    if(!n){toast("Введите название");return} if(!URLRX.test(u)){toast("Неверная ссылка");return}
+    const names=[...((ST&&ST.builtin_sources)||[]),...R.sources.map(x=>x.name),"Свой"]; if(names.includes(n)){toast("Такое название уже есть");return}
+    R.sources.push({id:Math.random().toString(36).slice(2,10).replace(/[^a-z0-9]/g,"")||"s"+Date.now(),name:n,url:u,enabled:true}); render(); toast("Источник добавлен — «Сохранить и применить», чтобы загрузить каналы"); return}
+  if(t.id==="npAdd"){const v=clean($("npVal").value); if(!v) return; push(R.hidden_patterns,v); render(); return}
+  if(t.classList.contains("pDel")){R.hidden_patterns.splice(+t.dataset.i,1); render(); return}
+  if(!row) return;
+  if(t.classList.contains("sDel")){const x=R.sources[+row.dataset.i]; if(!confirm("Удалить источник «"+x.name+"»? Его каналы пропадут после применения.")) return; R.sources.splice(+row.dataset.i,1); render(); return}
+  if(t.classList.contains("sCh")){openSourceChannels(R.sources[+row.dataset.i]); return}
+  if(t.classList.contains("sChB")){openSourceChannels({name:row.dataset.b}); return}
+  if(t.classList.contains("sChk")){checkUrls([R.sources[+row.dataset.i].url],$("srcChk")); return}
+});
+$("settings").addEventListener("change",e=>{const t=e.target, row=t.closest(".srow");
+  if(t.name==="prim"){R.primary_source=t.value; markDirty(); return}
+  if(!row) return;
+  if(t.classList.contains("sLO")){const n=row.dataset.b||(R.sources[+row.dataset.i]||{}).name; if(n){if(t.checked) push(R.lists_only_sources,n); else pull(R.lists_only_sources,n)} markDirty(); return}
+  if(row.dataset.b&&t.classList.contains("sOn")){const n=row.dataset.b; if(t.checked) pull(R.disabled_sources,n); else push(R.disabled_sources,n); markDirty(); return}
+  const x=R.sources[+row.dataset.i]; if(!x) return;
+  if(t.classList.contains("sOn")) x.enabled=t.checked;
+  if(t.classList.contains("sName")){const v=clean(t.value).slice(0,40); if(v){const i=R.lists_only_sources.indexOf(x.name); if(i>=0) R.lists_only_sources[i]=v; x.name=v} else t.value=x.name}
+  if(t.classList.contains("sUrl")){const v=t.value.trim(); if(URLRX.test(v)) x.url=v; else {toast("Неверная ссылка");t.value=x.url}}
+  markDirty();
+});
+async function save(apply){
+  // пустые пользовательские группы без каналов не храним
+  R.custom_groups=R.custom_groups.filter(g=>chansOf(g).length||g===sel);
+  const before=JSON.stringify(JSON.parse(saved).lists), listsChanged=before!==JSON.stringify(R.lists);
+  const r=await fetch("/api/rules",{method:"POST",headers:{"Content-Type":"application/json","X-M3U-Editor":"1"},body:JSON.stringify({rules:R,apply})});
+  const j=await r.json(); if(!r.ok){toast("Ошибка: "+(j.error||r.status));return}
+  const idx=R.lists.findIndex(l=>l.id===curL);
+  R=norm(j.rules); saved=JSON.stringify(R); if(idx>=0&&R.lists[idx]) curL=R.lists[idx].id; render();
+  toast(apply?"Сохранено. Плейлист пересобирается…":listsChanged?"Сохранено. Плейлисты обновятся через несколько секунд":"Сохранено. Применится при утренней сборке или по кнопке «Применить»");
+  if(apply) poll(Date.now()); else if(listsChanged) setTimeout(refreshStatus,5000);
+}
+async function refreshStatus(){try{const s=await (await fetch("/api/status")).json(); LST=s.lists||{}; showStatus(s); if(mode==="plist") renderPlist(); else renderLbar()}catch(e){}}
+$("btnSave").onclick=()=>save(false);
+$("btnApply").onclick=()=>save(true);
+function showStatus(s){
+  if(!s) return; const run=s.ActiveState==="activating"||s.ActiveState==="active";
+  const cls=run?"st-run":(s.Result&&s.Result!=="success"?"st-bad":"st-ok");
+  $("log").innerHTML=`<span class="${cls}">${run?"⏳ Идёт сборка плейлиста…":s.Result&&s.Result!=="success"?"✖ Последняя сборка завершилась с ошибкой":"✔ Последняя сборка: "+esc(s.built_at||"—")}</span>\n`+esc((s.log||[]).join("\n"));
+}
+async function poll(t0){
+  const s=await (await fetch("/api/status")).json(); showStatus(s);
+  const run=s.ActiveState==="activating"||s.ActiveState==="active";
+  if((run||Date.now()-t0<6000)&&Date.now()-t0<300000) return setTimeout(()=>poll(t0),2500);
+  await load(); toast(s.Result==="success"?"Плейлист пересобран, объединённые плейлисты обновлены":"Сборка завершилась: "+s.Result);
+}
+addEventListener("beforeunload",e=>{if(isDirty()){e.preventDefault();e.returnValue=""}});
+/* ---------- плеер: окошко в редакторе + «Открыть в VLC» ---------- */
+let PLR=null;
+function loadLib(file,glob){return new Promise((ok,no)=>{if(window[glob]) return ok(window[glob]);
+  const s=document.createElement("script"); s.src="/lib/"+file; s.onload=()=>window[glob]?ok(window[glob]):no(new Error("плеер не загрузился")); s.onerror=()=>no(new Error("плеер не загрузился")); document.head.appendChild(s)})}
+function plStatus(t,bad){const e=$("plS"); if(!e) return; e.textContent=t||""; e.classList.toggle("bad",!!bad)}
+function limInfo(o){
+  if(o.free) return "🆓 Это бесплатный открытый канал — лимит вашего провайдера он не тратит. Закройте плеер, когда посмотрели.";
+  const rec=limRec(), pv=rec?` Лимит ${esc(rec.by.join(", "))}: до <b>${rec.n}</b> устройств.`:"";
+  if(CONF.mode==="hls"&&!o.direct){const n=(ST&&ST.stream_limit)||R.stream_limit;
+    return `⚠️ <b>Просмотр здесь — это тоже поток к провайдеру.</b> HLS Proxy пускает не больше <b>${n||"?"}</b> каналов одновременно на все устройства вместе.${pv} Если сейчас на телевизорах уже смотрят ${n||"столько"} разных каналов, этот не откроется — закройте один из них. Тот же канал, что идёт на телевизоре, обычно отдельного потока не занимает. Закройте плеер, когда посмотрели, — поток освободится через несколько секунд.`}
+  return `⚠️ <b>Просмотр здесь — ещё одно устройство для провайдера</b>${CONF.mode==="hls"?" (мимо HLS Proxy: канала нет в основном плейлисте)":""}.${pv} Если сейчас смотрят столько телевизоров, сколько разрешает провайдер, он может отключить просмотр — у Sharavoz, например, на всех устройствах на 15 минут. Закройте плеер, когда посмотрели.`}
+function closePlayer(){if(!PLR) return; try{PLR.h&&PLR.h.destroy()}catch(e){} try{PLR.ts&&(PLR.ts.pause(),PLR.ts.unload(),PLR.ts.detachMediaElement(),PLR.ts.destroy())}catch(e){}
+  const v=$("plV"); if(v){v.pause(); v.removeAttribute("src"); v.load()} $("plBox").hidden=true; PLR=null}
+async function openPlayer(o){closePlayer();
+  if(!$("plBox")) document.body.insertAdjacentHTML("beforeend",`<div id="plBox" class="plbox" hidden><div class="plwin" role="dialog" aria-label="Плеер">
+    <div class="plhead"><b id="plT"></b><button id="plVlc" title="Скачать файл .m3u — он откроется в VLC">Открыть в VLC</button><button id="plCopy">Копировать ссылку</button><button id="plX" class="icon" title="Закрыть (Esc)">✕</button></div>
+    <video id="plV" controls playsinline></video><div id="plS" class="plst"></div><div id="plI" class="plinfo"></div></div></div>`);
+  PLR={name:o.name,url:null}; $("plT").textContent=o.name; $("plBox").hidden=false; plStatus("Ищу ссылку…");
+  let url=o.url;
+  if(o.main){try{const j=await (await fetch("/api/chanurl?n="+encodeURIComponent(o.name))).json(); if(j.url) url=j.url; else {url=o.fallback; o.direct=true}}catch(e){url=o.fallback; o.direct=true}}
+  $("plI").innerHTML=limInfo(o);
+  if(!PLR) return; PLR.url=url;
+  if(!url){plStatus("У канала нет ссылки на поток",true); return}
+  if(/\.mpd(\?|$)/i.test(url)){plStatus("Это поток DASH — браузер его не покажет. Нажмите «Открыть в VLC».",true); return}
+  const src="/api/play?u="+encodeURIComponent(url), v=$("plV"); plStatus("Подключаюсь…");
+  const tryTs=async()=>{if(!PLR) return; try{const M=await loadLib("mpegts.js","mpegts"); if(!M.getFeatureList().mseLivePlayback) throw 0;
+      const p=M.createPlayer({type:"mpegts",isLive:true,url:location.origin+src},{enableStashBuffer:false}); PLR.ts=p; p.attachMediaElement(v); p.load(); v.play().catch(()=>{});
+      p.on(M.Events.ERROR,()=>plStatus("Браузер не смог показать этот поток — нажмите «Открыть в VLC».",true)); plStatus("")}
+    catch(e){plStatus("Браузер не смог показать этот поток — нажмите «Открыть в VLC».",true)}};
+  try{const Hls=await loadLib("hls.min.js","Hls"); if(!PLR) return;
+    if(Hls.isSupported()){const h=new Hls({maxBufferLength:20,manifestLoadingMaxRetry:1}); PLR.h=h; h.loadSource(src); h.attachMedia(v);
+      h.on(Hls.Events.MANIFEST_PARSED,()=>{v.play().catch(()=>{}); plStatus("")});
+      h.on(Hls.Events.ERROR,(_,d)=>{if(!d.fatal) return; let msg=""; try{msg=JSON.parse((d.networkDetails&&d.networkDetails.responseText)||"{}").error||""}catch(e){}
+        h.destroy(); if(PLR) PLR.h=null;
+        if(msg) plStatus("Не открылся: "+msg+". Можно попробовать «Открыть в VLC».",true);
+        else if(d.details==="manifestParsingError") tryTs();   // не HLS — пробуем как поток TS
+        else plStatus("Поток прервался ("+d.details+") — попробуйте ещё раз или «Открыть в VLC».",true)});
+      return}
+    if(v.canPlayType("application/vnd.apple.mpegurl")){v.src=src; v.play().catch(()=>{}); plStatus(""); return}
+  }catch(e){}
+  tryTs()}
+function plVlc(){if(!PLR||!PLR.url) return; const nm=PLR.name.replace(/[\\/:*?"<>|]+/g,"_").slice(0,60)||"канал";
+  const a=document.createElement("a"); a.href=URL.createObjectURL(new Blob([`#EXTM3U\n#EXTINF:-1,${PLR.name}\n${PLR.url}\n`],{type:"audio/x-mpegurl"}));
+  a.download=nm+".m3u"; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(a.href),10000);
+  toast("Файл «"+nm+".m3u» скачан — откройте его, он запустится в VLC. Не забудьте закрыть VLC после просмотра — это тоже поток")}
+document.addEventListener("click",e=>{const t=e.target;
+  if(t.id==="plX"||t.id==="plBox"){closePlayer();return} if(t.id==="plVlc"){plVlc();return} if(t.id==="plCopy"){PLR&&PLR.url&&copyText(PLR.url,"Ссылка на поток скопирована");return}
+  if(!t.classList.contains("play")) return; e.stopImmediatePropagation(); e.preventDefault();
+  const xr=t.closest("[data-xk]"), mr=t.closest("[data-k]");
+  if(xr){const E=EXT[lsrc], x=E&&E.chans&&E.chans.find(y=>y.k===xr.dataset.xk); if(!x) return; const c=findC(x.k);
+    if(c&&!isFree(lsrc)) openPlayer({name:dispName(c),main:true,fallback:x.u}); else openPlayer({name:x.n,url:x.u,free:isFree(lsrc),direct:true}); return}
+  if(mr){const c=findC(mr.dataset.k); if(!c) return; const us=curUrls(c); openPlayer({name:dispName(c),main:true,fallback:(us&&us[0])||(c.u&&c.u[0]&&c.u[0][1])})}},true);
+document.addEventListener("keydown",e=>{if(e.key!=="Escape") return; if(PLR) closePlayer(); else if($("pvBox")&&!$("pvBox").hidden) closePreview()});
+/* ---------- «Каналы ›» у источника: фильтр в «Группах и каналах» или предпросмотр ---------- */
+function setSrcF(n){srcF=n; checked.clear(); openU=null;
+  if(srcF){const gs=groupsOrdered(); if(!sel||!chansOf(sel).some(inSrcF)) sel=gs.find(g=>chansOf(g).some(inSrcF))||sel}
+  render()}
+function openSourceChannels(x){const loaded=ALL.some(c=>(c.msrc||c.src||[]).includes(x.name));
+  if(loaded){flt=""; q=""; mode="main"; try{localStorage.setItem("m3uePage","main")}catch(e){} setSrcF(x.name); scrollTo(0,0); return}
+  previewSource(x)}
+let PV=null;
+function closePreview(){const b=$("pvBox"); if(b) b.hidden=true; PV=null}
+function pvKey(c){return PV.free?`f:${PV.fid}:${c.n.toLowerCase()}`:c.n.toLowerCase()}
+function pvEd(c){const k=pvKey(c); if(PV.free) return FE(k); const r=chRule(k); return {url:r.urls&&r.urls[0],logo:r.logo}}
+async function previewSource(x,free){
+  if(!$("pvBox")) document.body.insertAdjacentHTML("beforeend",`<div id="pvBox" class="plbox" style="z-index:55" hidden><div class="plwin" style="width:min(900px,100%)" role="dialog" aria-label="Что внутри источника"><div id="pvIn"></div></div></div>`);
+  PV={name:x.name,url:x.url,free:!!free,fid:x.fid||"",loading:true,ed:null}; $("pvBox").hidden=false; renderPreview();
+  try{const j=await (await fetch("/api/fetch",{method:"POST",headers:{"Content-Type":"application/json","X-M3U-Editor":"1"},body:JSON.stringify({url:x.url})})).json();
+    if(!PV||PV.url!==x.url) return;
+    if(j.error){PV.error=j.error} else {const by=new Map(); for(const c of j.channels){if(!by.has(c.g)) by.set(c.g,[]); by.get(c.g).push(c)} PV.by=by; PV.count=j.count; PV.sel=[...by.keys()][0]; PV.q=""}}
+  catch(e){if(PV) PV.error=String(e)}
+  if(PV){PV.loading=false; renderPreview()}}
+function renderPreview(){if(!PV) return; const head=`<div class="plhead"><b>${esc(PV.name)} — что внутри</b><span class="badge">${PV.free?"отдельный плейлист":"ещё не применён"}</span><button id="pvX" class="icon" title="Закрыть (Esc)">✕</button></div>`;
+  if(PV.loading){$("pvIn").innerHTML=head+`<p class="hint">Загружаю ${PV.free?"плейлист":"плейлист источника"}…</p>`; return}
+  if(PV.error){$("pvIn").innerHTML=head+`<p class="hint st-bad">Не удалось загрузить: ${esc(PV.error)}</p><div style="display:flex;justify-content:flex-end"><button id="pvClose">Закрыть</button></div>`; return}
+  const gs=[...PV.by.keys()], q=(PV.q||"").toLowerCase();
+  const list=q?[].concat(...PV.by.values()).filter(c=>c.n.toLowerCase().includes(q)):(PV.by.get(PV.sel)||[]);
+  $("pvIn").innerHTML=head+`<p class="hint" style="margin:0 0 10px">${PV.free?`Эти каналы не входят в основной плейлист — их можно взять в свои плейлисты: «Объединённые плейлисты» → «Откуда брать каналы». Внутри <b>${PV.count} каналов в ${gs.length} группах</b>.`:`Источник добавлен, но его каналов ещё нет в основном плейлисте. Это предпросмотр: <b>${PV.count} каналов в ${gs.length} группах</b>.`}</p>
+    <div class="pvgrid"><div>${gs.map(g=>`<div class="pvg${!q&&g===PV.sel?" on":""}" data-pvg="${esc(g)}"><span>${esc(g)}</span><span class="muted">${PV.by.get(g).length}</span></div>`).join("")}</div>
+    <div><div style="padding:8px 12px;border-bottom:1px solid var(--line)"><input type="search" id="pvQ" placeholder="Поиск по всем группам" value="${esc(PV.q||"")}" style="width:100%"></div>
+    ${list.slice(0,500).map((c,i)=>{const ed=pvEd(c), lg=ed.logo||c.logo, k=pvKey(c);
+      return `<div class="pvc">${lg?`<img loading="lazy" src="${esc(lg)}" alt="" onerror="this.style.visibility='hidden'">`:'<span class="nl"></span>'}<span>${esc(c.n)}${ed.url?'<span class="mod">своя ссылка</span>':""}${ed.logo?'<span class="mod">свой логотип</span>':""}${q?` <small class="muted">${esc(c.g)}</small>`:""}</span><button class="icon pved" data-i="${i}" title="Изменить ссылку и логотип">✎</button>${c.u||ed.url?`<button class="icon pvplay" data-i="${i}" title="Смотреть канал">▶</button>`:"<span></span>"}</div>`
+       +(PV.ed===k?`<div class="pvedit" data-i="${i}"><div class="ufields">
+          <label for="pvU">Ссылка на поток</label><input type="text" id="pvU" spellcheck="false" value="${esc(ed.url||"")}" placeholder="${esc(c.u||"http(s)://…")}">
+          <label for="pvL">Логотип</label><input type="text" id="pvL" spellcheck="false" value="${esc(ed.logo||"")}" placeholder="${esc(c.logo||"ссылка на картинку")}"></div>
+          <div class="uhint">Пустое поле — остаётся исходное. ${PV.free?"Вступит в силу после «Сохранить»: ваши плейлисты обновятся через несколько секунд. Когда плейлист сам обновляется раз в 6 часов, ваша правка остаётся.":"Вступит в силу после «Сохранить и применить». Своя ссылка заменит ссылки этого канала из всех источников."}</div>
+          <div class="ubtns"><button data-pve="ok" class="primary">Готово</button>${ed.url||ed.logo?'<button data-pve="orig">Вернуть исходные</button>':""}<button data-pve="cancel">Отмена</button></div></div>`:"")}).join("")||'<div class="empty">Ничего не найдено</div>'}
+    ${list.length>500?'<div class="empty">показаны первые 500 — уточните поиском</div>':""}</div></div>
+    ${PV.free?`<div class="pvwarn" style="background:rgba(59,130,246,.10);border-color:rgba(59,130,246,.35)">ℹ️ ▶ играет напрямую с сайта канала — лимит вашего провайдера не тратит. Бесплатные ссылки проверяются раз в 6 часов, но отдельные каналы всё равно могут не открыться или прерываться.</div>`:`<div class="pvwarn">⚠️ <b>▶ здесь играет напрямую у провайдера${CONF.mode==="hls"?", мимо HLS Proxy":""}</b> — это ещё одно устройство, и лимит HLS Proxy его не сдерживает. Если сейчас смотрят столько телевизоров, сколько разрешает провайдер, он может отключить просмотр на всех (у Sharavoz — на 15 минут). Смотрите коротко и закрывайте плеер.</div>`}
+    <div style="display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end;margin-top:12px"><button id="pvClose">Закрыть</button>${PV.free?`<button id="pvLists" class="primary">Взять в свой плейлист ›</button>`:`<button id="pvApply" class="primary">Сохранить и применить — добавить в основной</button>`}</div>`;
+  PV.list=list; const qi=$("pvQ"); qi.oninput=()=>{PV.q=qi.value; const pos=qi.selectionStart; renderPreview(); const n=$("pvQ"); n.focus(); n.setSelectionRange(pos,pos)}}
+document.addEventListener("click",e=>{const t=e.target; if(!PV) return;
+  if(t.id==="pvBox"||t.id==="pvX"||t.id==="pvClose"){closePreview();return}
+  if(t.id==="pvApply"){closePreview(); save(true); return}
+  if(t.id==="pvLists"){closePreview(); mode="plist"; try{localStorage.setItem("m3uePage","plist")}catch(e){} render(); scrollTo(0,0); toast("Откройте свой плейлист (или создайте новый) → «Откуда брать каналы» → выберите этот плейлист"); return}
+  const g=t.closest("[data-pvg]"); if(g){PV.sel=g.dataset.pvg; PV.q=""; renderPreview(); return}
+  if(t.classList.contains("pvplay")){const c=PV.list[+t.dataset.i]; if(c) openPlayer({name:c.n,url:pvEd(c).url||c.u,direct:true}); e.stopImmediatePropagation(); return}
+  if(t.classList.contains("pved")){const c=PV.list[+t.dataset.i]; if(c){const k=pvKey(c); PV.ed=PV.ed===k?null:k; renderPreview(); const u=$("pvU"); if(u){u.closest(".pvedit").scrollIntoView({block:"nearest"}); u.focus()}} e.stopImmediatePropagation(); return}
+  const pa=t.dataset&&t.dataset.pve; if(pa){const box=t.closest(".pvedit"), c=box&&PV.list[+box.dataset.i]; e.stopImmediatePropagation(); if(!c) return; const k=pvKey(c);
+    if(pa==="cancel"){PV.ed=null; renderPreview(); return}
+    let u=pa==="orig"?"":$("pvU").value.trim(), lg=pa==="orig"?"":$("pvL").value.trim();
+    if(u&&!URLRX.test(u)){toast("Ссылка на поток должна начинаться с http://, https://, rtmp:// или udp://");return}
+    if(lg&&!/^https?:\/\/[^\s"]{1,2000}$/i.test(lg)){toast("Логотип — ссылка http(s)://… на картинку");return}
+    if(u===c.u) u=""; if(lg===c.logo) lg="";
+    if(PV.free){const n={}; if(u) n.url=u; if(lg) n.logo=lg; if(Object.keys(n).length) R.free_edits[k]=n; else delete R.free_edits[k]}
+    else setCh(k,{urls:u?[u]:null,logo:lg||null});
+    PV.ed=null; markDirty(); renderPreview(); toast(PV.free?"Готово — нажмите «Сохранить»":"Готово — нажмите «Сохранить и применить»")}},true);
+document.addEventListener("click",e=>{if(e.target.id==="srcFClear") setSrcF(null)});
+load().catch(e=>{$("stats").textContent="Ошибка загрузки: "+e});
+</script>
+</body>
+</html>

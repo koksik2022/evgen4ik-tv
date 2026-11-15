@@ -1,0 +1,651 @@
+#!/bin/bash
+# ╔══════════════════════════════════════════════════════════════════╗
+# ║  Evgen4ik TV — установщик редактора IPTV-плейлистов               ║
+# ║  Ubuntu 22.04 / 24.04, Debian 12. Запуск:  sudo bash <этот файл>  ║
+# ╚══════════════════════════════════════════════════════════════════╝
+# Без вопросов:  --mode direct|hls --domain tv.example.com --email me@mail.ru
+#                --access login|tunnel --user admin --password СЕКРЕТ --address 192.168.1.10 --yes
+# Повторный запуск обновляет программу и сохраняет настройки.
+set -uo pipefail
+
+E4_VER="1.0"
+HLSP_VER="8.4.8"
+HLSP_URL="https://www.hls-proxy.com/downloads/${HLSP_VER}/hls-proxy-${HLSP_VER}.linux-x64.zip"
+APP=/opt/evgen4ik-tv
+ETC=/etc/evgen4ik-tv
+DATA=/var/lib/evgen4ik-tv
+PL=/var/lib/evgen4ik-tv-pl
+HLS=/opt/hls-proxy
+ACME=/var/www/e4tv-acme
+CREDS=/root/evgen4ik-tv-доступ.txt
+EPG_DEFAULT="http://epg.it999.ru/edem.xml.gz"
+
+# ---------- оформление ----------
+if [ -t 1 ]; then B=$'\e[1m'; D=$'\e[2m'; Y=$'\e[33m'; G=$'\e[32m'; R=$'\e[31m'; C=$'\e[36m'; N=$'\e[0m'; else B= D= Y= G= R= C= N=; fi
+say()  { echo -e "${C}›${N} $*"; }
+ok()   { echo -e "${G}✔${N} $*"; }
+warn() { echo -e "${Y}!${N} $*"; }
+die()  { echo -e "${R}✖ $*${N}" >&2; exit 1; }
+ask()  { local q=$1 def=${2:-} a; if [ "$YES" = 1 ]; then REPLY=$def; return; fi
+         read -r -p "$(echo -e "${B}${q}${N}${def:+ ${D}[${def}]${N}}: ")" a </dev/tty; REPLY=${a:-$def}; }
+yesno(){ ask "$1 (д/н)" "${2:-д}"; case "${REPLY,,}" in д|да|y|yes|"") return 0;; *) return 1;; esac; }
+rnd()  { python3 -c "import secrets,string;a=string.ascii_letters+string.digits;print(''.join(secrets.choice(a) for _ in range($1)))"; }
+
+# ---------- параметры ----------
+MODE='' DOMAIN='' EMAIL='' ACCESS='' USERNAME='' PASSWORD='' YES=0 ACTION='' ADDR='' ALT_PORT='' STREAMS=''
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --mode) MODE=$2; shift;; --domain) DOMAIN=$2; shift;; --email) EMAIL=$2; shift;;
+    --access) ACCESS=$2; shift;; --user) USERNAME=$2; shift;; --password) PASSWORD=$2; shift;;
+    --streams) STREAMS=$2; shift;;   # сколько каналов одновременно разрешает провайдер (режим hls)
+    --alt-port) ALT_PORT=$2; shift;;   # порт редактора без домена в режиме hls (если 8080 занят)
+    --address) ADDR=$2; shift;;   # адрес для плееров (домашний ПК: IP в домашней сети)
+    --yes|-y) YES=1;; --update) ACTION=update;; --reconfigure) ACTION=reconfigure;;
+    -h|--help) sed -n '2,8p' "$0"; exit 0;;
+    *) die "Неизвестный параметр: $1";;
+  esac; shift
+done
+
+# ---------- файлы программы: рядом (src/) или внутри этого файла ----------
+locate_src() {
+  local here; here=$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)
+  if [ -n "$here" ] && [ -f "$here/src/app.py" ]; then SRC=$here/src; return; fi
+  if grep -aq '^__PAYLOAD__$' "$0" 2>/dev/null; then
+    TMPD=$(mktemp -d); trap 'rm -rf "$TMPD"' EXIT
+    sed '1,/^__PAYLOAD__$/d' "$0" | base64 -d | tar xz -C "$TMPD" || die "Файл установщика повреждён — скачайте его заново"
+    SRC=$TMPD/src; return
+  fi
+  die "Не найдены файлы программы. Запускайте файл целиком: sudo bash evgen4ik-tv-install.sh"
+}
+
+conf_get() { python3 -c 'import json,sys
+try: print(json.load(open(sys.argv[1])).get(sys.argv[2], ""))
+except Exception: print("")' "$ETC/config.json" "$1"; }
+
+# ---------- проверки ----------
+precheck() {
+  [ "$(id -u)" = 0 ] || die "Запустите от root: sudo bash $0"
+  [ -d /run/systemd/system ] || die "Нужен systemd (обычный VDS с Ubuntu/Debian). В контейнере без systemd установка не сработает."
+  . /etc/os-release 2>/dev/null || true
+  case "${ID:-}" in ubuntu|debian) ;; *) warn "Проверено на Ubuntu 22.04/24.04 и Debian 12, у вас: ${PRETTY_NAME:-неизвестно}. Продолжаю.";; esac
+  command -v apt-get >/dev/null || die "Нужен apt (Ubuntu/Debian)"
+}
+
+public_ip() {
+  local ip
+  for u in https://api.ipify.org https://ifconfig.me/ip https://ipv4.icanhazip.com; do
+    ip=$(curl -4 -fsS --max-time 6 "$u" 2>/dev/null | tr -d '[:space:]') && [[ $ip =~ ^[0-9.]+$ ]] && { echo "$ip"; return; }
+  done
+  hostname -I 2>/dev/null | awk '{print $1}'
+}
+
+lan_ip() { ip -4 route get 1.1.1.1 2>/dev/null | grep -oP 'src \K[0-9.]+' | head -1; }
+is_private() { [[ $1 =~ ^(10\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[01])\.) ]]; }
+is_wsl() { grep -qi microsoft /proc/version 2>/dev/null; }
+
+choose_address() {   # VDS — внешний адрес; домашний ПК/мини-ПК за роутером — адрес в домашней сети
+  LAN=$(lan_ip)
+  if is_wsl && [[ ${LAN:-} =~ ^172\. ]]; then
+    warn "WSL работает в режиме сети NAT ($LAN) — телевизоры дома его не увидят."
+    warn "Включите зеркальный режим: в %UserProfile%\\.wslconfig строки [wsl2] и networkingMode=mirrored, затем wsl --shutdown."
+  fi
+  [ -n "${LAN:-}" ] && is_private "$LAN" && [ "$LAN" != "$EXT_IP" ] || return 0
+  local def=2; { is_wsl || [[ $LAN =~ ^192\.168\. ]]; } && def=1
+  echo
+  echo -e "${B}Сервер стоит за роутером.${N} По какому адресу плееры будут открывать плейлисты?"
+  echo -e "  ${B}1${N} — домашний ${LAN} ${D}(только дома, в той же сети; для ПК и мини-ПК)${N}"
+  echo -e "  ${B}2${N} — внешний ${EXT_IP} ${D}(из любого места, но на роутере нужен проброс портов, а у провайдера — белый IP)${N}"
+  ask "Ваш выбор" "$def"
+  [ "$REPLY" = 1 ] && { IP=$LAN; HOME_LAN=1; }
+  return 0
+}
+
+port_busy() {   # занят ли порт чем-то кроме nginx и hls-proxy
+  ss -ltnpH "sport = :$1" 2>/dev/null | grep -v -e nginx -e hls-proxy | grep -q LISTEN
+}
+
+# ---------- вопросы ----------
+wizard() {
+  echo
+  echo -e "${B}Как будут идти потоки?${N}"
+  echo -e "  ${B}1${N} — через HLS Proxy на этом сервере"
+  echo -e "      ${D}+ один вход провайдера на всю семью, резервные потоки, своя программа передач (EPG)${N}"
+  echo -e "      ${D}− весь трафик видео идёт через сервер; HLS Proxy скачивается с сайта автора${N}"
+  echo -e "  ${B}2${N} — без HLS Proxy ${D}(по умолчанию)${N}"
+  echo -e "      ${D}+ лёгкий сервер, видео идёт напрямую от провайдера к плееру${N}"
+  echo -e "      ${D}− в плейлистах прямые ссылки провайдера (с вашим логином у провайдера)${N}"
+  ask "Ваш выбор" "${MODE_DEF:-2}"
+  case "$REPLY" in 1|hls) MODE=hls;; *) MODE=direct;; esac
+  if [ "$MODE" = hls ] && [ "$(uname -m)" != x86_64 ]; then
+    warn "HLS Proxy ставится только на x86_64, а у сервера $(uname -m). Выбран режим без HLS Proxy."; MODE=direct
+  fi
+  if [ "$MODE" = hls ] && [ -z "$STREAMS" ]; then
+    echo
+    echo -e "${B}Сколько каналов одновременно разрешает ваш провайдер?${N}"
+    echo -e "${D}В условиях подписки это «устройств» или «одновременных просмотров». HLS Proxy не даст открыть больше,${N}"
+    echo -e "${D}и провайдер не заблокирует за превышение. Один канал на нескольких телевизорах обычно идёт одним потоком.${N}"
+    ask "Число" "${STREAMS_DEF:-3}"; STREAMS=$REPLY
+  fi
+
+  if [ "${HOME_LAN:-0}" = 1 ]; then DOMAIN=""; else   # дома домен не нужен
+  echo
+  echo -e "${B}Домен${N} ${D}— нужен для HTTPS. Запись A домена должна указывать на ${EXT_IP}.${N}"
+  echo -e "${D}Нет домена — нажмите Enter: всё будет работать по http://${IP}${N}"
+  ask "Домен" "${DOMAIN_DEF:-}"; DOMAIN=${REPLY,,}; DOMAIN=${DOMAIN#http*://}; DOMAIN=${DOMAIN%%/*}
+  if [ -n "$DOMAIN" ]; then
+    ask "E-mail для Let's Encrypt (напоминания о сертификате; Enter — без почты)" "${EMAIL_DEF:-}"; EMAIL=$REPLY
+  fi
+
+  fi
+  echo
+  echo -e "${B}Вход в редактор${N}"
+  echo -e "  ${B}1${N} — по логину и паролю из браузера ${D}(по умолчанию)${N}"
+  echo -e "  ${B}2${N} — только через SSH-туннель ${D}(редактор вообще не виден из интернета)${N}"
+  ask "Ваш выбор" "$( [ "${ACCESS_DEF:-login}" = tunnel ] && echo 2 || echo 1)"
+  case "$REPLY" in 2|tunnel) ACCESS=tunnel;; *) ACCESS=login;; esac
+  if [ "$ACCESS" = login ]; then
+    ask "Логин" "${USER_DEF:-admin}"; USERNAME=$REPLY
+    if [ -z "$PASSWORD" ]; then
+      local p1 p2
+      read -r -s -p "$(echo -e "${B}Пароль${N} ${D}[Enter — $( [ -f "$ETC/auth.json" ] && echo 'оставить прежний' || echo 'придумать автоматически')]${N}: ")" p1 </dev/tty; echo
+      if [ -n "$p1" ]; then
+        [ ${#p1} -ge 6 ] || die "Пароль должен быть не короче 6 символов"
+        read -r -s -p "Ещё раз: " p2 </dev/tty; echo; [ "$p1" = "$p2" ] || die "Пароли не совпали"
+        PASSWORD=$p1
+      fi
+    fi
+  fi
+}
+
+summary() {
+  echo
+  echo -e "${B}Будет установлено:${N}"
+  echo -e "  Режим:     $( [ "$MODE" = hls ] && echo "с HLS Proxy ${HLSP_VER}" || echo 'без HLS Proxy')"
+  echo -e "  Адрес:     ${DOMAIN:-$IP} $( [ -n "$DOMAIN" ] && echo '(HTTPS, Let’s Encrypt)' || echo '(http, без домена)')"
+  echo -e "  Редактор:  $( [ "$ACCESS" = login ] && echo "логин ${USERNAME}" || echo 'только SSH-туннель')"
+  [ "$MODE" = hls ] && echo -e "  Потоков:   не больше ${STREAMS:-3} одновременно (лимит провайдера)"
+  echo -e "  Пакеты:    python3, nginx$( [ -n "$DOMAIN" ] && echo ', certbot'), curl, unzip"
+  if [ "$YES" != 1 ]; then yesno "Начинаем?" д || die "Отменено"; fi
+}
+
+# ---------- шаги установки ----------
+install_packages() {
+  say "Ставлю пакеты (1–3 минуты)…"
+  export DEBIAN_FRONTEND=noninteractive
+  local pk="python3 nginx curl ca-certificates unzip"
+  [ -n "$DOMAIN" ] && pk="$pk certbot"
+  apt-get update -qq >/dev/null 2>&1 || warn "apt-get update завершился с ошибкой — пробую ставить дальше"
+  # shellcheck disable=SC2086
+  apt-get install -y -qq $pk >/dev/null 2>&1 || die "Не удалось поставить пакеты: $pk. Проверьте интернет на сервере и apt."
+  ok "Пакеты установлены"
+}
+
+install_files() {
+  id e4tv >/dev/null 2>&1 || useradd -r -s /usr/sbin/nologin -d "$DATA" -M e4tv
+  install -d -m 755 "$APP" "$ETC" "$DATA" "$ACME"
+  install -d -m 750 -o e4tv -g e4tv "$DATA/editor" "$DATA/editor/uploads"
+  install -d -m 700 "$DATA/build" "$DATA/free"
+  install -d -m 750 -o root -g www-data "$PL" "$PL/auth"
+  for f in app.py build.py lists.py e4conf.py index.html login.html; do install -m 644 "$SRC/$f" "$APP/$f"; done
+  install -d -m 755 "$APP/lib"; install -m 644 "$SRC"/lib/* "$APP/lib/"   # плееры hls.js и mpegts.js (Apache-2.0)
+  install -m 755 "$SRC/e4tv" /usr/local/bin/e4tv
+  for t in apply.trigger lists.trigger; do [ -f "$DATA/editor/$t" ] || install -m 640 -o e4tv -g e4tv /dev/null "$DATA/editor/$t"; done
+  [ -f "$DATA/editor/rules.json" ] || { echo '{}' > "$DATA/editor/rules.json"; chown e4tv:e4tv "$DATA/editor/rules.json"; chmod 640 "$DATA/editor/rules.json"; }
+  echo "$E4_VER" > "$APP/VERSION"
+  ok "Программа скопирована в $APP"
+}
+
+get_cert() {   # выпуск сертификата Let's Encrypt (webroot через nginx на 80 порту)
+  [ -z "$DOMAIN" ] && return 0
+  if [ -f "/etc/letsencrypt/live/$DOMAIN/fullchain.pem" ]; then ok "Сертификат для $DOMAIN уже есть"; return 0; fi
+  local dip; dip=$(getent ahostsv4 "$DOMAIN" | awk 'NR==1{print $1}')
+  if [ "$dip" != "$EXT_IP" ]; then
+    warn "Домен $DOMAIN указывает на ${dip:-ничего}, а у сервера внешний адрес $EXT_IP."
+    warn "Пропишите у регистратора запись A: $DOMAIN → $EXT_IP (обновляется от 5 минут до нескольких часов)."
+  fi
+  say "Получаю сертификат для $DOMAIN…"
+  cat > /etc/nginx/sites-available/evgen4ik-tv <<EOF
+server {
+$(lsn 80)
+    server_name $DOMAIN;
+    location /.well-known/acme-challenge/ { root $ACME; }
+    location / { return 404; }
+}
+EOF
+  ln -sf /etc/nginx/sites-available/evgen4ik-tv /etc/nginx/sites-enabled/evgen4ik-tv
+  nginx -t >/dev/null 2>&1 && systemctl reload nginx
+  local em="--register-unsafely-without-email"; [ -n "$EMAIL" ] && em="--email $EMAIL"
+  # shellcheck disable=SC2086
+  if certbot certonly --webroot -w "$ACME" -d "$DOMAIN" $em --agree-tos -n --keep-until-expiring >/tmp/e4tv-certbot.log 2>&1; then
+    ok "Сертификат получен (продлевается сам)"
+  else
+    warn "Сертификат получить не удалось. Подробности: /tmp/e4tv-certbot.log"
+    grep -m3 -i -E 'detail|error' /tmp/e4tv-certbot.log | sed 's/^/    /'
+    if yesno "Продолжить без HTTPS, по адресу http://$IP? (домен можно добавить потом: запустите установщик ещё раз)" д; then DOMAIN=
+    else die "Остановлено. Проверьте запись A домена и запустите установщик снова."; fi
+  fi
+}
+
+install_hlsproxy() {
+  [ "$MODE" = hls ] || return 0
+  id hlsproxy >/dev/null 2>&1 || useradd -r -s /usr/sbin/nologin -d "$HLS" -M hlsproxy
+  if [ ! -x "$HLS/hls-proxy" ]; then
+    say "Скачиваю HLS Proxy ${HLSP_VER} с сайта автора (hls-proxy.com)…"
+    local t; t=$(mktemp -d)
+    curl -fL --max-time 300 -o "$t/h.zip" "$HLSP_URL" >/dev/null 2>&1 || { rm -rf "$t"; die "Не удалось скачать HLS Proxy: $HLSP_URL
+  Скачайте архив вручную, распакуйте в $HLS и запустите установщик снова, или выберите режим без HLS Proxy."; }
+    unzip -q "$t/h.zip" -d "$t/x" || { rm -rf "$t"; die "Архив HLS Proxy повреждён"; }
+    local bin; bin=$(find "$t/x" -maxdepth 3 -type f -name hls-proxy | head -1)
+    [ -n "$bin" ] || { rm -rf "$t"; die "В архиве HLS Proxy не найден файл hls-proxy"; }
+    install -d "$HLS"; cp -a "$(dirname "$bin")/." "$HLS/"; rm -rf "$t"
+    chmod 755 "$HLS/hls-proxy"; touch "$HLS/.installed-by-e4tv"
+    ok "HLS Proxy распакован в $HLS"
+  else
+    ok "HLS Proxy уже установлен в $HLS — оставляю как есть"
+  fi
+  install -d -m 755 "$HLS/tls"
+  if [ -n "$DOMAIN" ]; then
+    install -m 600 "/etc/letsencrypt/live/$DOMAIN/privkey.pem" "$HLS/tls/privkey.pem"
+    install -m 644 "/etc/letsencrypt/live/$DOMAIN/fullchain.pem" "$HLS/tls/fullchain.pem"
+  fi
+  [ -f "$HLS/combined.m3u" ] || echo "#EXTM3U" > "$HLS/combined.m3u"
+  # local.json: создаём или обновляем только адрес/порт/сертификат и плейлист Combined
+  [[ ${STREAMS:-} =~ ^[0-9]+$ ]] && [ "$STREAMS" -ge 1 ] && [ "$STREAMS" -le 50 ] || { [ -n "${STREAMS:-}" ] && warn "Число потоков «$STREAMS» не подходит — ставлю 3"; [ -n "${STREAMS:-}" ] && STREAMS=3; }
+  [ -f "$HLS/local.json" ] || STREAMS=${STREAMS:-3}
+  E4_STREAMS=${STREAMS:-} HLS_ADMIN_PW=$(rnd 16) HLS_CLIENT_PW=$(rnd 20) python3 - "$HLS/local.json" "${DOMAIN:-$IP}" "$( [ -n "$DOMAIN" ] && echo https || echo http)" "$EPG_DEFAULT" <<'P'
+import json, os, sys
+path, addr, proto, epg = sys.argv[1:5]
+new = not os.path.exists(path)
+c = {} if new else json.load(open(path, encoding="utf-8"))
+S = c.setdefault("SERVER", {})
+S.update({"protocol": proto, "address": addr, "port": 443 if proto == "https" else 80})
+if proto == "https": S.update({"key": "./tls/privkey.pem", "cert": "./tls/fullchain.pem"})
+else: S.pop("key", None); S.pop("cert", None)
+S.setdefault("password", os.environ["HLS_ADMIN_PW"])
+pls = c.setdefault("playlists", [])
+if not any(p.get("uri") == "./combined.m3u" for p in pls):
+    pls.insert(0, {"name": "Combined", "type": "file", "uri": "./combined.m3u", "plugin": "", "localCopy": "",
+                   "isUseLocalAceStreamMediaProxy": False, "aceStreamMediaProxyURL": "", "useLogos": True,
+                   "flussonicType": "index", "isPassThrough": False, "isManualUpdate": False, "isEnabled": True,
+                   "nameReplacer": [], "headers": {"value": "", "isPlaylist": True, "isM3U8": True, "isChunk": True},
+                   "remotePath": "", "ffmpegCommand": ""})
+c.setdefault("epg", {"tvGuideUrl": [epg], "historyDays": 3, "isKeepDbMatchedOnlyChannels": True})
+if not c.get("clients"):
+    c["clients"] = {"tv": {"name": "tv", "password": os.environ["HLS_CLIENT_PW"], "isAdultAllowed": True,
+                           "isHttp": proto == "http", "maxStreamCount": 3, "n": 0}}
+c.setdefault("maxSimultaneousStreamCountPerClientDefault", 3)
+n = os.environ.get("E4_STREAMS", "")
+if n.isdigit():   # лимит провайдера: на всех клиентов и по умолчанию
+    c["maxSimultaneousStreamCountPerClientDefault"] = int(n)
+    for cl in c.get("clients", {}).values():
+        if isinstance(cl, dict): cl["maxStreamCount"] = int(n)
+c.setdefault("isHtmlPlayerEnabled", False)
+c["isBackupStreams"] = True   # каналы с одинаковым названием = резервные потоки
+tmp = path + ".tmp"
+with open(tmp, "w", encoding="utf-8") as f: json.dump(c, f, ensure_ascii=False, indent=1)
+os.chmod(tmp, 0o600); os.replace(tmp, path)
+print("создан" if new else "обновлён")
+P
+  chown -R hlsproxy:hlsproxy "$HLS"; chmod 640 "$HLS/combined.m3u"
+  if [ ! -f /etc/systemd/system/hls-proxy.service ] || [ -f "$HLS/.installed-by-e4tv" ]; then
+    cat > /etc/systemd/system/hls-proxy.service <<EOF
+[Unit]
+Description=HLS Proxy for IPTV
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+User=hlsproxy
+Group=hlsproxy
+WorkingDirectory=$HLS
+ExecStart=$HLS/hls-proxy
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+NoNewPrivileges=true
+Restart=always
+RestartSec=5
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target
+EOF
+  fi
+  ok "HLS Proxy настроен"
+}
+
+write_config() {
+  EXT_IP=${EXT_IP:-$IP}; LAN=${LAN:-}
+  local scheme=http host=${DOMAIN:-$IP} eport editor pb hlsurl= epg
+  [ -n "$DOMAIN" ] && scheme=https
+  if [ "$MODE" = hls ]; then
+    eport=$( [ "$scheme" = https ] && echo 8443 || echo 8080 )
+    [ -z "$DOMAIN" ] && [[ ${ALT_PORT:-} =~ ^[0-9]{2,5}$ ]] && eport=$ALT_PORT
+    editor="$scheme://$host:$eport/"; hlsurl="$scheme://$host/"; epg="${hlsurl}epg.xml.gz"
+  else
+    eport=$( [ "$scheme" = https ] && echo 443 || echo 80 )
+    editor="$scheme://$host/"; epg=$EPG_DEFAULT
+  fi
+  pb="${editor}pl/"
+  [ "$ACCESS" = tunnel ] && editor="http://localhost:8095/ (через SSH-туннель)"
+  local tok; tok=$(conf_get main_token); [ -n "$tok" ] || tok=$(rnd 24)
+  python3 - "$ETC/config.json" <<P
+import json
+c = {"version": "$E4_VER", "mode": "$MODE", "domain": "$DOMAIN", "host": "$host", "scheme": "$scheme",
+     "address": "$IP", "hosts": sorted({"$host", "$IP", "$EXT_IP", "${LAN:-}"} - {""}), "access": "$ACCESS", "editor_url": "$editor", "editor_port": $eport,
+     "public_base": "$pb", "main_token": "$tok", "epg_url": "$EPG_DEFAULT", "player_epg": "$epg", "hls_url": "$hlsurl",
+     "data": "$DATA", "pl_dir": "$PL", "hls_dir": "$HLS", "listen": "127.0.0.1", "port": 8095,
+     "auth_file": "$ETC/auth.json", "editor_group": "e4tv"}
+json.dump(c, open("$ETC/config.json", "w"), ensure_ascii=False, indent=1)
+P
+  chmod 644 "$ETC/config.json"
+  EPORT=$eport SCHEME=$scheme
+  if [ "$ACCESS" = login ]; then
+    if [ -n "$PASSWORD" ] || [ ! -f "$ETC/auth.json" ]; then
+      [ -n "$PASSWORD" ] || { PASSWORD=$(rnd 14); GENPW=1; }
+      E4PW=$PASSWORD /usr/local/bin/e4tv _setauth "${USERNAME:-admin}" || die "Не удалось сохранить пароль"
+    elif [ -n "$USERNAME" ] && [ "$USERNAME" != "$(python3 -c 'import json;print(json.load(open("'"$ETC"'/auth.json"))["user"])' 2>/dev/null)" ]; then
+      warn "Логин меняется вместе с паролем: e4tv passwd"
+    fi
+  fi
+  ok "Настройки записаны в $ETC/config.json"
+}
+
+lsn() {   # строка listen; IPv6 — только если он есть на сервере (иначе nginx не запустится)
+  local o=${2:+ $2}
+  if [ -f /proc/net/if_inet6 ]; then echo "    listen $1$o; listen [::]:$1$o;"; else echo "    listen $1$o;"; fi
+}
+
+pl_locations() {
+  cat <<EOF
+    # плейлисты: /pl/<ссылка>.m3u8; если у плейлиста есть пароль — спросит логин tv и пароль
+    location ~ "^/pl/([A-Za-z0-9_-]{3,64})\\.m3u8?\$" {
+        set \$pl \$1;
+        if (-f $PL/auth/\$pl.htpasswd) { rewrite ^ /_auth/\$pl last; }
+        alias $PL/\$pl.m3u8;
+        types { } default_type "application/x-mpegURL; charset=utf-8";
+        add_header Cache-Control "no-store";
+    }
+    location ~ "^/_auth/([A-Za-z0-9_-]{3,64})\$" {
+        internal;
+        set \$pa \$1;
+        auth_basic "IPTV";
+        auth_basic_user_file $PL/auth/\$pa.htpasswd;
+        alias $PL/\$pa.m3u8;
+        types { } default_type "application/x-mpegURL; charset=utf-8";
+        add_header Cache-Control "no-store";
+    }
+EOF
+}
+
+editor_location() {
+  if [ "$ACCESS" = tunnel ]; then echo '    location / { return 404; }'; return; fi
+  cat <<'EOF'
+    location / {
+        proxy_pass http://127.0.0.1:8095;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_read_timeout 180s;
+        client_max_body_size 40m;
+    }
+EOF
+}
+
+write_nginx() {
+  local f=/etc/nginx/sites-available/evgen4ik-tv tls=
+  [ -n "$DOMAIN" ] && tls="    ssl_certificate     /etc/letsencrypt/live/$DOMAIN/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/$DOMAIN/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;"
+  # стандартный сайт nginx занимает 80 порт — убираем только его ссылку (сам файл остаётся)
+  [ -L /etc/nginx/sites-enabled/default ] && rm -f /etc/nginx/sites-enabled/default
+  {
+    echo "# Evgen4ik TV — создано установщиком, при повторной установке перезаписывается"
+    if [ -n "$DOMAIN" ]; then
+      echo "server {"
+      lsn 80
+      echo "    server_name $DOMAIN;"
+      echo "    access_log off;"
+      echo "    location /.well-known/acme-challenge/ { root $ACME; }"
+      pl_locations   # старые телевизоры без HTTPS тоже получат плейлист
+      echo '    location / { return 301 https://$host$request_uri; }'
+      echo "}"
+      echo "server {"
+      lsn "$EPORT" ssl
+      echo "    server_name $DOMAIN _;"
+      echo "    access_log off;"
+      echo "$tls"
+    else
+      echo "server {"
+      lsn "$EPORT" default_server
+      echo "    server_name _;"
+      echo "    access_log off;"
+    fi
+    pl_locations
+    editor_location
+    echo "}"
+  } > "$f"
+  ln -sf "$f" /etc/nginx/sites-enabled/evgen4ik-tv
+  nginx -t >/tmp/e4tv-nginx.log 2>&1 || { cat /tmp/e4tv-nginx.log; die "Ошибка в настройке nginx (см. выше)"; }
+  systemctl enable -q nginx; systemctl reload nginx 2>/dev/null || systemctl restart nginx
+  if [ -n "$DOMAIN" ]; then
+    install -d /etc/letsencrypt/renewal-hooks/deploy
+    cat > /etc/letsencrypt/renewal-hooks/deploy/e4tv.sh <<EOF
+#!/bin/sh
+# Evgen4ik TV: после продления сертификата
+case "\$RENEWED_DOMAINS" in *$DOMAIN*) ;; *) exit 0 ;; esac
+systemctl reload nginx
+if [ -f $HLS/local.json ] && grep -q '"$DOMAIN"' $HLS/local.json; then
+  install -o hlsproxy -g hlsproxy -m 600 /etc/letsencrypt/live/$DOMAIN/privkey.pem $HLS/tls/privkey.pem
+  install -o hlsproxy -g hlsproxy -m 644 /etc/letsencrypt/live/$DOMAIN/fullchain.pem $HLS/tls/fullchain.pem
+  systemctl restart hls-proxy
+fi
+EOF
+    chmod 755 /etc/letsencrypt/renewal-hooks/deploy/e4tv.sh
+  fi
+  ok "nginx настроен"
+}
+
+write_units() {
+  local U=/etc/systemd/system post=
+  if [ "$MODE" = hls ]; then
+    post="ExecStartPost=/bin/sh -c \"chown hlsproxy:hlsproxy $HLS/combined.m3u; chmod 640 $HLS/combined.m3u\"
+ExecStartPost=/bin/systemctl restart hls-proxy
+ExecStartPost=-/usr/bin/python3 $APP/lists.py --wait 180"
+  else
+    post="ExecStartPost=-/usr/bin/python3 $APP/lists.py"
+  fi
+  cat > $U/e4tv-editor.service <<EOF
+[Unit]
+Description=Evgen4ik TV — редактор плейлистов (127.0.0.1:8095)
+After=network.target
+
+[Service]
+User=e4tv
+Group=e4tv
+ExecStart=/usr/bin/python3 $APP/app.py
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=$DATA/editor
+
+[Install]
+WantedBy=multi-user.target
+EOF
+  cat > $U/e4tv-build.service <<EOF
+[Unit]
+Description=Evgen4ik TV — сборка плейлиста из источников
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+TimeoutStartSec=900
+ExecStart=/usr/bin/python3 $APP/build.py
+$post
+EOF
+  cat > $U/e4tv-build.path <<EOF
+[Unit]
+Description=Evgen4ik TV — пересборка по кнопке «Применить»
+
+[Path]
+PathModified=$DATA/editor/apply.trigger
+Unit=e4tv-build.service
+
+[Install]
+WantedBy=multi-user.target
+EOF
+  cat > $U/e4tv-build.timer <<EOF
+[Unit]
+Description=Evgen4ik TV — ежедневная пересборка (свежие ссылки провайдеров)
+
+[Timer]
+OnCalendar=*-*-* 05:15:00
+RandomizedDelaySec=1800
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+EOF
+  cat > $U/e4tv-lists.service <<EOF
+[Unit]
+Description=Evgen4ik TV — плейлисты для плееров
+After=hls-proxy.service
+
+[Service]
+Type=oneshot
+TimeoutStartSec=600
+ExecStart=/usr/bin/python3 $APP/lists.py --wait 60
+EOF
+  cat > $U/e4tv-lists.path <<EOF
+[Unit]
+Description=Evgen4ik TV — обновить плейлисты после сохранения
+
+[Path]
+PathModified=$DATA/editor/lists.trigger
+Unit=e4tv-lists.service
+
+[Install]
+WantedBy=multi-user.target
+EOF
+  cat > $U/e4tv-lists.timer <<EOF
+[Unit]
+Description=Evgen4ik TV — ежечасное обновление плейлистов (срок действия ссылок)
+
+[Timer]
+OnCalendar=hourly
+RandomizedDelaySec=120
+
+[Install]
+WantedBy=timers.target
+EOF
+  systemctl daemon-reload
+  if [ "$MODE" = hls ]; then systemctl enable -q --now hls-proxy; systemctl restart hls-proxy
+  elif [ -f "$HLS/.installed-by-e4tv" ]; then systemctl disable -q --now hls-proxy 2>/dev/null; warn "HLS Proxy остановлен (выбран режим без него). Файлы остались в $HLS."; fi
+  systemctl enable -q --now e4tv-editor.service e4tv-build.path e4tv-build.timer e4tv-lists.path e4tv-lists.timer
+  systemctl restart e4tv-editor.service
+  ok "Службы запущены"
+}
+
+firewall() {
+  command -v ufw >/dev/null && ufw status 2>/dev/null | grep -q "Status: active" || return 0
+  ufw allow 80/tcp >/dev/null; [ -n "$DOMAIN" ] && ufw allow 443/tcp >/dev/null
+  [ "$MODE" = hls ] && ufw allow "$EPORT/tcp" >/dev/null
+  ok "Открыты порты в ufw: 80$( [ -n "$DOMAIN" ] && echo ', 443')$( [ "$MODE" = hls ] && echo ", $EPORT")"
+}
+
+first_build_and_check() {
+  say "Первая сборка и проверка…"
+  systemctl start e4tv-build.service || warn "Первая сборка завершилась с ошибкой: e4tv logs"
+  local code i
+  for i in 1 2 3 4 5; do code=$(curl -s -o /dev/null -w '%{http_code}' -H "Host: 127.0.0.1" http://127.0.0.1:8095/login); [ "$code" = 200 ] || [ "$code" = 302 ] && break; sleep 1; done
+  [ "$code" = 200 ] || [ "$code" = 302 ] && ok "Редактор отвечает" || warn "Редактор не отвечает (код $code): journalctl -u e4tv-editor"
+  if [ "$MODE" = hls ]; then
+    sleep 3; systemctl is-active -q hls-proxy && ok "HLS Proxy работает" || warn "HLS Proxy не запустился: journalctl -u hls-proxy -n 50"
+  fi
+}
+
+final_report() {
+  local user; user=$(python3 -c 'import json;print(json.load(open("'"$ETC"'/auth.json"))["user"])' 2>/dev/null || echo admin)
+  local main; main="$(conf_get public_base)$(conf_get main_token).m3u8"
+  {
+    echo "Evgen4ik TV — доступ ($(date '+%d.%m.%Y %H:%M'))"
+    echo "Редактор:          $(conf_get editor_url)"
+    [ "$ACCESS" = login ] && echo "Логин:             $user"
+    [ "$ACCESS" = login ] && [ "${GENPW:-0}" = 1 ] && echo "Пароль:            $PASSWORD"
+    [ "$ACCESS" = tunnel ] && echo "Туннель с ПК:      ssh -N -L 8095:127.0.0.1:8095 root@$IP"
+    echo "Основной плейлист: $main"
+    echo "Программа (EPG):   $(conf_get player_epg)"
+    if [ "$MODE" = hls ]; then
+      echo "Панель HLS Proxy:  $(conf_get hls_url)"
+      echo "Потоков максимум:  $(python3 -c 'import json;print(json.load(open("'"$HLS"'/local.json")).get("maxSimultaneousStreamCountPerClientDefault","?"))') (сменить: e4tv streams N)"
+      echo "Пароль панели:     $(python3 -c 'import json;print(json.load(open("'"$HLS"'/local.json"))["SERVER"].get("password",""))')"
+    fi
+  } > "$CREDS"; chmod 600 "$CREDS"
+  echo
+  echo -e "${G}${B}══════════════ Готово! ══════════════${N}"
+  sed '1d' "$CREDS" | sed 's/^/  /'
+  echo
+  echo -e "${B}Дальше:${N}"
+  echo -e "  1. Откройте редактор$( [ "$ACCESS" = tunnel ] && echo ' (сначала туннель, см. выше)') → раздел «Источники»."
+  echo -e "  2. Выберите провайдера, вставьте ссылку на плейлист из его кабинета → «Сохранить и применить»."
+  echo -e "  3. Через минуту каналы появятся. Ссылку «Основной плейлист» вставьте в плеер (Televizo, OTT Navigator, TiviMate…)."
+  echo -e "  4. Свои подборки (детям, на кухню…) — «Объединённые плейлисты» → «+ Новый плейлист»."
+  echo
+  [ "${HOME_LAN:-0}" = 1 ] && echo -e "${Y}Сервер в домашней сети: плейлисты работают дома и пока этот компьютер включён.${N}"
+  echo -e "${D}Эти данные сохранены в $CREDS (виден только root).${N}"
+  echo -e "${D}Команды: e4tv info · e4tv status · e4tv passwd · e4tv logs${N}"
+  [ "$MODE" = hls ] && echo -e "${D}HLS Proxy — программа стороннего автора (hls-proxy.com), скачана с его сайта; условия использования — на сайте автора.${N}"
+  return 0
+}
+
+main() {
+  echo -e "${B}Evgen4ik TV ${E4_VER}${N} — установка редактора IPTV-плейлистов"
+  precheck
+  locate_src
+  command -v curl >/dev/null || { apt-get update -qq >/dev/null 2>&1; apt-get install -y -qq curl >/dev/null 2>&1; }
+  command -v python3 >/dev/null || { apt-get update -qq >/dev/null 2>&1; apt-get install -y -qq python3 >/dev/null 2>&1; }
+  EXT_IP=$(public_ip); IP=$EXT_IP; LAN=$(lan_ip); HOME_LAN=0
+  [ -n "$IP" ] || die "Не удалось узнать адрес сервера"
+  [ -f "$ETC/config.json" ] && [ -n "$(conf_get address)" ] && IP=$(conf_get address)
+  if [ -f "$ETC/config.json" ]; then
+    MODE_DEF=$( [ "$(conf_get mode)" = hls ] && echo 1 || echo 2 ); DOMAIN_DEF=$(conf_get domain); ACCESS_DEF=$(conf_get access)
+    STREAMS_DEF=$(python3 -c 'import json;print(json.load(open("'"$HLS"'/local.json")).get("maxSimultaneousStreamCountPerClientDefault",""))' 2>/dev/null)
+    USER_DEF=$(python3 -c 'import json;print(json.load(open("'"$ETC"'/auth.json"))["user"])' 2>/dev/null || echo admin)
+    if [ -z "$ACTION" ] && [ -z "$MODE" ]; then
+      echo; echo -e "Найдена установка $(cat "$APP/VERSION" 2>/dev/null || echo '?'): $( [ "$MODE_DEF" = 1 ] && echo 'с HLS Proxy' || echo 'без HLS Proxy'), ${DOMAIN_DEF:-$IP}"
+      echo -e "  ${B}1${N} — обновить программу, настройки и пароли оставить ${D}(по умолчанию)${N}"
+      echo -e "  ${B}2${N} — изменить настройки (режим, домен, вход)"
+      ask "Ваш выбор" 1; [ "$REPLY" = 2 ] && ACTION=reconfigure || ACTION=update
+    fi
+    if [ "$ACTION" = update ]; then
+      MODE=$(conf_get mode); DOMAIN=$DOMAIN_DEF; ACCESS=$ACCESS_DEF; YES=1
+      [ -z "$ALT_PORT" ] && [ "$MODE" = hls ] && [ -z "$DOMAIN" ] && ALT_PORT=$(conf_get editor_port)
+    fi
+  fi
+  if [ -n "$ADDR" ]; then IP=$ADDR; HOME_LAN=1
+  elif [ "$ACTION" != update ] && [ "$YES" != 1 ]; then IP=$EXT_IP; choose_address; fi
+  [ -z "$MODE" ] && [ "$YES" != 1 ] && wizard
+  MODE=${MODE:-direct}; ACCESS=${ACCESS:-login}; [ "$MODE" = hls ] || MODE=direct
+  case "$MODE" in direct|hls) ;; *) die "--mode: direct или hls";; esac
+  if [ "$ACTION" != update ]; then
+    for p in 80 443 8443 8080; do port_busy $p && warn "Порт $p уже занят другой программой: $(ss -ltnpH "sport = :$p" | grep -o 'users:(("[^"]*' | cut -d'"' -f2 | head -1)"; done
+    summary
+  fi
+  install_packages
+  install_files
+  get_cert
+  install_hlsproxy
+  write_config
+  write_nginx
+  write_units
+  firewall
+  first_build_and_check
+  final_report
+}
+
+# E4TV_SOURCE_ONLY=1 — только загрузить функции (для проверок)
+if [ "${E4TV_SOURCE_ONLY:-}" = 1 ]; then return 0 2>/dev/null || exit 0; fi
+main "$@"
+exit $?

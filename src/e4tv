@@ -1,0 +1,126 @@
+#!/bin/bash
+# Evgen4ik TV — управление на сервере. Справка: e4tv help
+set -u
+CONF=${E4TV_CONF:-/etc/evgen4ik-tv/config.json}
+APP=/opt/evgen4ik-tv
+UNITS="e4tv-editor.service e4tv-build.path e4tv-build.timer e4tv-lists.path e4tv-lists.timer"
+
+c() { python3 -c 'import json,sys; c=json.load(open(sys.argv[1])); v=c
+for k in sys.argv[2].split("."): v=v.get(k,"") if isinstance(v,dict) else ""
+print(v)' "$CONF" "$1" 2>/dev/null; }
+need_root() { [ "$(id -u)" = 0 ] || { echo "Нужны права root: sudo e4tv $*"; exit 1; }; }
+
+set_auth() {   # set_auth <логин> <пароль>  (пароль можно передать и через E4PW)
+  local file; file=$(c auth_file); file=${file:-/etc/evgen4ik-tv/auth.json}
+  E4PW="${2:-${E4PW:-}}" python3 - "$1" "$file" <<'P'
+import hashlib, json, os, secrets, sys
+user, path = sys.argv[1], sys.argv[2]
+pw = os.environ.get("E4PW", "")
+if len(pw) < 6: sys.exit("Пароль должен быть не короче 6 символов")
+salt, it = secrets.token_bytes(16), 200000
+h = hashlib.pbkdf2_hmac("sha256", pw.encode(), salt, it).hex()
+tmp = path + ".tmp"
+with open(tmp, "w") as f: json.dump({"user": user, "pbkdf2": f"{it}${salt.hex()}${h}", "secret": secrets.token_hex(32)}, f)
+os.chmod(tmp, 0o640)
+try:
+    import grp; os.chown(tmp, 0, grp.getgrnam("e4tv").gr_gid)
+except Exception: pass
+os.replace(tmp, path)
+P
+}
+
+info() {
+  echo "Режим:              $( [ "$(c mode)" = hls ] && echo 'с HLS Proxy' || echo 'без HLS Proxy (ссылки провайдера напрямую)')"
+  if [ "$(c access)" = tunnel ]; then
+    echo "Редактор:           только через SSH-туннель:"
+    echo "                    ssh -N -L 8095:127.0.0.1:8095 root@$(c host)   ->   http://localhost:8095"
+  else
+    echo "Редактор:           $(c editor_url)   (логин: $(python3 -c 'import json;print(json.load(open("'"$(c auth_file)"'"))["user"])' 2>/dev/null || echo '?'))"
+  fi
+  local t; t=$(c main_token)
+  [ -n "$t" ] && echo "Основной плейлист:  $(c public_base)$t.m3u8"
+  echo "Программа (EPG):    $(c player_epg)"
+  [ "$(c mode)" = hls ] && echo "Панель HLS Proxy:   $(c hls_url)"
+  return 0
+}
+
+case "${1:-help}" in
+  info|url) info ;;
+  status)
+    info; echo
+    for u in $UNITS hls-proxy.service nginx.service; do
+      [ "$u" = hls-proxy.service ] && [ "$(c mode)" != hls ] && continue
+      printf '  %-22s %s\n' "$u" "$(systemctl is-active "$u" 2>/dev/null)"
+    done
+    echo; echo "Последняя сборка:"; systemctl show e4tv-build.service -p Result -p ExecMainExitTimestamp 2>/dev/null | sed 's/^/  /'
+    python3 -c 'import json,sys; s=json.load(open(sys.argv[1])); print("  "+s.get("built_at","—")); [print("  "+l) for l in s.get("log",[])[-6:]]' "$(c data)/editor/state.json" 2>/dev/null || true ;;
+  passwd)
+    need_root "$@"
+    [ "$(c access)" = tunnel ] && echo "Сейчас вход только через SSH-туннель — пароль сохранится на случай, если включите вход по паролю."
+    old=$(python3 -c 'import json;print(json.load(open("'"$(c auth_file)"'"))["user"])' 2>/dev/null || echo admin)
+    read -r -p "Логин [$old]: " u; u=${u:-$old}
+    read -r -s -p "Новый пароль (Enter — придумать автоматически): " p; echo
+    if [ -z "$p" ]; then p=$(python3 -c 'import secrets,string;a=string.ascii_letters+string.digits;print("".join(secrets.choice(a) for _ in range(14)))'); gen=1
+    else read -r -s -p "Ещё раз: " p2; echo; [ "$p" = "$p2" ] || { echo "Пароли не совпали"; exit 1; }; gen=0; fi
+    set_auth "$u" "$p" || exit 1
+    echo "Готово. Все открытые сеансы редактора завершены."
+    [ $gen = 1 ] && echo "Логин: $u   Пароль: $p" ;;
+  _setauth) need_root "$@"; set_auth "$2" ;;
+  streams)
+    [ "$(c mode)" = hls ] || { echo "Лимит потоков есть только в режиме с HLS Proxy"; exit 1; }
+    L="$(c hls_dir)/local.json"
+    if [ -z "${2:-}" ]; then python3 -c 'import json,sys;print("Сейчас: не больше", json.load(open(sys.argv[1])).get("maxSimultaneousStreamCountPerClientDefault","?"), "каналов одновременно")' "$L"; exit 0; fi
+    need_root "$@"
+    [[ $2 =~ ^[0-9]+$ ]] && [ "$2" -ge 1 ] && [ "$2" -le 50 ] || { echo "Нужно число от 1 до 50"; exit 1; }
+    python3 - "$L" "$2" <<'P'
+import json, os, sys
+p, n = sys.argv[1], int(sys.argv[2])
+c = json.load(open(p, encoding="utf-8"))
+c["maxSimultaneousStreamCountPerClientDefault"] = n
+for cl in c.get("clients", {}).values():
+    if isinstance(cl, dict): cl["maxStreamCount"] = n
+st = os.stat(p); tmp = p + ".tmp"
+with open(tmp, "w", encoding="utf-8") as f: json.dump(c, f, ensure_ascii=False, indent=1)
+os.chown(tmp, st.st_uid, st.st_gid); os.chmod(tmp, 0o600); os.replace(tmp, p)
+P
+    python3 - "$(c data)/editor/rules.json" "$2" <<'P'
+import json, os, sys
+p, n = sys.argv[1], int(sys.argv[2])
+try: r = json.load(open(p, encoding="utf-8"))
+except Exception: sys.exit(0)
+if not isinstance(r, dict): sys.exit(0)
+r["stream_limit"] = n   # чтобы редактор показывал то же число и не вернул старое при следующей сборке
+st = os.stat(p); tmp = p + ".tmp"
+with open(tmp, "w", encoding="utf-8") as f: json.dump(r, f, ensure_ascii=False, indent=1)
+os.chown(tmp, st.st_uid, st.st_gid); os.chmod(tmp, 0o640); os.replace(tmp, p)
+P
+    systemctl restart hls-proxy && echo "Готово: не больше $2 каналов одновременно. HLS Proxy перезапущен." ;;
+  rebuild)
+    need_root "$@"; date +%s > "$(c data)/editor/apply.trigger"; echo "Пересборка запущена. Ход: e4tv logs" ;;
+  logs) journalctl -u e4tv-build -u e4tv-lists -u e4tv-editor -n "${2:-80}" --no-pager ;;
+  uninstall)
+    need_root "$@"
+    echo "Будут удалены службы e4tv-*, программа $APP, сайт nginx evgen4ik-tv и команда e4tv."
+    [ "${2:-}" = --purge ] && echo "А также ВСЕ данные: правила, плейлисты, настройки и HLS Proxy (если ставился этим установщиком)."
+    read -r -p "Для подтверждения введите УДАЛИТЬ: " a; [ "$a" = "УДАЛИТЬ" ] || { echo "Отменено"; exit 1; }
+    systemctl disable --now $UNITS e4tv-build.service e4tv-lists.service 2>/dev/null
+    rm -f /etc/systemd/system/e4tv-*.service /etc/systemd/system/e4tv-*.path /etc/systemd/system/e4tv-*.timer
+    rm -f /etc/nginx/sites-enabled/evgen4ik-tv /etc/nginx/sites-available/evgen4ik-tv /etc/letsencrypt/renewal-hooks/deploy/e4tv.sh
+    systemctl reload nginx 2>/dev/null
+    if [ "${2:-}" = --purge ]; then
+      if [ -f /opt/hls-proxy/.installed-by-e4tv ]; then systemctl disable --now hls-proxy 2>/dev/null; rm -rf /opt/hls-proxy /etc/systemd/system/hls-proxy.service; fi
+      rm -rf "$(c data)" "$(c pl_dir)" /etc/evgen4ik-tv
+    fi
+    systemctl daemon-reload; rm -rf "$APP"; rm -f /usr/local/bin/e4tv
+    echo "Удалено." ;;
+  *) cat <<'H'
+e4tv info       — ссылки: редактор, основной плейлист, EPG
+e4tv status     — состояние служб и последней сборки
+e4tv passwd     — сменить логин/пароль редактора
+e4tv rebuild    — пересобрать плейлист сейчас
+e4tv streams N  — сколько каналов одновременно (лимит провайдера, режим с HLS Proxy)
+e4tv logs [N]   — последние строки журнала
+e4tv uninstall [--purge] — удалить (с --purge — вместе с данными)
+H
+  ;;
+esac
