@@ -153,7 +153,7 @@ def validate(r):
     out["primary_source"] = s(r.get("primary_source"), 40) or None
     fids = set()
     for x in (r.get("free_sources") or [])[:20]:   # отдельные плейлисты: только для своих плейлистов, ссылки напрямую
-        if not isinstance(x, dict) or not s(x.get("name"), 40) or not isinstance(x.get("url"), str) or not re.match(r"^(https?://[^\s\"]{1,2000}|e4://[a-z0-9-]{1,32})$", x["url"].strip()): continue
+        if not isinstance(x, dict) or not s(x.get("name"), 40) or not isinstance(x.get("url"), str) or not (re.match(r"^(https?://[^\s\"]{1,2000}|e4://[a-z0-9-]{1,32})$", x["url"].strip()) or FILE_RX.match(x["url"].strip())): continue
         fid = str(x.get("id") or "")
         if not re.fullmatch(r"[a-z0-9]{1,16}", fid) or fid in fids: fid = secrets.token_hex(4)
         fids.add(fid)
@@ -353,7 +353,7 @@ def save_upload(body):
 
 
 def clean_uploads(rules):
-    used = {m.group(1) for x in rules.get("sources", []) for m in [FILE_RX.match(x.get("url", ""))] if m}
+    used = {m.group(1) for x in (rules.get("sources") or []) + (rules.get("free_sources") or []) for m in [FILE_RX.match(x.get("url", ""))] if m}   # файлы своих источников и отдельных плейлистов
     for f in glob.glob(f"{UPLOADS}/*.m3u"):
         if os.path.basename(f)[:-4] not in used and time.time() - os.path.getmtime(f) > 86400:
             try: os.remove(f)

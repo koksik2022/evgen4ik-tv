@@ -414,8 +414,8 @@ function renderLbar(){
         <span class="muted">в плейлисте <b style="color:var(--ink)">${listCount(L)}</b> каналов${st?` · в файле ${st.channels}, групп ${st.groups??"—"}`:""}</span></div></div>
     <div class="card"><h2>Источники</h2><p class="hint">Брать каналы только из отмеченных. Ничего не отмечено — из всех${R.lists_only_sources.length?", кроме «только для плейлистов» ("+esc(R.lists_only_sources.join(", "))+")":""}.</p>
       <div class="srcs">${srcs.map(n=>`<label><input type="checkbox" class="lSrc" value="${esc(n)}" ${(L.sources||[]).includes(n)?"checked":""}> ${esc(n)}</label>`).join("")}</div>
-      <div class="linkrow" style="margin-top:12px"><input type="text" id="lUrl" placeholder="Вставьте ссылку на любой M3U-плейлист" spellcheck="false"><button id="lUrlAdd" class="primary">Загрузить</button></div>
-      <small class="muted">Каналы появятся слева — отмечайте нужные, справа соберётся ваш плейлист.</small></div>
+      <div class="linkrow" style="margin-top:12px"><input type="text" id="lUrl" placeholder="Вставьте ссылку на любой M3U-плейлист" spellcheck="false"><button id="lUrlAdd" class="primary">Загрузить</button><button id="lFileBtn" title="Файл .m3u / .m3u8 с компьютера, до 30 МБ">Из файла…</button><input type="file" id="lFile" accept=".m3u,.m3u8,.txt,audio/x-mpegurl,application/vnd.apple.mpegurl" hidden></div>
+      <small class="muted">Ссылка или файл .m3u с компьютера. Каналы появятся слева — отмечайте нужные, справа соберётся ваш плейлист.</small></div>
     <div class="card"><h2>Нумерация каналов</h2><p class="hint">Проставить номера (tvg-chno) по порядку — для телевизоров и плееров с переключением по номеру.</p>
       <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><label class="switch"><input type="checkbox" id="lNumOn" ${L.chno?"checked":""}><i></i>Нумеровать</label>
       <label class="muted">с номера <input type="number" id="lNum" min="1" max="99999" value="${L.chno||1}" style="width:90px" ${L.chno?"":"disabled"}></label></div></div>
@@ -589,6 +589,7 @@ $("lbar").addEventListener("click",e=>{const id=e.target.id, L=LL(); if(!L) retu
   if(id==="lCopyEpg"){copyText(EPG_URL,"Ссылка на EPG скопирована");return}
   if(id==="lOpen"){window.open($("lLink").value,"_blank","noopener");return}
   if(id==="lUrlAdd"){addUrl();return}
+  if(id==="lFileBtn"){$("lFile").value="";$("lFile").click();return}
   if(id==="lQr"){showQr($("lLink").value,L.name);return}
   if(id==="lQrS"){showQr(shortLink(L),L.name+" — короткая ссылка");return}
   if(id==="lCopyS"){copyText(shortLink(L),"Короткая ссылка скопирована");return}
@@ -798,6 +799,15 @@ async function addUrl(){const L=LL(), u=$("lUrl").value.trim(); if(!L) return;
   const f=addFree(u,host); lsrc="f:"+f.id; q=""; await loadExt(lsrc);
   const E=EXT[lsrc]; if(E&&E.chans) toast(`Загружено ${E.chans.length} каналов из «${f.name}». Отметьте нужные и нажмите «Сохранить»`);
   else if(E&&E.error) toast("Не загрузилось: "+E.error)}
+async function addFile(f){const L=LL(); if(!L||!f) return;
+  if(f.size>30*1024*1024){toast("Файл больше 30 МБ");return}
+  toast("Загружаю «"+f.name+"»…");
+  try{const r=await fetch("/api/upload",{method:"POST",headers:{"Content-Type":"application/json","X-M3U-Editor":"1"},body:JSON.stringify({data:await f.text()})}); const j=await r.json();
+    if(!r.ok){toast("Не загрузилось: "+(j.error||r.status));return}
+    const fr=addFree(j.url,f.name.replace(/\.(m3u8?|txt)$/i,"")||"Файл","file"); lsrc="f:"+fr.id; q=""; markDirty(); await loadExt(lsrc); render();
+    const E=EXT[lsrc]; if(E&&E.chans) toast(`Загружено ${E.chans.length} каналов из файла «${fr.name}». Отметьте нужные и нажмите «Сохранить»`);
+    else if(E&&E.error) toast("Не загрузилось: "+E.error)}catch(err){toast("Ошибка: "+err)}}
+$("lbar").addEventListener("change",e=>{if(e.target.id==="lFile") addFile(e.target.files[0])});
 function renderSrcbar(){
   $("srcbar").innerHTML=`<label class="muted">Откуда брать каналы</label><select id="lsrcSel"><option value="main">Основной плейлист</option>
     ${R.sources.length?`<optgroup label="Свои источники">${R.sources.map(x=>`<option value="${esc(x.name)}"${lsrc===x.name?" selected":""}>${esc(x.name)}</option>`).join("")}</optgroup>`:""}
@@ -953,8 +963,9 @@ const ICON={
  by:SV('<rect width="30" height="20" fill="#c8313e"/><rect y="13.33" width="30" height="6.67" fill="#4aa657"/><rect width="4" height="20" fill="#fff"/><path d="M2 1l1.3 1.6L2 4.2 0.7 2.6zM2 6l1.3 1.6L2 9.2 0.7 7.6zM2 11l1.3 1.6L2 14.2 0.7 12.6zM2 16l1.3 1.6L2 19.2 0.7 17.6z" fill="#c8313e"/>'),
  kz:SV('<rect width="30" height="20" fill="#00afca"/><circle cx="16" cy="9" r="3.6" fill="#fec50c"/><g stroke="#fec50c" stroke-width=".9">'+[0,30,60,90,120,150,180,210,240,270,300,330].map(a=>{const r=a*Math.PI/180;return `<line x1="${16+4.6*Math.cos(r)}" y1="${9+4.6*Math.sin(r)}" x2="${16+6*Math.cos(r)}" y2="${9+6*Math.sin(r)}"/>`}).join("")+'</g><path d="M9 15.5q7 3 14 0" stroke="#fec50c" stroke-width="1.2" fill="none"/><rect x="1.5" y="1" width="1.6" height="18" fill="#fec50c" opacity=".85"/>'),
  rus:'<span style="font:800 13px Georgia,serif;letter-spacing:-.5px">Аа</span>', kids:'<span style="font-size:19px">🧸</span>', movies:'<span style="font-size:19px">🎬</span>', music:'<span style="font-size:19px">🎧</span>', freetv:'<span style="font-size:19px">📺</span>'};
+ICON.file='<span style="font-size:19px">📄</span>';
 ICON.rumusic=ICON.ru.replace("<svg",'<svg style="border-radius:6px"')+'<span style="position:absolute;right:0;bottom:-1px;font-size:14px;filter:drop-shadow(0 1px 1px rgba(0,0,0,.4))">🎵</span>';
-const ICBG={rumusic:"#fff",ru:"#fff",by:"#c8313e",kz:"#00afca",rus:"#2563eb",kids:"#f472b6",movies:"#7c3aed",music:"#ccfbf1",freetv:"#334155"};
+const ICBG={rumusic:"#fff",ru:"#fff",by:"#c8313e",kz:"#00afca",rus:"#2563eb",kids:"#f472b6",movies:"#7c3aed",music:"#ccfbf1",freetv:"#334155",file:"#334155"};
 let galSel=null;
 const tile=(id,ab,name,sub,c,cls)=>`<button class="ptile${galSel===id?" on":""}${cls||""}" data-pv="${id}"><span class="plg" style="background:${c}">${ab}</span><b>${esc(name)}</b><span>${sub}</span></button>`;
 function uniqName(n){const taken=new Set([...allSources(),"Свой"]); let x=n.slice(0,40), i=2; while(taken.has(x)) x=n.slice(0,36)+" "+(i++); return x}
@@ -1054,7 +1065,7 @@ function renderSettings(page){
     :(rec?`<div class="card"><h2>Лимит провайдера</h2><p class="hint" style="margin:0">Без HLS Proxy каждый телевизор подключается к провайдеру сам. По лимиту ${esc(rec.by.join(", "))} одновременно можно смотреть не больше <b>${rec.n}</b> устройствам — иначе провайдер может заблокировать просмотр.</p></div>`:"");
   const galCard=renderGallery(bs);
   const frCard=R.free_sources.length?`<div class="card"><h2>Отдельные плейлисты</h2><p class="hint">Не входят в основной плейлист. Их каналы попадают только в ваши плейлисты (раздел «Объединённые плейлисты» → «Откуда брать каналы»), ссылки напрямую. Обновляются сами раз в 6 часов.</p>
-    ${R.free_sources.map(f=>`<div class="srow" data-fid="${esc(f.id)}" style="grid-template-columns:40px 200px 1fr auto auto auto"><span class="plg" style="background:${ICBG[f.ic]||"#24292f"}">${ICON[f.ic]||"GH"}</span><b>${esc(f.name)}</b><span class="st"${f.url.startsWith("e4://")?"":' style="word-break:break-all"'}>${f.url.startsWith("e4://")?presetSub(f)+" · собирает сервер, обновляется раз в 6 часов":esc(f.url)}</span>
+    ${R.free_sources.map(f=>`<div class="srow" data-fid="${esc(f.id)}" style="grid-template-columns:40px 200px 1fr auto auto auto"><span class="plg" style="background:${ICBG[f.ic]||"#24292f"}">${ICON[f.ic]||"GH"}</span><b>${esc(f.name)}</b><span class="st"${f.url.startsWith("e4://")?"":' style="word-break:break-all"'}>${f.url.startsWith("e4://")?presetSub(f)+" · собирает сервер, обновляется раз в 6 часов":f.url.startsWith("file://")?"файл с компьютера · не обновляется сам (чтобы обновить — загрузите файл заново)":esc(f.url)}</span>
       <button class="fCh primary" title="Посмотреть, какие каналы внутри">Каналы${freeCount(f)?" ("+freeCount(f)+")":""} ›</button>${f.url.startsWith("e4://")?"<span></span>":'<button class="fChk">Проверить</button>'}<button class="fDel danger">Удалить</button></div>`).join("")}<div class="chk-res" id="frChk" style="margin-top:8px"></div></div>`:"";
   const fltCard=`
   <div class="card"><h2>Автоскрытие групп по шаблону</h2>
