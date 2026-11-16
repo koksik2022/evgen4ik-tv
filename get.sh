@@ -8,7 +8,7 @@ main() {
   set -euo pipefail
   local VER="1.2" SHA="671dddaa36e809aaf8b615208dda2d20de69a394ebd4483b49a7d34b68bef1ae" NAME="evgen4ik-tv-install.sh"
   local SOURCES=(
-    "https://raw.githubusercontent.com/koksik2022/evgen4ik-tv/v1.2/$NAME"
+    "https://raw.githubusercontent.com/koksik2022/evgen4ik-tv/6295164e7f4df0d01b5204bb275405a0dd48c46c/$NAME"
     "https://github.com/koksik2022/evgen4ik-tv/releases/download/v1.2/$NAME"
   )
   [ -n "${E4_SOURCE:-}" ] && SOURCES=("$E4_SOURCE")   # свой адрес: E4_SOURCE=https://.../evgen4ik-tv-install.sh
