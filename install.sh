@@ -8,9 +8,10 @@
 # Повторный запуск обновляет программу и сохраняет настройки.
 set -uo pipefail
 
-E4_VER="2.2"
+E4_VER="2.3"
 HLSP_VER="8.4.8"
 HLSP_URL="https://www.hls-proxy.com/downloads/${HLSP_VER}/hls-proxy-${HLSP_VER}.linux-x64.zip"
+HLSP_SHA256=""   # SHA-256 архива этой версии; пусто — не сверяется (установщик только покажет сумму скачанного)
 APP=/opt/evgen4ik-tv
 ETC=/etc/evgen4ik-tv
 DATA=/var/lib/evgen4ik-tv
@@ -199,7 +200,7 @@ install_files() {
   for f in app.py build.py lists.py e4conf.py index.html login.html; do install -m 644 "$SRC/$f" "$APP/$f"; done
   install -d -m 755 "$APP/lib"; install -m 644 "$SRC"/lib/* "$APP/lib/"   # плееры hls.js и mpegts.js (Apache-2.0)
   install -m 755 "$SRC/e4tv" /usr/local/bin/e4tv
-  for t in apply.trigger lists.trigger; do [ -f "$DATA/editor/$t" ] || install -m 640 -o e4tv -g e4tv /dev/null "$DATA/editor/$t"; done
+  for t in apply.trigger lists.trigger update.trigger; do [ -f "$DATA/editor/$t" ] || install -m 640 -o e4tv -g e4tv /dev/null "$DATA/editor/$t"; done
   if [ ! -f "$DATA/editor/rules.json" ]; then   # новая установка: лимит каналов «Авто», если не задан --streams
     if [[ ${STREAMS:-} =~ ^[0-9]+$ ]] && [ "$STREAMS" -le 50 ]; then echo "{\"stream_limit_mode\": \"manual\", \"stream_limit\": $((10#$STREAMS))}"
     else echo '{"stream_limit_mode": "auto"}'; fi > "$DATA/editor/rules.json"
@@ -247,6 +248,10 @@ install_hlsproxy() {
     local t; t=$(mktemp -d)
     curl -fL --max-time 300 -o "$t/h.zip" "$HLSP_URL" >/dev/null 2>&1 || { rm -rf "$t"; die "Не удалось скачать HLS Proxy: $HLSP_URL
   Скачайте архив вручную, распакуйте в $HLS и запустите установщик снова, или выберите режим без HLS Proxy."; }
+    local hs; hs=$(sha256sum "$t/h.zip" | cut -d' ' -f1)
+    if [ -n "$HLSP_SHA256" ] && [ "$hs" != "$HLSP_SHA256" ]; then rm -rf "$t"; die "Архив HLS Proxy не совпал с ожидаемым (SHA-256 $hs).
+  Возможно, его подменили или автор выложил новую сборку. Установка остановлена."; fi
+    [ -n "$HLSP_SHA256" ] && ok "Архив HLS Proxy проверен (SHA-256)" || warn "SHA-256 архива HLS Proxy: $hs (сверять не с чем)"
     unzip -q "$t/h.zip" -d "$t/x" || { rm -rf "$t"; die "Архив HLS Proxy повреждён"; }
     local bin; bin=$(find "$t/x" -maxdepth 3 -type f -name hls-proxy | head -1)
     [ -n "$bin" ] || { rm -rf "$t"; die "В архиве HLS Proxy не найден файл hls-proxy"; }
@@ -573,6 +578,28 @@ RandomizedDelaySec=120
 [Install]
 WantedBy=timers.target
 EOF
+  cat > $U/e4tv-update.service <<EOF
+[Unit]
+Description=Evgen4ik TV — обновление по кнопке в редакторе
+After=network-online.target
+
+[Service]
+Type=oneshot
+TimeoutStartSec=1200
+# get.sh сам сверяет SHA-256 установщика; журнал — только для root (в нём пароль панели HLS Proxy)
+ExecStart=/bin/sh -c 'umask 077; exec /usr/local/bin/e4tv update > /var/log/e4tv-update.log 2>&1'
+EOF
+  cat > $U/e4tv-update.path <<EOF
+[Unit]
+Description=Evgen4ik TV — кнопка «Обновить» в редакторе
+
+[Path]
+PathModified=$DATA/editor/update.trigger
+Unit=e4tv-update.service
+
+[Install]
+WantedBy=multi-user.target
+EOF
   cat > $U/e4tv-activity.service <<EOF
 [Unit]
 Description=Evgen4ik TV — кто открывал плейлисты (журнал nginx)
@@ -595,7 +622,7 @@ EOF
   systemctl daemon-reload
   if [ "$MODE" = hls ]; then systemctl enable -q --now hls-proxy; systemctl restart hls-proxy
   elif [ -f "$HLS/.installed-by-e4tv" ]; then systemctl disable -q --now hls-proxy 2>/dev/null; warn "HLS Proxy остановлен (выбран режим без него). Файлы остались в $HLS."; fi
-  systemctl enable -q --now e4tv-editor.service e4tv-build.path e4tv-build.timer e4tv-lists.path e4tv-lists.timer e4tv-activity.timer
+  systemctl enable -q --now e4tv-editor.service e4tv-build.path e4tv-build.timer e4tv-lists.path e4tv-lists.timer e4tv-activity.timer e4tv-update.path
   systemctl restart e4tv-editor.service
   ok "Службы запущены"
 }
@@ -647,7 +674,12 @@ final_report() {
   echo
   [ "${HOME_LAN:-0}" = 1 ] && echo -e "${Y}Сервер в домашней сети: плейлисты работают дома и пока этот компьютер включён.${N}"
   echo -e "${D}Эти данные сохранены в $CREDS (виден только root).${N}"
-  echo -e "${D}Команды: e4tv info · e4tv status · e4tv passwd · e4tv token · e4tv logs${N}"
+  if [ -z "$DOMAIN" ] && [ "$ACCESS" != tunnel ] && ! [[ ${IP:-} =~ ^(10\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[01])\.|127\.) ]]; then
+    echo; warn "Редактор открыт по http на внешнем адресе — логин и пароль идут по сети открытым текстом."
+    echo "    Лучше: подключите домен (запустите установщик снова и укажите домен — сертификат получится сам)"
+    echo "    или включите вход только через SSH-туннель (установщик → «изменить настройки»)."
+  fi
+  echo -e "${D}Команды: e4tv info · e4tv status · e4tv passwd · e4tv token · e4tv update · e4tv logs${N}"
   [ "$MODE" = hls ] && echo -e "${D}HLS Proxy — программа стороннего автора (hls-proxy.com), скачана с его сайта; условия использования — на сайте автора.${N}"
   return 0
 }

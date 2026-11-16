@@ -298,6 +298,26 @@ const clean=s=>String(s||"").replace(/[\x00-\x1f\x7f"]/g," ").trim().slice(0,100
 const URLRX=/^(https?|rtmp|rtsp|udp|rtp):\/\/[^\s"]{1,2000}$/i;
 let EPG_URL="", CONF={}, booted=false;
 const PAGES={clients:"Клиенты",client:"Клиент",plist:"Объединённые плейлисты",lists:"Объединённые плейлисты",main:"Группы и каналы",sources:"Источники",filters:"Автоскрытие групп",history:"История и резервные копии",rules:"Постоянные правила"};
+// ---------- версия и обновление по кнопке ----------
+let VER={}, verPoll=null, verShown=false;
+async function checkVersion(force){try{VER=await (await fetch("/api/version"+(force?"?force=1":""))).json()}catch(e){return} showVer();
+  if(VER.newer&&!verShown){verShown=true; toast("Доступна новая версия "+VER.latest+" — кнопка «Обновить» внизу слева")}}
+const PLAIN_HTTP=location.protocol==="http:"&&!/^(localhost|127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|\[?::1)/.test(location.hostname);
+function showVer(){const el=$("verbox"); if(!el) return;
+  const hw=PLAIN_HTTP&&CONF.login?'<div class="st-bad" style="margin-top:4px" title="Подключите домен (HTTPS) или вход только через SSH-туннель: установщик → «изменить настройки»">⚠ вход по http — пароль идёт открытым текстом</div>':"";
+  if(VER.updating){el.innerHTML='⏳ Обновляется… редактор перезапустится сам'+hw; return}
+  el.innerHTML=`Версия ${esc(VER.current||CONF.version||"?")}${VER.newer?` · <b style="color:var(--accent)">есть ${esc(VER.latest)}</b> <button class="sm primary" id="verUpd">Обновить</button>`:VER.latest?' · последняя':""}`+
+    (VER.last_result&&VER.last_result!=="success"?' · <span class="st-bad" title="Подробности на сервере: /var/log/e4tv-update.log">прошлое обновление не удалось</span>':"")+hw}
+$("sidefoot").addEventListener("click",async e=>{if(e.target.id!=="verUpd") return;
+  if(!VER.can_update){copyText("sudo e4tv update","Команда «sudo e4tv update» скопирована — выполните её на сервере");return}
+  if(!confirm("Обновить Evgen4ik TV до "+VER.latest+"?\nНастройки, плейлисты, клиенты и ссылки сохранятся. Редактор перезапустится, просмотр через HLS Proxy прервётся на несколько секунд.")) return;
+  const r=await fetch("/api/update",{method:"POST",headers:{"Content-Type":"application/json","X-M3U-Editor":"1"},body:"{}"}); const j=await r.json().catch(()=>({}));
+  if(!r.ok){toast(j.error||"Не удалось запустить обновление");return}
+  VER.updating=true; showVer(); const was=VER.current, t0=Date.now(); clearInterval(verPoll);
+  verPoll=setInterval(async()=>{try{const v=await (await fetch("/api/version")).json();
+      if(v.current&&v.current!==was){clearInterval(verPoll); toast("Обновлено до "+v.current+" — перезагружаю страницу"); setTimeout(()=>location.reload(),2500); return}
+      if(!v.updating&&Date.now()-t0>20000){clearInterval(verPoll); VER=v; showVer(); toast(v.last_result==="success"?"Готово":"Обновление не удалось — подробности на сервере в /var/log/e4tv-update.log")}}
+    catch(e){/* редактор перезапускается */}},5000)});
 function toast(t){const e=$("toast");e.textContent=t;e.classList.add("on");clearTimeout(e._t);e._t=setTimeout(()=>e.classList.remove("on"),3200)}
 function norm(r){r=r||{};return{version:1,hidden_patterns:r.hidden_patterns||(ST&&ST.default_hidden)||[],groups:r.groups||{},channels:r.channels||{},
   group_order:r.group_order||[],custom_groups:r.custom_groups||[],custom_channels:r.custom_channels||[],lists:r.lists||[],
@@ -310,7 +330,7 @@ async function load(){
   const r=await fetch("/api/state");const j=await r.json();
   ST=j.state; BASE=j.public_base||""; LST=(j.status&&j.status.lists)||{}; ACTV=(j.status&&j.status.activity)||{}; XCA=(j.status&&j.status.xc)||{};
   CONF=j.conf||{}; EPG_URL=CONF.epg_url||"";
-  $("sidefoot").innerHTML=esc(CONF.host||location.host)+(CONF.login?' · <a href="/logout">Выйти</a>':"");
+  $("sidefoot").innerHTML=esc(CONF.host||location.host)+(CONF.login?' · <a href="/logout">Выйти</a>':"")+'<div id="verbox" style="margin-top:4px"></div>'; checkVersion();
   if(!ST){$("clist").innerHTML='<div class="empty">Снимок каналов ещё не создан. Нажмите «Сохранить и применить», чтобы запустить первую сборку.</div>'}
   R=norm(j.rules); saved=JSON.stringify(R); checked.clear(); openU=null; addOpen=false;
   if(!booted){booted=true; if(!R.sources.length&&!(ST&&ST.channels&&ST.channels.length)) mode="sources"}   // первый запуск: сразу к источникам

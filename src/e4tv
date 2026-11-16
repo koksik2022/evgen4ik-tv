@@ -3,7 +3,7 @@
 set -u
 CONF=${E4TV_CONF:-/etc/evgen4ik-tv/config.json}
 APP=/opt/evgen4ik-tv
-UNITS="e4tv-editor.service e4tv-build.path e4tv-build.timer e4tv-lists.path e4tv-lists.timer e4tv-activity.timer"
+UNITS="e4tv-editor.service e4tv-build.path e4tv-build.timer e4tv-lists.path e4tv-lists.timer e4tv-activity.timer e4tv-update.path"
 
 c() { python3 -c 'import json,sys; c=json.load(open(sys.argv[1])); v=c
 for k in sys.argv[2].split("."): v=v.get(k,"") if isinstance(v,dict) else ""
@@ -120,6 +120,13 @@ P
     systemctl start e4tv-lists.service || echo "Сборка завершилась с ошибкой: e4tv logs"
     pl=$(c pl_dir); [ -n "$old" ] && rm -f "$pl/$old.m3u8"
     echo; echo "Готово. Новый основной плейлист:  $(c public_base)$(c main_token).m3u8" ;;
+  update)
+    need_root "$@"
+    U=$(c update_url); U=${U:-https://raw.githubusercontent.com/koksik2022/evgen4ik-tv/main/get.sh}
+    echo "Обновляю Evgen4ik TV с $U (настройки, плейлисты и ссылки сохранятся)…"
+    T=$(mktemp /tmp/e4tv-get.XXXXXX)
+    curl -fsSL --retry 2 --connect-timeout 20 -o "$T" "$U" || { rm -f "$T"; echo "Не удалось скачать $U"; exit 1; }
+    exec bash "$T" --update --yes ;;   # exec: установщик перезапишет этот файл; get.sh сам сверяет SHA-256 установщика
   rebuild)
     need_root "$@"; date +%s > "$(c data)/editor/apply.trigger"; echo "Пересборка запущена. Ход: e4tv logs" ;;
   logs) journalctl -u e4tv-build -u e4tv-lists -u e4tv-editor -n "${2:-80}" --no-pager ;;
@@ -143,6 +150,7 @@ e4tv info       — ссылки: редактор, основной плейл�
 e4tv status     — состояние служб и последней сборки
 e4tv passwd     — сменить логин/пароль редактора
 e4tv token      — новая ссылка основного плейлиста (старая перестанет работать)
+e4tv update     — обновить до последней версии с GitHub
 e4tv rebuild    — пересобрать плейлист сейчас
 e4tv streams N  — сколько каналов одновременно (лимит провайдера, режим с HLS Proxy); 0 — без лимита
 e4tv logs [N]   — последние строки журнала

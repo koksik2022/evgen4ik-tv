@@ -489,6 +489,40 @@ def now_watching():
     return {"mode": "hls", "port": port, "ips": ips, "at": time.strftime("%H:%M:%S")}
 
 
+# ---------- обновления: есть ли новая версия на GitHub, обновление по кнопке (делает root-служба e4tv-update) ----------
+UPD_URL = E4.get("update_url") or "https://raw.githubusercontent.com/koksik2022/evgen4ik-tv/main/get.sh"
+UTRIGGER = f"{DATA}/update.trigger"
+VER_CACHE = {"t": 0.0, "latest": None, "err": None}
+
+
+def vtuple(v):
+    try: return tuple(int(x) for x in str(v).split("."))
+    except ValueError: return (0,)
+
+
+def version_info(force=False):
+    if force or time.time() - VER_CACHE["t"] > 6 * 3600:   # GitHub спрашиваем не чаще раза в 6 часов
+        try:
+            rq = urllib.request.Request(UPD_URL, headers={"User-Agent": "Evgen4ik-TV"})
+            txt = urllib.request.urlopen(rq, timeout=10).read(20000).decode("utf-8", "replace")
+            m = re.search(r'local VER="([0-9][0-9.]{0,15})"', txt)
+            VER_CACHE.update(latest=m.group(1) if m else None, err=None if m else "не нашёл версию в get.sh")
+        except Exception as e:
+            VER_CACHE["err"] = str(getattr(e, "reason", e))[:150]
+        VER_CACHE["t"] = time.time()
+    try:
+        out = subprocess.run(["systemctl", "show", "e4tv-update.service", "-p", "ActiveState", "-p", "Result", "-p", "ExecMainExitTimestamp"],
+                             capture_output=True, text=True, timeout=5).stdout
+        u = dict(l.split("=", 1) for l in out.splitlines() if "=" in l)
+    except Exception:
+        u = {}
+    cur = E4.get("version") or ""
+    return {"current": cur, "latest": VER_CACHE["latest"], "error": VER_CACHE["err"],
+            "newer": bool(VER_CACHE["latest"]) and vtuple(VER_CACHE["latest"]) > vtuple(cur),
+            "updating": u.get("ActiveState") in ("activating", "active"), "last_result": u.get("Result") or "",
+            "last_at": u.get("ExecMainExitTimestamp") or "", "can_update": os.path.exists(UTRIGGER)}
+
+
 # ---------- Xtream Codes: вход в плеере по серверу, логину и паролю (TiviMate, IPTV Smarters, OTT Navigator…) ----------
 XC_PATHS = ("/player_api.php", "/get.php", "/xmltv.php", "/panel_api.php")
 XC_ACT_MEM, XC_ACT_LOCK, XC_ACT_T = None, threading.Lock(), [0.0]
@@ -755,6 +789,8 @@ class H(BaseHTTPRequestHandler):
             return self._play(urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query).get("u", [""])[0])
         if self.path == "/api/epg":
             return self._send(200, read_json(EPG, []))
+        if path == "/api/version":
+            return self._send(200, version_info("force=1" in self.path))
         if self.path == "/api/now":
             return self._send(200, now_watching())
         if self.path == "/api/status":
@@ -801,6 +837,10 @@ class H(BaseHTTPRequestHandler):
             if old.get("lists") != rules["lists"]:
                 with open(LTRIGGER, "w") as f: f.write(str(time.time()))
             return self._send(200, {"ok": True, "rules": rules})
+        if self.path == "/api/update":   # обновление по кнопке: служба e4tv-update (root) скачает get.sh и обновит
+            if not os.path.exists(UTRIGGER): return self._send(400, {"error": "обновление по кнопке не настроено — обновите командой с сервера"})
+            with open(UTRIGGER, "w") as f: f.write(str(time.time()))
+            return self._send(200, {"ok": True})
         if self.path == "/api/check":
             return self._send(200, check_url(body.get("url")))
         if self.path == "/api/rules":
@@ -820,7 +860,7 @@ class H(BaseHTTPRequestHandler):
         return self._send(404, {"error": "not found"})
 
 
-PUBLIC_CONF = {"mode": E4["mode"], "host": E4.get("host") or "", "login": LOGIN_ON,
+PUBLIC_CONF = {"version": E4.get("version") or "", "mode": E4["mode"], "host": E4.get("host") or "", "login": LOGIN_ON,
                "main_url": (PUBLIC_BASE + E4["main_token"] + ".m3u8") if PUBLIC_BASE and E4.get("main_token") else "",
                "epg_url": E4.get("player_epg") or E4["epg_url"], "hls_url": E4.get("hls_url") or ""}
 
