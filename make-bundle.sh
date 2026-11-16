@@ -24,25 +24,28 @@ echo "$SHA  evgen4ik-tv-install.sh" > dist/evgen4ik-tv-install.sh.sha256
 cp "$inst" evgen4ik-tv-install.sh   # копия в корне репозитория: get.sh берёт её по тегу v<версия>
 echo "get.sh: версия $VER, sha256 $SHA, repo $GH_REPO, зеркало ${E4_MIRROR:-нет}"
 cp pc/Evgen4ik-TV.ps1 "$S/"; cp pc/Evgen4ik-TV-PC.ps1 "$P/"
+cp pc/Evgen4ik-TV-Start.ps1 "dist/Evgen4ik-TV/"   # меню «куда ставим» для единого файла запуска
 bat() { printf '@echo off\r\nchcp 65001 >nul\r\npowershell -NoProfile -ExecutionPolicy Bypass -File "%%~dp0%s" %s\r\n%s' "$2" "$3" "$4" > "$1"; }
 bat "$S/ЗАПУСТИТЬ установку на сервер.bat" Evgen4ik-TV.ps1 "" $'echo.\r\npause\r\n'
 bat "$P/ЗАПУСТИТЬ установку на компьютер.bat" Evgen4ik-TV-PC.ps1 "" ""
 bat "$P/Удалить с компьютера.bat" Evgen4ik-TV-PC.ps1 "-Remove" ""
+# единый файл запуска: только латиница (кодировка cmd), русский текст ошибки — через -EncodedCommand
+printf '@echo off\r\nif not exist "%%~dp0Evgen4ik-TV-Start.ps1" (\r\n  powershell -NoProfile -EncodedCommand VwByAGkAdABlAC0ASABvAHMAdAAgACcAJwA7ACAAVwByAGkAdABlAC0ASABvAHMAdAAgACcAHQQ1BCAAPQQwBDkENAQ1BD0EIABEBDAEOQQ7BCAARQB2AGcAZQBuADQAaQBrAC0AVABWAC0AUwB0AGEAcgB0AC4AcABzADEAIABABE8ENAQ+BDwEIABBBCAATQRCBDgEPAQgAC4AYgBhAHQALgAnACAALQBGAG8AcgBlAGcAcgBvAHUAbgBkAEMAbwBsAG8AcgAgAFIAZQBkADsAIABXAHIAaQB0AGUALQBIAG8AcwB0ACAAJwAfBD4ERQQ+BDYENQQsACAAMARABEUEOAQyBCAAPgRCBDoEQARLBEIEIAAxBDUENwQgAEAEMARBBD8EMAQ6BD4EMgQ6BDgELgAnACAALQBGAG8AcgBlAGcAcgBvAHUAbgBkAEMAbwBsAG8AcgAgAFkAZQBsAGwAbwB3ADsAIABXAHIAaQB0AGUALQBIAG8AcwB0ACAAJwAdBDAENgQ8BDgEQgQ1BCAAPQQwBCAARQB2AGcAZQBuADQAaQBrAC0AVABWAC4AegBpAHAAIAA/BEAEMAQyBD4EOQQgADoEPQQ+BD8EOgQ+BDkEIAAtAD4AIACrABgENwQyBDsENQRHBEwEIAAyBEEEUQQmILsALAAnACAALQBGAG8AcgBlAGcAcgBvAHUAbgBkAEMAbwBsAG8AcgAgAFkAZQBsAGwAbwB3ADsAIABXAHIAaQB0AGUALQBIAG8AcwB0ACAAJwA+BEIEOgRABD4EOQRCBDUEIABABDAEQQQ/BDAEOgQ+BDIEMAQ9BD0EQwROBCAAPwQwBD8EOgRDBCAAOAQgADcEMAQ/BEMEQQRCBDgEQgQ1BCAAqwAjBEEEQgQwBD0EPgQyBDgEQgRMBCAARQB2AGcAZQBuADQAaQBrACAAVABWAC4AYgBhAHQAuwAgAD4EQgRCBEMENAQwBC4AJwAgAC0ARgBvAHIAZQBnAHIAbwB1AG4AZABDAG8AbABvAHIAIABZAGUAbABsAG8AdwA=\r\n  pause\r\n  exit /b 1\r\n)\r\npowershell -NoProfile -ExecutionPolicy Bypass -File "%%~dp0Evgen4ik-TV-Start.ps1"\r\n' > "dist/Evgen4ik-TV/Установить Evgen4ik TV.bat"
 python3 - <<'P'
 t = """EVGEN4IK TV — С ЧЕГО НАЧАТЬ
 
-Куда ставим?
+1. Распакуйте архив: правой кнопкой по Evgen4ik-TV.zip → «Извлечь всё…».
+2. В распакованной папке дважды щёлкните «Установить Evgen4ik TV.bat».
+3. Выберите, куда ставим:
+   1 — на этот компьютер с Windows (работает дома, пока компьютер включён);
+   2 — на сервер в интернете (VDS): понадобятся IP сервера и пароль root
+       (Ubuntu 22.04/24.04 или Debian 12).
 
-1) НА СЕРВЕР В ИНТЕРНЕТЕ (VDS) — работает всегда, дома и в дороге.
-   Откройте папку «1 На сервер (VDS)»
-   и дважды щёлкните «ЗАПУСТИТЬ установку на сервер.bat».
-   Понадобятся IP сервера и пароль root (Ubuntu 22.04/24.04 или Debian 12).
+Если Windows спросит «Запустить этот файл?» или покажет «Windows защитила
+ваш компьютер» — нажмите «Подробнее» → «Выполнить в любом случае».
+Программа не подписана цифровой подписью, поэтому Windows так предупреждает.
 
-2) НА ЭТОТ КОМПЬЮТЕР С WINDOWS — работает только дома, пока компьютер включён.
-   Откройте папку «2 На этот компьютер (Windows)»
-   и дважды щёлкните «ЗАПУСТИТЬ установку на компьютер.bat».
-
-Остальные файлы в папках запускать не нужно — они служебные.
+Папки «1» и «2» — те же установщики по отдельности, их можно не трогать.
 Подробная инструкция — README.md (открывается Блокнотом).
 """
 open("dist/Evgen4ik-TV/ИНСТРУКЦИЯ.txt", "w", encoding="utf-8-sig", newline="\r\n").write(t)
