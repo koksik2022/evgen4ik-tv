@@ -1267,7 +1267,12 @@ function renderPlist(){
     ${EPG_URL?`<div class="linkrow" style="margin-top:8px"><span class="badge">EPG</span><input type="text" readonly value="${esc(EPG_URL)}"><button id="mainEpg">Копировать</button></div>`:""}
     ${CONF.hls_url?`<p class="hint" style="margin:10px 0 0">Панель HLS Proxy: <a href="${esc(CONF.hls_url)}" target="_blank" rel="noopener">${esc(CONF.hls_url)}</a></p>`:""}</div>`;
 }
-function copyText(t,msg){navigator.clipboard.writeText(t).then(()=>toast(msg||"Скопировано"),()=>toast("Не удалось скопировать: "+t))}
+function copyText(t,msg){const ok=()=>toast(msg||"Скопировано");
+  const fb=()=>{   // по http (не https и не localhost) браузер не даёт navigator.clipboard — копируем через скрытое поле
+    const a=document.createElement("textarea"); a.value=t; a.setAttribute("readonly",""); a.style.cssText="position:fixed;top:0;left:0;opacity:0";
+    document.body.appendChild(a); a.focus(); a.select(); let r=false; try{r=document.execCommand("copy")}catch(e){} a.remove();
+    if(r) ok(); else window.prompt("Скопируйте вручную (Ctrl+C, затем Enter):",t)};
+  if(navigator.clipboard&&window.isSecureContext) navigator.clipboard.writeText(t).then(ok,fb); else fb()}
 /* ---------- шаблоны провайдеров ---------- */
 // шаги — по описанию личных кабинетов (tv-ch.ru); формат личных ссылок провайдеры не публикуют, поэтому ссылку вставляют целиком
 const PROV=[
