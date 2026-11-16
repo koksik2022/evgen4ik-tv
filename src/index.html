@@ -978,6 +978,8 @@ function cMsg(c){return (R.client_msg||DEF_MSG()).replace(/\{ИМЯ\}/g,c.name).
   .replace(/\{ССЫЛКА\}/g,cSaved(c)?cLink(c):"(ссылка появится после сохранения)").replace(/\{EPG\}/g,EPG_URL||"—")
   .replace(/\{ПОТОКИ\}/g,c.streams?plural(c.streams,"канал","канала","каналов"):"сколько угодно каналов")
   .replace(/\{СЕРВЕР\}/g,XC_SERVER()).replace(/\{ЛОГИН\}/g,c.xc_user||"(после сохранения)").replace(/\{ПАРОЛЬ\}/g,c.xc_pw||"(после сохранения)")}
+function newPersonal(c){const lid=newId(); R.lists.push({id:lid,name:("Личный — "+c.name).slice(0,80),token:"",groups:[],channels:[],exclude:[],enabled:false,sources:[],chno:null,all:false,xgroups:[],order:[],owner:c.id});
+  c.lists.push(lid); cBack=c.id; curC=c.id; curL=lid; go("lists"); toast("Личный плейлист «"+c.name+"»: отметьте группы и каналы, затем «Сохранить»")}
 function newClient(){const c={id:newId(),name:"Новый клиент",contact:"",note:"",enabled:true,expires:"",lists:R.lists.length===1?[R.lists[0].id]:[],
   streams:1,no_adult:false,token:"",hls_pw:"",created:todayISO(),off:[],add:[],urls:{},extra:[],ips:[],order:[],xc_user:"",xc_pw:""}; R.clients.push(c); curC=c.id; cChQ=""; cPanel=""; go("client")}
 function csvClients(){const q=v=>'"'+String(v??"").replace(/"/g,'""')+'"', ln=id=>(R.lists.find(x=>x.id===id)||{}).name||"";
@@ -995,7 +997,7 @@ function renderClients(){
   const rows=list.map(c=>{const [bc,bt]=cState(c), sv=cSaved(c), d=daysLeft(c), [seen,ua]=seenText(c), en=c.enabled!==false;
     const tail=(d!==null&&d<=7)?`<button class="sm" data-act="ext">+1 месяц</button>`:`<button class="sm" data-act="tog">${en?"Выключить":"Включить"}</button>`;
     return `<tr data-cid="${esc(c.id)}"><td><button class="name" data-act="edit">${esc(c.name)}</button>${c.no_adult?' <span class="badge">без 18+</span>':""}<div class="muted">${esc([c.contact,c.note].filter(Boolean).join(" · "))}</div></td>
-      <td>${c.lists.filter(lname).map(id=>`<button class="badge blink" data-act="openl" data-lid="${esc(id)}" title="Открыть плейлист для редактирования">${(R.lists.find(x=>x.id===id)||{}).owner?"личный: ":""}${esc(lname(id))} ›</button>`).join(" ")||'<span class="muted">не выбраны</span>'}</td>
+      <td>${c.lists.filter(lname).map(id=>`<button class="badge blink" data-act="openl" data-lid="${esc(id)}" title="Открыть плейлист для редактирования">${(R.lists.find(x=>x.id===id)||{}).owner?"личный: ":""}${esc(lname(id))} ›</button>`).join(" ")||`<div class="pills" style="gap:6px;flex-wrap:nowrap">${(c.extra||[]).length?`<span class="badge ok" title="Свои каналы клиента (из файла или по ссылке)">свои: ${c.extra.length}</span>`:""}<select class="cPick" aria-label="Выбрать плейлист для ${esc(c.name)}" style="max-width:190px"><option value="">+ выбрать плейлист…</option>${shared().filter(L=>!L.no_clients).map(L=>`<option value="${esc(L.id)}">${esc(L.name)}</option>`).join("")}<option value="__new">＋ новый личный (пустой)</option></select><button class="sm" data-act="file" title="Каналы из файла .m3u с компьютера">Из файла…</button></div>`}</td>
       ${hls?`<td class="num">${c.streams||"без лимита"}</td>`:""}
       <td class="nw">${c.expires?`<span style="${d<0?"color:var(--bad)":d<=7?"color:var(--warn);font-weight:600":""}">${ruDate(c.expires)}</span>`:'<span class="muted">бессрочно</span>'}</td>
       <td class="nw">${esc(seen)}<div class="muted">${esc(ua)}</div></td>
@@ -1003,6 +1005,7 @@ function renderClients(){
       <td><div class="acts"><button class="sm" data-act="copy" ${sv&&cActive(c)?"":"disabled"} title="Скопировать личную ссылку">Ссылка</button><button class="sm" data-act="qr" ${sv&&cActive(c)?"":"disabled"}>QR</button><button class="sm" data-act="msg" title="Скопировать готовое сообщение с инструкцией">Сообщение</button>${tail}</div></td></tr>`}).join("");
   const pill=(id,t,n)=>`<button class="pill${cFilt===id?" on":""}" data-cf="${id}">${t} · ${n}</button>`;
   $("settings").innerHTML=`<div class="ktiles">
+    <input type="file" id="cRowFile" accept=".m3u,.m3u8,.txt,audio/x-mpegurl,application/vnd.apple.mpegurl" hidden>
     <div class="ktile"><span class="muted">Активны</span><b>${act.length}</b></div>
     ${CONF.mode==="hls"?`<div class="ktile ok" title="Подключены к HLS Proxy прямо сейчас (по IP клиента). Обновляется раз в 20 секунд"><span class="muted">Смотрят сейчас</span><b>${watching}${strangers?` <span style="font-size:13px;color:var(--muted);font-weight:500">+ ${plural(strangers,"неизвестный IP","неизвестных IP","неизвестных IP")}</span>`:""}</b></div>`:""}
     <div class="ktile ok"><span class="muted">Заходили сегодня</span><b>${seenT}</b></div>
@@ -1039,6 +1042,7 @@ function renderClient(){const c=CC(); if(!c){go("clients");return}
   <div class="card"><h2>Что смотрит</h2><p class="hint">Отметьте плейлисты — клиент получит одну ссылку, где они собраны вместе (без повторов). Подходят и выключенные плейлисты: своей ссылки у них нет, но клиенту они достаются.</p>
     ${R.lists.length?`<div class="clists">${R.lists.filter(L=>L.owner?L.owner===c.id:(!L.no_clients||c.lists.includes(L.id))).map(L=>{const on=c.lists.includes(L.id); return `<button class="clist${on?" on":""}" data-lid="${esc(L.id)}" aria-pressed="${on}"><b>${on?"✓ ":""}${L.owner?"Личный: ":""}${esc(L.name)}</b><span class="muted">${plural(listCount(L),"канал","канала","каналов")}${L.enabled===false?" · выключен":""}${L.no_adult?" · без 18+":""}</span></button>`}).join("")}</div>`
       :`<div class="empty" style="padding:16px">Сначала создайте плейлист в разделе «Объединённые плейлисты».</div>`}
+    ${c.lists.length?"":`<div class="pills" style="margin-top:12px"><span class="badge warn">Плейлист не выбран</span><span class="muted">отметьте плитку выше или</span><button class="sm primary" data-newp="1">Создать личный плейлист</button><button class="sm" id="cFileBtn2" title="Каналы из файла станут своими каналами клиента">Загрузить из файла с ПК</button></div>`}
     ${c.lists.some(id=>R.lists.some(L=>L.id===id))?`<div class="pills" style="margin-top:10px"><span class="muted">Изменить состав:</span>${c.lists.map(id=>R.lists.find(L=>L.id===id)).filter(Boolean).map(L=>L.owner?`<button class="sm" data-openl="${esc(L.id)}" title="Личный плейлист — правки только для этого клиента">«${esc(L.name)}» ›</button>`
       :`<button class="sm" data-openl="${esc(L.id)}" title="Общий плейлист — изменения коснутся всех, у кого он отмечен">«${esc(L.name)}» (общий) ›</button><button class="sm primary" data-mkp="${esc(L.id)}" title="Сделать копию только для этого клиента и поставить вместо общего">Сделать личным</button>`).join("")}</div>`:""}
     ${st&&sv?`<div class="muted" style="margin-top:10px">Сейчас в ссылке клиента ${plural(st.channels,"канал","канала","каналов")}${st.missing?` · ${st.missing} не нашлись в HLS Proxy под его логином (подождите минуту после сохранения)`:""}.</div>`:""}${er&&sv?`<div style="margin-top:8px;color:var(--bad)">✖ ${esc(er)}</div>`:""}</div>
@@ -1070,12 +1074,18 @@ $("settings").addEventListener("click",e=>{if(mode!=="clients") return; const t=
   const f=t.closest("[data-cf]"); if(f){cFilt=f.dataset.cf; renderClients(); return}
   const tr=t.closest("tr[data-cid]"); if(!tr) return; const c=R.clients.find(x=>x.id===tr.dataset.cid); if(!c) return; const act=t.dataset.act;
   if(act==="edit"){curC=c.id; cChQ=""; cAddQ=""; cPanel=""; cChLim=150; go("client"); return}
+  if(act==="file"){curC=c.id; $("cRowFile").value=""; $("cRowFile").click(); return}
   if(act==="openl"){const L=R.lists.find(x=>x.id===t.dataset.lid); if(!L) return; curC=c.id; cBack=c.id; curL=L.id; go("lists"); return}
   if(act==="copy"){copyText(cLink(c),"Ссылка «"+c.name+"» скопирована");return}
   if(act==="qr"){showQr(cLink(c),c.name);return}
   if(act==="msg"){copyText(cMsg(c),"Сообщение для «"+c.name+"» скопировано");return}
   if(act==="tog"){c.enabled=c.enabled===false; render(); toast("«"+c.name+"» "+(c.enabled?"включён":"выключен")+" — нажмите «Сохранить»");return}
   if(act==="ext"){addMonths(c,1); c.enabled=true; render(); toast("«"+c.name+"»: до "+ruDate(c.expires)+" — нажмите «Сохранить»");return}});
+$("settings").addEventListener("change",e=>{if(mode!=="clients") return; const t=e.target;
+  if(t.id==="cRowFile"){cAddFile(t.files[0]); return}
+  if(!t.classList.contains("cPick")) return; const tr=t.closest("tr[data-cid]"), c=tr&&R.clients.find(x=>x.id===tr.dataset.cid); if(!c||!t.value) return;
+  if(t.value==="__new"){newPersonal(c); return}
+  const L=R.lists.find(x=>x.id===t.value); if(!L) return; c.lists.push(L.id); render(); toast("«"+c.name+"» получит «"+L.name+"» — нажмите «Сохранить»")});
 $("settings").addEventListener("input",e=>{const t=e.target;
   if(mode==="clients"&&t.id==="cQ"){cQ=t.value; renderClients(); const i=$("cQ"); if(i){i.focus(); i.setSelectionRange(i.value.length,i.value.length)} return}
   if(mode!=="client") return; const c=CC(); if(!c) return;
@@ -1193,6 +1203,8 @@ $("settings").addEventListener("change",e=>{if(mode!=="client") return; const c=
 $("settings").addEventListener("click",e=>{if(mode!=="client") return; const c=CC(), t=e.target; if(!c) return;
   if(t.id==="cAddBtn"||t.id==="cOwnBtn"){const p=t.id==="cAddBtn"?"add":"own"; cPanel=cPanel===p?"":p; render(); const f=$(cPanel==="add"?"cAddQ":"cOwnName"); if(f) f.focus(); return}
   if(t.id==="cChMore"){cChLim+=300; cChRefresh(); return}
+  if(t.dataset.newp){newPersonal(c); return}
+  if(t.id==="cFileBtn2"){$("cFile").value=""; $("cFile").click(); return}
   if(t.dataset.openl){const L=R.lists.find(x=>x.id===t.dataset.openl); if(!L) return; cBack=c.id; curL=L.id; go("lists"); return}
   if(t.dataset.mkp){const L=R.lists.find(x=>x.id===t.dataset.mkp); if(!L) return; const n=JSON.parse(JSON.stringify(L));
     Object.assign(n,{id:newId(),name:(L.name+" — "+c.name).slice(0,80),token:"",slug:"",password:"",expires:"",enabled:false,owner:c.id,no_clients:false});
