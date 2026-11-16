@@ -8,7 +8,7 @@
 # Повторный запуск обновляет программу и сохраняет настройки.
 set -uo pipefail
 
-E4_VER="1.8"
+E4_VER="2.0"
 HLSP_VER="8.4.8"
 HLSP_URL="https://www.hls-proxy.com/downloads/${HLSP_VER}/hls-proxy-${HLSP_VER}.linux-x64.zip"
 APP=/opt/evgen4ik-tv
@@ -346,7 +346,7 @@ write_config() {
 import json
 c = {"version": "$E4_VER", "mode": "$MODE", "domain": "$DOMAIN", "host": "$host", "scheme": "$scheme",
      "address": "$IP", "hosts": sorted({"$host", "$IP", "$EXT_IP", "${LAN:-}"} - {""}), "access": "$ACCESS", "editor_url": "$editor", "editor_port": $eport,
-     "public_base": "$pb", "main_token": "$tok", "epg_url": "$EPG_DEFAULT", "player_epg": "$epg", "hls_url": "$hlsurl",
+     "public_base": "$pb", "main_token": "$tok", "hls_port": $( [ -n "$DOMAIN" ] && echo 443 || echo 80 ), "epg_url": "$EPG_DEFAULT", "player_epg": "$epg", "hls_url": "$hlsurl",
      "data": "$DATA", "pl_dir": "$PL", "hls_dir": "$HLS", "listen": "127.0.0.1", "port": 8095,
      "auth_file": "$ETC/auth.json", "editor_group": "e4tv"}
 json.dump(c, open("$ETC/config.json", "w"), ensure_ascii=False, indent=1)
@@ -374,11 +374,25 @@ pl_locations() {
     # плейлисты: /pl/<ссылка>.m3u8; если у плейлиста есть пароль — спросит логин tv и пароль
     location ~ "^/pl/([A-Za-z0-9_-]{3,64})\\.m3u8?\$" {
         set \$pl \$1;
+        if (\$e4tv_acl = 0) { return 403; }   # у клиента заданы разрешённые IP, а запрос не с них
         if (-f $PL/auth/\$pl.htpasswd) { rewrite ^ /_auth/\$pl last; }
         alias $PL/\$pl.m3u8;
         types { } default_type "application/x-mpegURL; charset=utf-8";
         add_header Cache-Control "no-store";
         access_log /var/log/nginx/e4tv-pl.log e4tv_pl;   # кто открывал ссылку (раздел «Клиенты» → активность)
+    }
+    # Xtream Codes: плеер входит по серверу, логину и паролю клиента (без входа в редактор)
+    location ~ "^/(player_api|get|xmltv|panel_api)\\.php\$" {
+        proxy_pass http://127.0.0.1:8095;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        access_log off;   # в адресе пароль клиента — в журнал не пишем
+    }
+    location ^~ /live/ {
+        proxy_pass http://127.0.0.1:8095;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        access_log off;
     }
     location ~ "^/_auth/([A-Za-z0-9_-]{3,64})\$" {
         internal;
@@ -408,6 +422,7 @@ EOF
 
 write_nginx() {
   local f=/etc/nginx/sites-available/evgen4ik-tv tls=
+  [ -f /etc/nginx/e4tv-acl.conf ] || printf '# Evgen4ik TV: разрешённые IP клиентов (пишет lists.py)\nmap $uri $e4tv_acl {\n    default 1;\n}\n' > /etc/nginx/e4tv-acl.conf
   [ -n "$DOMAIN" ] && tls="    ssl_certificate     /etc/letsencrypt/live/$DOMAIN/fullchain.pem;
     ssl_certificate_key /etc/letsencrypt/live/$DOMAIN/privkey.pem;
     ssl_protocols TLSv1.2 TLSv1.3;"
@@ -416,6 +431,7 @@ write_nginx() {
   {
     echo "# Evgen4ik TV — создано установщиком, при повторной установке перезаписывается"
     echo 'log_format e4tv_pl "$time_iso8601 $remote_addr $status $request_uri $http_user_agent";'   # журнал открытий ссылок (плеер — в конце)
+    echo "include /etc/nginx/e4tv-acl.conf;"   # разрешённые IP клиентов (файл обновляет lists.py)
     if [ -n "$DOMAIN" ]; then
       echo "server {"
       lsn 80

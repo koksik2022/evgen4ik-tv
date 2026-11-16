@@ -116,6 +116,8 @@ button.badge{cursor:pointer;box-shadow:none;font:inherit;font-size:11.5px;font-w
 .cbars{display:flex;align-items:flex-end;gap:8px;height:96px}
 .cbar{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;gap:4px;font-size:11.5px;color:var(--muted)}
 .cbar i{display:block;width:100%;max-width:44px;border-radius:5px 5px 2px 2px;background:var(--accent)}.cbar i.z{background:var(--panel2)}
+.drag{cursor:grab;color:var(--muted);font-size:16px;user-select:none;padding:4px}.drag:hover{color:var(--accent)}
+tr.dropb td{box-shadow:inset 0 2px 0 var(--accent)}
 /* редактор групп/каналов */
 .lbar{display:flex;flex-direction:column;gap:14px;padding:0 28px 14px}
 main{flex:1;display:grid;grid-template-columns:330px 1fr;min-height:520px;margin:0 28px 20px;border:1px solid var(--line);border-radius:12px;overflow:hidden;background:var(--panel)}
@@ -306,7 +308,7 @@ function markDirty(){$("dirty").hidden=!isDirty()}
 
 async function load(){
   const r=await fetch("/api/state");const j=await r.json();
-  ST=j.state; BASE=j.public_base||""; LST=(j.status&&j.status.lists)||{}; ACTV=(j.status&&j.status.activity)||{};
+  ST=j.state; BASE=j.public_base||""; LST=(j.status&&j.status.lists)||{}; ACTV=(j.status&&j.status.activity)||{}; XCA=(j.status&&j.status.xc)||{};
   CONF=j.conf||{}; EPG_URL=CONF.epg_url||"";
   $("sidefoot").innerHTML=esc(CONF.host||location.host)+(CONF.login?' · <a href="/logout">Выйти</a>':"");
   if(!ST){$("clist").innerHTML='<div class="empty">Снимок каналов ещё не создан. Нажмите «Сохранить и применить», чтобы запустить первую сборку.</div>'}
@@ -380,7 +382,7 @@ function allSources(){const n=[...((ST&&ST.builtin_sources)||[]),...R.sources.ma
 function newList(){const lid=Math.random().toString(36).slice(2,10).replace(/[^a-z0-9]/g,"")||"l"+Date.now();
   R.lists.push({id:lid,name:"Новый плейлист "+(R.lists.length+1),token:"",groups:[],channels:[],exclude:[],enabled:true,sources:[],chno:null,all:false,xgroups:[],order:[]});
   curL=lid; go("lists"); toast("Отметьте группы слева и каналы справа, затем «Сохранить» — появится ссылка")}
-function go(m){if(m!=="lists"&&m!=="client") cBack=null; mode=m; try{localStorage.setItem("m3uePage",m==="lists"?"plist":m==="client"?"clients":m)}catch(e){} checked.clear(); openU=null; addOpen=false; render(); const c=$("settings"); if(c) c.scrollTop=0}
+function go(m){if(m!=="lists"&&m!=="client") cBack=null; if((m==="clients"||m==="client")&&m!==mode) setTimeout(pollNow,50); mode=m; try{localStorage.setItem("m3uePage",m==="lists"?"plist":m==="client"?"clients":m)}catch(e){} checked.clear(); openU=null; addOpen=false; render(); const c=$("settings"); if(c) c.scrollTop=0}
 /* ---------- отрисовка ---------- */
 function snapUndo(){const cur=JSON.stringify(R); if(lastSnap!==null&&cur!==lastSnap){undoStack.push(lastSnap); if(undoStack.length>60) undoStack.shift()} lastSnap=cur; const b=$("btnUndo"); if(b) b.disabled=!undoStack.length}
 function undo(){if(!undoStack.length) return; R=JSON.parse(undoStack.pop()); lastSnap=JSON.stringify(R); checked.clear(); openU=null; mergeOpen=false; render(); toast("Отменено")}
@@ -930,7 +932,22 @@ async function renderHistory(){
 }
 /* ---------- настройки ---------- */
 // ---------- Клиенты: люди со своей личной ссылкой, сроком и лимитом (файл собирает lists.py) ----------
-let curC=null, cFilt="all", cQ="", ACTV={}, cBack=null;
+let curC=null, cFilt="all", cQ="", ACTV={}, cBack=null, XCA={}, NOW={};
+const XC_SERVER=()=>{try{return new URL(BASE).origin}catch(e){return location.origin}};
+function uaShort(u){u=String(u||""); const m=[["ott navigator","OTT Navigator"],["tivimate","TiviMate"],["televizo","Televizo"],["smarters","IPTV Smarters"],["perfect player","Perfect Player"],["kodi","Kodi"],["vlc","VLC"],["okhttp","Android-плеер"],["dalvik","Android-плеер"],["exoplayer","Android-плеер"],["mozilla","браузер"]];
+  const l=u.toLowerCase(); for(const [k,v] of m) if(l.includes(k)) return v; return u.split(/[\/\s(]/)[0].slice(0,40)}
+function cAct(c){const a=ACTV[c.token]||{}, x=XCA[c.xc_user]||{}, days={};
+  for(const d of [a.days||{},x.days||{}]) for(const k in d) days[k]=(days[k]||0)+d[k];
+  const xl=(x.last||"")>(a.last||""), l=xl?x:a;
+  return {last:l.last||"",ip:l.ip||"",ua:l.last?(xl?uaShort(x.ua)+" · Xtream":(a.ua||"")):"",days,chan:x.chan||"",chan_at:x.chan_at||""}}
+function nowConns(c){const ip=cAct(c).ip; return ip&&NOW.ips?NOW.ips[ip]||0:0}
+async function pollNow(){if(CONF.mode!=="hls") return; try{NOW=await (await fetch("/api/now")).json()}catch(e){return}
+  if(mode==="clients"&&document.activeElement!==$("cQ")) renderClients(); else if(mode==="client"){const b=$("cNow"); const c=CC(); if(b&&c) b.innerHTML=nowHtml(c)}}
+setInterval(()=>{if(mode==="clients"||mode==="client") pollNow()},20000);
+function nowHtml(c){if(CONF.mode!=="hls") return "";
+  const n=nowConns(c), a=cAct(c);
+  return n?`<span class="badge ok">▶ сейчас подключений: ${n}</span> <span class="muted">с IP ${esc(a.ip)}${a.chan?` · последний канал через Xtream: «${esc(a.chan)}» в ${esc(a.chan_at.slice(11,16))}`:""}</span>`
+    :`<span class="muted">Сейчас не смотрит${a.chan?` · последний канал через Xtream: «${esc(a.chan)}» ${esc(ruDate(a.chan_at.slice(0,10)))} ${esc(a.chan_at.slice(11,16))}`:""}</span>`}
 const shared=()=>R.lists.filter(L=>!L.owner);   // общие плейлисты (без личных плейлистов клиентов)
 const usedBy=L=>R.clients.filter(c=>c.lists.includes(L.id)).length;
 function delWarn(L){const n=usedBy(L); return n?"\nОн отмечен у "+plural(n,"клиента","клиентов","клиентов")+" — у них пропадут его каналы.":""}   // cBack — клиент, из которого открыли плейлист
@@ -951,7 +968,7 @@ function cState(c){const d=daysLeft(c), st=LST.clients||{}, er=LST.clients_err||
   if(d!==null&&d<=7) return ["warn",d===0?"последний день":"осталось "+plural(d,"день","дня","дней")];
   if(st[c.id]) return ["ok","работает"];
   return ["warn","собирается"]}
-function seenText(c){const a=ACTV[c.token]; if(!a||!a.last) return ["ещё не заходил",""];
+function seenText(c){const a=cAct(c); if(!a.last) return ["ещё не заходил",""];
   const d=a.last.slice(0,10), t=a.last.slice(11,16), y=isoLocal(Date.now()-864e5);
   return [(d===todayISO()?"сегодня, ":d===y?"вчера, ":ruDate(d)+", ")+t, a.ua||""]}
 function addMonths(c,n){const t=todayISO(), b=c.expires&&c.expires>=t?c.expires:t, d=new Date(b+"T00:00:00"), day=d.getDate();
@@ -959,18 +976,20 @@ function addMonths(c,n){const t=todayISO(), b=c.expires&&c.expires>=t?c.expires:
 const DEF_MSG=()=>"Привет! Твой доступ к ТВ {СРОК}.\n1. Установи плеер Televizo или OTT Navigator.\n2. Добавь плейлист по ссылке: {ССЫЛКА}\n3. Программа передач (EPG): {EPG}\n"+(CONF.mode==="hls"?"Одновременно работает {ПОТОКИ}. ":"")+"Ссылку не пересылай — она личная.";
 function cMsg(c){return (R.client_msg||DEF_MSG()).replace(/\{ИМЯ\}/g,c.name).replace(/\{СРОК\}/g,c.expires?"до "+ruDate(c.expires):"без срока")
   .replace(/\{ССЫЛКА\}/g,cSaved(c)?cLink(c):"(ссылка появится после сохранения)").replace(/\{EPG\}/g,EPG_URL||"—")
-  .replace(/\{ПОТОКИ\}/g,c.streams?plural(c.streams,"канал","канала","каналов"):"сколько угодно каналов")}
+  .replace(/\{ПОТОКИ\}/g,c.streams?plural(c.streams,"канал","канала","каналов"):"сколько угодно каналов")
+  .replace(/\{СЕРВЕР\}/g,XC_SERVER()).replace(/\{ЛОГИН\}/g,c.xc_user||"(после сохранения)").replace(/\{ПАРОЛЬ\}/g,c.xc_pw||"(после сохранения)")}
 function newClient(){const c={id:newId(),name:"Новый клиент",contact:"",note:"",enabled:true,expires:"",lists:R.lists.length===1?[R.lists[0].id]:[],
-  streams:1,no_adult:false,token:"",hls_pw:"",created:todayISO(),off:[],add:[],urls:{},extra:[]}; R.clients.push(c); curC=c.id; cChQ=""; cPanel=""; go("client")}
+  streams:1,no_adult:false,token:"",hls_pw:"",created:todayISO(),off:[],add:[],urls:{},extra:[],ips:[],order:[],xc_user:"",xc_pw:""}; R.clients.push(c); curC=c.id; cChQ=""; cPanel=""; go("client")}
 function csvClients(){const q=v=>'"'+String(v??"").replace(/"/g,'""')+'"', ln=id=>(R.lists.find(x=>x.id===id)||{}).name||"";
   const rows=[["Имя","Связь","Заметка","Плейлисты","Каналов одновременно","Действует до","Включён","Ссылка","Последний заход","Плеер"]]
-    .concat(R.clients.map(c=>{const a=ACTV[c.token]||{}; return [c.name,c.contact,c.note,c.lists.map(ln).filter(Boolean).join(", "),CONF.mode==="hls"?(c.streams||"без лимита"):"—",
+    .concat(R.clients.map(c=>{const a=cAct(c); return [c.name,c.contact,c.note,c.lists.map(ln).filter(Boolean).join(", "),CONF.mode==="hls"?(c.streams||"без лимита"):"—",
       c.expires?ruDate(c.expires):"бессрочно",c.enabled!==false?"да":"нет",cSaved(c)?cLink(c):"",a.last?a.last.replace("T"," "):"",a.ua||""]}));
   const b=new Blob(["﻿"+rows.map(r=>r.map(q).join(";")).join("\r\n")],{type:"text/csv;charset=utf-8"}), u=URL.createObjectURL(b), l=document.createElement("a");
   l.href=u; l.download="clients-"+todayISO()+".csv"; document.body.appendChild(l); l.click(); l.remove(); setTimeout(()=>URL.revokeObjectURL(u),5000)}
 function renderClients(){
   const cs=R.clients, hls=CONF.mode==="hls", act=cs.filter(cActive), soon=act.filter(c=>{const d=daysLeft(c);return d!==null&&d<=7}),
-    off=cs.filter(c=>!cActive(c)), seenT=cs.filter(c=>{const a=ACTV[c.token];return a&&a.last&&a.last.slice(0,10)===todayISO()}).length;
+    off=cs.filter(c=>!cActive(c)), seenT=cs.filter(c=>cAct(c).last.slice(0,10)===todayISO()).length, watching=CONF.mode==="hls"?cs.filter(c=>nowConns(c)).length:0,
+    known=new Set(cs.map(c=>cAct(c).ip).filter(Boolean)), strangers=Object.keys(NOW.ips||{}).filter(ip=>!known.has(ip)).length;
   const F={all:cs,active:act,soon,off}, q=cQ.toLowerCase(), lname=id=>(R.lists.find(x=>x.id===id)||{}).name;
   const list=(F[cFilt]||cs).filter(c=>!q||(c.name+" "+c.contact+" "+c.note).toLowerCase().includes(q));
   const rows=list.map(c=>{const [bc,bt]=cState(c), sv=cSaved(c), d=daysLeft(c), [seen,ua]=seenText(c), en=c.enabled!==false;
@@ -980,11 +999,12 @@ function renderClients(){
       ${hls?`<td class="num">${c.streams||"без лимита"}</td>`:""}
       <td class="nw">${c.expires?`<span style="${d<0?"color:var(--bad)":d<=7?"color:var(--warn);font-weight:600":""}">${ruDate(c.expires)}</span>`:'<span class="muted">бессрочно</span>'}</td>
       <td class="nw">${esc(seen)}<div class="muted">${esc(ua)}</div></td>
-      <td><span class="badge ${bc}">${esc(bt)}</span></td>
+      <td><span class="badge ${bc}">${esc(bt)}</span>${nowConns(c)?' <span class="badge ok" title="Сейчас подключён к HLS Proxy">▶ смотрит</span>':""}</td>
       <td><div class="acts"><button class="sm" data-act="copy" ${sv&&cActive(c)?"":"disabled"} title="Скопировать личную ссылку">Ссылка</button><button class="sm" data-act="qr" ${sv&&cActive(c)?"":"disabled"}>QR</button><button class="sm" data-act="msg" title="Скопировать готовое сообщение с инструкцией">Сообщение</button>${tail}</div></td></tr>`}).join("");
   const pill=(id,t,n)=>`<button class="pill${cFilt===id?" on":""}" data-cf="${id}">${t} · ${n}</button>`;
   $("settings").innerHTML=`<div class="ktiles">
     <div class="ktile"><span class="muted">Активны</span><b>${act.length}</b></div>
+    ${CONF.mode==="hls"?`<div class="ktile ok" title="Подключены к HLS Proxy прямо сейчас (по IP клиента). Обновляется раз в 20 секунд"><span class="muted">Смотрят сейчас</span><b>${watching}${strangers?` <span style="font-size:13px;color:var(--muted);font-weight:500">+ ${plural(strangers,"неизвестный IP","неизвестных IP","неизвестных IP")}</span>`:""}</b></div>`:""}
     <div class="ktile ok"><span class="muted">Заходили сегодня</span><b>${seenT}</b></div>
     <div class="ktile${soon.length?" warn":""}"><span class="muted">Срок кончается за 7 дней</span><b>${soon.length}</b></div>
     <div class="ktile"><span class="muted">Выключены и истекли</span><b>${off.length}</b></div></div>
@@ -995,7 +1015,7 @@ function renderClients(){
     :`<div class="empty">Пока нет клиентов. Клиент — это человек или телевизор: ему собирается личная ссылка из выбранных плейлистов, со сроком${hls?" и своим лимитом каналов":""}.<br><br><button class="primary" id="cNew2">+ Добавить первого</button></div>`}</div>
   <p class="muted" style="margin:0">«Последний заход» — когда плеер последний раз скачивал плейлист (журнал nginx, обновляется раз в 5 минут). Какие каналы смотрели — не записывается.${hls?" Лимит каналов работает через HLS Proxy: у каждого клиента там свой логин; общий лимит провайдера он всё равно не превысит.":""}</p>`}
 function renderClient(){const c=CC(); if(!c){go("clients");return}
-  const sv=cSaved(c), d=daysLeft(c), [seen,ua]=seenText(c), a=(sv&&ACTV[c.token])||{}, hls=CONF.mode==="hls", st=(LST.clients||{})[c.id], er=(LST.clients_err||{})[c.id];
+  const sv=cSaved(c), d=daysLeft(c), [seen,ua]=seenText(c), a=sv?cAct(c):{}, hls=CONF.mode==="hls", st=(LST.clients||{})[c.id], er=(LST.clients_err||{})[c.id];
   const days=[]; for(let i=6;i>=0;i--){const iso=isoLocal(Date.now()-i*864e5); days.push({iso,n:(a.days||{})[iso]||0,w:["вс","пн","вт","ср","чт","пт","сб"][new Date(iso+"T00:00:00").getDay()]})}
   const mx=Math.max(1,...days.map(x=>x.n)), en=c.enabled!==false;
   $("settings").innerHTML=`<div class="fgrid">
@@ -1008,7 +1028,10 @@ function renderClient(){const c=CC(); if(!c){go("clients");return}
      <div class="cf" style="margin-top:12px"><label for="cExp">Действует до</label><input type="date" id="cExp" value="${esc(c.expires)}" style="font:inherit;border:1px solid var(--ring);border-radius:8px;padding:6px 10px;background:var(--panel);color:var(--ink);color-scheme:dark"></div>
      <div class="muted" style="margin:6px 0 8px">${c.expires?(d<0?'<span style="color:var(--bad)">срок истёк</span>':d===0?"последний день":"осталось "+plural(d,"день","дня","дней")):"бессрочно"}</div>
      <div class="pills"><button data-ext="1">+1 месяц</button><button data-ext="3">+3 месяца</button><button data-ext="12">+1 год</button><button data-ext="0">Бессрочно</button></div>
-     <p class="hint" style="margin:10px 0 0">В последний день ссылка ещё работает, со следующего — нет. За 7 дней до конца клиент подсвечивается в списке.</p></div>
+     <p class="hint" style="margin:10px 0 0">В последний день ссылка ещё работает, со следующего — нет. За 7 дней до конца клиент подсвечивается в списке.</p>
+     <div class="cf" style="margin-top:14px"><label for="cIps">Разрешённые IP — по одному в строке</label><textarea id="cIps" rows="2" spellcheck="false" placeholder="Пусто — откуда угодно. Пример: 93.184.216.34 или 192.168.1.0/24">${esc((c.ips||[]).join("\n"))}</textarea></div>
+     ${cAct(c).ip&&!(c.ips||[]).includes(cAct(c).ip)?`<button class="sm" id="cIpAdd" style="margin-top:6px">+ последний IP клиента: ${esc(cAct(c).ip)}</button>`:""}
+     <p class="hint" style="margin:6px 0 0">Ссылка и Xtream будут работать только с этих адресов — пересланная ссылка с чужого интернета не откроется. У домашнего интернета IP может меняться.</p></div>
    <div class="card"><h2>Ограничения</h2>
      ${hls?`<div class="cf"><label for="cStr">Каналов одновременно</label><input type="number" id="cStr" min="0" max="50" value="${c.streams}" style="width:100px"></div><p class="hint" style="margin:6px 0 10px">0 — без своего лимита. Больше, чем разрешает провайдер, HLS Proxy всё равно не пустит.</p>`
        :`<p class="hint">Лимит каналов на клиента есть только в режиме с HLS Proxy. Сейчас ссылки на потоки идут напрямую от провайдера.</p>`}
@@ -1030,8 +1053,14 @@ function renderClient(){const c=CC(); if(!c){go("clients");return}
      <div class="cmsg">${esc(cMsg(c))}</div>
      <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap"><button class="primary" id="cMsgCopy">Копировать текст</button><button id="cTpl">Изменить шаблон</button></div>
      <div id="cTplBox" hidden style="margin-top:10px"><textarea id="cTplText" rows="7" aria-label="Шаблон сообщения">${esc(R.client_msg||DEF_MSG())}</textarea>
-       <p class="hint" style="margin:6px 0 0">Подстановки: {ИМЯ}, {СРОК}, {ССЫЛКА}, {EPG}${hls?", {ПОТОКИ}":""}. Шаблон общий для всех клиентов.</p><button class="sm" id="cTplReset" style="margin-top:6px">Вернуть стандартный</button></div></div></div>
-  <div class="card"><h2>Активность за 7 дней</h2>
+       <p class="hint" style="margin:6px 0 0">Подстановки: {ИМЯ}, {СРОК}, {ССЫЛКА}, {EPG}${hls?", {ПОТОКИ}":""}, а для Xtream — {СЕРВЕР}, {ЛОГИН}, {ПАРОЛЬ}. Шаблон общий для всех клиентов.</p><button class="sm" id="cTplReset" style="margin-top:6px">Вернуть стандартный</button></div></div></div>
+  <div class="card"><h2>Вход через Xtream Codes</h2><p class="hint">Для TiviMate, IPTV Smarters, OTT Navigator и других: в плеере выберите «Xtream Codes» и введите эти данные вместо ссылки. Каналы те же, что в ссылке клиента; срок, выключение и разрешённые IP тоже действуют.</p>
+    ${sv&&c.xc_user&&c.xc_pw?`<div class="linkrow"><span class="badge">Сервер</span><input type="text" readonly value="${esc(XC_SERVER())}" aria-label="Сервер Xtream"><button data-copy="${esc(XC_SERVER())}">Копировать</button></div>
+      <div class="linkrow" style="margin-top:8px"><span class="badge">Логин</span><input type="text" readonly value="${esc(c.xc_user)}" aria-label="Логин Xtream"><button data-copy="${esc(c.xc_user)}">Копировать</button></div>
+      <div class="linkrow" style="margin-top:8px"><span class="badge">Пароль</span><input type="text" readonly value="${esc(c.xc_pw)}" aria-label="Пароль Xtream"><button data-copy="${esc(c.xc_pw)}">Копировать</button><button id="cXcNew" title="Старый пароль перестанет работать после сохранения">Новый пароль</button></div>
+      <p class="hint" style="margin:8px 0 0">Если канал не включается — в настройках плеера поставьте формат потока «HLS» (m3u8).</p>`
+     :`<p class="hint">Логин и пароль появятся после сохранения.</p>`}</div>
+  <div class="card"><h2>Активность за 7 дней</h2>${hls?`<div id="cNow" style="margin-bottom:10px">${nowHtml(c)}</div>`:""}
     <div class="cbars" role="img" aria-label="Заходы по дням за неделю">${days.map(x=>`<div class="cbar"><i class="${x.n?"":"z"}" style="height:${x.n?Math.max(8,Math.round(70*x.n/mx)):4}px" title="${ruDate(x.iso)}: ${x.n}"></i>${x.w}</div>`).join("")}</div>
     <div class="muted" style="margin-top:8px">Последний заход: ${esc(seen)}${ua?" · "+esc(ua):""}${a.ip?" · IP "+esc(a.ip):""}. Считается, когда плеер скачивает плейлист (обычно при запуске и раз в несколько часов), а не просмотр каналов.</div></div>
   <div style="display:flex;gap:8px;flex-wrap:wrap"><button id="cDup">Сделать копию клиента</button><button class="danger" id="cDel">Удалить клиента</button></div>`}
@@ -1060,10 +1089,16 @@ $("settings").addEventListener("change",e=>{if(mode!=="client") return; const c=
   else if(t.id==="cExp") c.expires=/^\d{4}-\d{2}-\d{2}$/.test(t.value)?t.value:"";
   else if(t.id==="cStr"){const n=parseInt(t.value,10); c.streams=isNaN(n)?1:Math.max(0,Math.min(50,n))}
   else if(t.id==="cKid") c.no_adult=t.checked;
+  else if(t.id==="cIps"){const bad=[], ok=[]; for(const x of t.value.split(/[\s,;]+/).map(v=>v.trim()).filter(Boolean)) (/^[0-9a-fA-F:.]+(\/\d{1,3})?$/.test(x)?ok:bad).push(x);
+    if(bad.length) toast("Не похоже на IP: "+bad.join(", ")); c.ips=[...new Set(ok)]}
   else return; render()});
 $("settings").addEventListener("click",e=>{if(mode!=="client") return; const c=CC(), t=e.target; if(!c) return;
   const ex=t.closest("[data-ext]"); if(ex){const n=+ex.dataset.ext; if(n){addMonths(c,n); c.enabled=true} else c.expires=""; render(); return}
   const li=t.closest("[data-lid]"); if(li){const id=li.dataset.lid; c.lists=c.lists.includes(id)?c.lists.filter(x=>x!==id):[...c.lists,id]; render(); return}
+  if(t.dataset.copy){copyText(t.dataset.copy,"Скопировано");return}
+  if(t.id==="cXcNew"){if(!confirm("Сделать новый пароль Xtream для «"+c.name+"»? Старый перестанет работать после сохранения.")) return; c.xc_pw=""; render(); toast("Сохраните — появится новый пароль"); return}
+  if(t.id==="cIpAdd"){const ip=cAct(c).ip; c.ips=[...new Set([...(c.ips||[]),ip])]; render(); toast("IP "+ip+" добавлен — нажмите «Сохранить»"); return}
+  if(t.id==="cOrdReset"){c.order=[]; cChRefresh(); markDirty(); return}
   if(t.id==="cCopy"){copyText(cLink(c),"Ссылка скопирована");return}
   if(t.id==="cQr"){showQr(cLink(c),c.name);return}
   if(t.id==="cCopyEpg"){copyText(EPG_URL,"Ссылка на EPG скопирована");return}
@@ -1071,7 +1106,7 @@ $("settings").addEventListener("click",e=>{if(mode!=="client") return; const c=C
   if(t.id==="cMsgCopy"){copyText(cMsg(c),"Сообщение скопировано");return}
   if(t.id==="cTpl"){const b=$("cTplBox"); b.hidden=!b.hidden; return}
   if(t.id==="cTplReset"){R.client_msg=""; render(); $("cTplBox").hidden=false; return}
-  if(t.id==="cDup"){const n=JSON.parse(JSON.stringify(c)); Object.assign(n,{id:newId(),name:(c.name+" (копия)").slice(0,80),token:"",hls_pw:"",created:todayISO()}); n.lists=n.lists.map(id=>{const L=R.lists.find(x=>x.id===id); if(!L||!L.owner) return id; const d=JSON.parse(JSON.stringify(L)); Object.assign(d,{id:newId(),token:"",owner:n.id,name:(L.name+" (копия)").slice(0,80)}); R.lists.push(d); return d.id});
+  if(t.id==="cDup"){const n=JSON.parse(JSON.stringify(c)); Object.assign(n,{id:newId(),name:(c.name+" (копия)").slice(0,80),token:"",hls_pw:"",xc_user:"",xc_pw:"",created:todayISO()}); n.lists=n.lists.map(id=>{const L=R.lists.find(x=>x.id===id); if(!L||!L.owner) return id; const d=JSON.parse(JSON.stringify(L)); Object.assign(d,{id:newId(),token:"",owner:n.id,name:(L.name+" (копия)").slice(0,80)}); R.lists.push(d); return d.id});
     R.clients.push(n); curC=n.id; render(); toast("Копия создана — поменяйте имя и сохраните"); return}
   if(t.id==="cDel"){if(!confirm("Удалить клиента «"+c.name+"»? Его ссылка перестанет работать после сохранения."+(R.lists.some(L=>L.owner===c.id)?" Его личные плейлисты тоже удалятся.":""))) return; R.clients=R.clients.filter(x=>x!==c); R.lists=R.lists.filter(L=>L.owner!==c.id); curC=null; go("clients")}});
 // ---------- каналы клиента: его список поверх плейлистов ----------
@@ -1085,11 +1120,13 @@ function cChannels(c){const out=[], seen=new Set(), off=new Set(c.off||[]), urls
     out.push({k,n:dispName(ch),g,kind:"add",from:"добавлен",src:(ch.u&&ch.u[0]&&ch.u[0][1])||""})}
   for(const x of c.extra||[]) out.push({k:"x:"+x.id,n:x.name,g:x.group,kind:"own",from:x.src?"файл: "+x.src:"свой",src:x.url,x});
   for(const r of out){r.on=!off.has(r.k); r.url=r.kind==="own"?r.x.url:(urls[r.k]||"")}
+  const ORD=new Map((c.order||[]).map((k,i)=>[k,i])); if(ORD.size) out.sort((a,b)=>(ORD.get(a.k)??1e6)-(ORD.get(b.k)??1e6));   // свой порядок (перетаскивание)
   return out}
 function cChansHtml(c){const all=cChannels(c), q=cChQ.toLowerCase(), list=all.filter(r=>!q||(r.n+" "+r.g).toLowerCase().includes(q)), shown=list.slice(0,cChLim);
   const on=all.filter(r=>r.on).length, own=Object.keys(c.urls||{}).length;
-  return `<div class="muted" style="margin-bottom:8px">${plural(all.length,"канал","канала","каналов")} · включено ${on}${all.length-on?` · выключено ${all.length-on}`:""}${own?` · своих ссылок ${own}`:""}${(c.extra||[]).length?` · своих каналов ${c.extra.length}`:""}</div>
-  ${list.length?`<div class="twrap"><table class="tbl"><thead><tr><th style="width:52px">Вкл.</th><th>Канал</th><th>Группа</th><th>Откуда</th><th>Ссылка на поток</th><th></th></tr></thead><tbody>${shown.map(r=>`<tr data-ck="${esc(r.k)}"${r.on?"":' style="opacity:.55"'}>
+  return `<div class="muted" style="margin-bottom:8px">${(c.order||[]).length?'<button class="sm" id="cOrdReset" style="float:right">Порядок как в плейлистах</button>':""}${q?"":'Порядок меняется перетаскиванием ⠿ · '}${plural(all.length,"канал","канала","каналов")} · включено ${on}${all.length-on?` · выключено ${all.length-on}`:""}${own?` · своих ссылок ${own}`:""}${(c.extra||[]).length?` · своих каналов ${c.extra.length}`:""}</div>
+  ${list.length?`<div class="twrap"><table class="tbl"><thead><tr><th style="width:28px" title="Перетащите, чтобы поменять порядок">⇅</th><th style="width:52px">Вкл.</th><th>Канал</th><th>Группа</th><th>Откуда</th><th>Ссылка на поток</th><th></th></tr></thead><tbody>${shown.map(r=>`<tr data-ck="${esc(r.k)}"${r.on?"":' style="opacity:.55"'}>
+    <td>${q?"":`<span class="drag" draggable="true" title="Потяните вверх или вниз" aria-label="Перетащить канал ${esc(r.n)}">⠿</span>`}</td>
     <td><label class="switch" title="${r.on?"Выключить канал у клиента":"Включить канал"}"><input type="checkbox" class="cOn" ${r.on?"checked":""} aria-label="Канал ${esc(r.n)} включён"><i></i></label></td>
     <td><b>${esc(r.n)}</b></td><td class="muted">${esc(r.g)}</td>
     <td><span class="badge${r.kind==="own"?" ok":r.kind==="add"?" warn":""}">${esc(r.from)}</span></td>
@@ -1133,6 +1170,14 @@ async function cAddFile(f){const c=CC(); if(!c||!f) return; if(f.size>30*1024*10
     have.add(u); c.extra.push({id:newId(),name:n,group:clean(it.group).slice(0,60)||src,url:u,logo:/^https?:\/\/[^\s"]{1,1000}$/.test(it.logo)?it.logo:"",src}); add++}
   cChQ=""; render();
   toast(`Из «${src}» добавлено ${plural(add,"канал","канала","каналов")}`+(dup?`, уже были: ${dup}`:"")+(bad?`, без ссылки: ${bad}`:"")+(over?`, не влезло (лимит 3000): ${over}`:"")+" — нажмите «Сохранить»")}
+let cDragK=null;
+$("settings").addEventListener("dragstart",e=>{const h=e.target.closest&&e.target.closest(".drag"); if(mode!=="client"||!h) return; cDragK=h.closest("tr").dataset.ck; e.dataTransfer.effectAllowed="move"; try{e.dataTransfer.setData("text/plain",cDragK)}catch(x){}});
+$("settings").addEventListener("dragover",e=>{if(mode!=="client"||!cDragK) return; const tr=e.target.closest("tr[data-ck]"); if(!tr) return; e.preventDefault();
+  document.querySelectorAll("tr.dropb").forEach(x=>x.classList.remove("dropb")); tr.classList.add("dropb")});
+$("settings").addEventListener("dragend",()=>{cDragK=null; document.querySelectorAll("tr.dropb").forEach(x=>x.classList.remove("dropb"))});
+$("settings").addEventListener("drop",e=>{if(mode!=="client"||!cDragK) return; const tr=e.target.closest("tr[data-ck]"), c=CC(); if(!tr||!c) return; e.preventDefault();
+  const to=tr.dataset.ck; if(to===cDragK){cDragK=null; return} const ks=cChannels(c).map(r=>r.k).filter(k=>k!==cDragK); ks.splice(ks.indexOf(to),0,cDragK);
+  c.order=ks; cDragK=null; cChRefresh(); markDirty()});
 function cChRefresh(){const c=CC(); if(c&&$("cChans")) $("cChans").innerHTML=cChansHtml(c)}
 $("settings").addEventListener("input",e=>{if(mode!=="client") return; const t=e.target;
   if(t.id==="cChQ"){cChQ=t.value; cChLim=150; cChRefresh(); return}
@@ -1396,7 +1441,7 @@ async function save(apply){
   toast(apply?"Сохранено. Плейлист пересобирается…":listsChanged?"Сохранено. Плейлисты обновятся через несколько секунд":"Сохранено. Применится при утренней сборке или по кнопке «Применить»");
   if(apply) poll(Date.now()); else if(listsChanged) setTimeout(refreshStatus,5000);
 }
-async function refreshStatus(){try{const s=await (await fetch("/api/status")).json(); LST=s.lists||{}; ACTV=s.activity||ACTV; showStatus(s); if(mode==="plist") renderPlist(); else if(mode==="clients") renderClients(); else renderLbar()}catch(e){}}
+async function refreshStatus(){try{const s=await (await fetch("/api/status")).json(); LST=s.lists||{}; ACTV=s.activity||ACTV; XCA=s.xc||XCA; showStatus(s); if(mode==="plist") renderPlist(); else if(mode==="clients") renderClients(); else renderLbar()}catch(e){}}
 $("btnSave").onclick=()=>save(false);
 $("btnApply").onclick=()=>save(true);
 function showStatus(s){

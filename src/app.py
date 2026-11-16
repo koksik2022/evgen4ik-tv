@@ -20,6 +20,8 @@ TRIGGER = f"{DATA}/apply.trigger"
 LTRIGGER = f"{DATA}/lists.trigger"
 LSTATUS = f"{DATA}/lists-status.json"
 ACTIVITY = f"{DATA}/activity.json"
+XC_FILE = f"{DATA}/xc.json"          # каналы клиентов для входа через Xtream Codes (собирает lists.py)
+XC_ACT = f"{DATA}/xc-activity.json"  # кто входил через Xtream и какой канал включал (пишет сам редактор)
 EPG = f"{DATA}/epg.json"
 PUBLIC_BASE = E4["public_base"]
 URL_RX = re.compile(r"^(https?|rtmp|rtsp|udp|rtp)://[^\s\"]{1,2000}$", re.I)
@@ -248,6 +250,18 @@ def validate(r):
     own = {L["id"]: L["owner"] for L in out["lists"]}
     for c in out["clients"]:
         c["lists"] = [x for x in c["lists"] if x in own and own[x] in ("", c["id"])]
+    xu = set()
+    for c, src in zip(out["clients"], [x for x in (r.get("clients") or [])[:200] if isinstance(x, dict) and s(x.get("name"), 80)]):
+        u = str(src.get("xc_user") or "").lower()
+        if not re.fullmatch(r"[a-z0-9_]{3,32}", u) or u in xu: u = "tv" + c["id"]
+        xu.add(u); c["xc_user"] = u
+        c["xc_pw"] = src["xc_pw"] if isinstance(src.get("xc_pw"), str) and re.fullmatch(r"[A-Za-z0-9]{8,32}", src["xc_pw"]) else secrets.token_hex(6)
+        ips = []
+        for x in (src.get("ips") or [])[:50]:
+            try: ips.append(str(ipaddress.ip_network(str(x).strip(), strict=False)))
+            except ValueError: pass
+        c["ips"] = list(dict.fromkeys(ips))
+        c["order"] = keys(src.get("order"), 8000)
     msg = r.get("client_msg")
     out["client_msg"] = re.sub(r"[\x00-\x09\x0b-\x1f\x7f]", " ", msg)[:2000] if isinstance(msg, str) else ""
     seen_slug = set()
@@ -443,7 +457,87 @@ def prep_status():
     d["log"] = st.get("log", [])
     d["lists"] = read_json(LSTATUS, {})
     d["activity"] = read_json(ACTIVITY, {})   # кто и когда открывал плейлисты (по журналу nginx, собирает lists.py --activity)
+    with XC_ACT_LOCK: d["xc"] = dict(XC_ACT_MEM) if XC_ACT_MEM is not None else (read_json(XC_ACT, {}) or {})
     return d
+
+
+def now_watching():
+    """Режим hls: кто сейчас подключён к HLS Proxy (IP -> число подключений). Имени клиента HLS Proxy не сообщает — только IP."""
+    if E4["mode"] != "hls": return {"mode": "direct"}
+    port = int(E4.get("hls_port") or (443 if E4.get("scheme") == "https" else 80))
+    ips = {}
+    for fn, v6 in (("/proc/net/tcp", False), ("/proc/net/tcp6", True)):   # без внешних программ и без root
+        try: lines = open(fn).read().splitlines()[1:]
+        except OSError: continue
+        for l in lines:
+            f = l.split()
+            if len(f) < 4 or f[3] != "01": continue   # 01 = ESTABLISHED
+            la, lp = f[1].split(":"); ra, rp = f[2].split(":")
+            if int(lp, 16) != port: continue
+            try:
+                if v6:
+                    b = b"".join(bytes.fromhex(ra[k:k + 8])[::-1] for k in range(0, 32, 8)); a = ipaddress.ip_address(b)
+                    a = a.ipv4_mapped or a
+                else: a = ipaddress.ip_address(bytes.fromhex(ra)[::-1])
+            except ValueError: continue
+            if a.is_loopback: continue
+            ips[str(a)] = ips.get(str(a), 0) + 1
+    return {"mode": "hls", "port": port, "ips": ips, "at": time.strftime("%H:%M:%S")}
+
+
+# ---------- Xtream Codes: вход в плеере по серверу, логину и паролю (TiviMate, IPTV Smarters, OTT Navigator…) ----------
+XC_PATHS = ("/player_api.php", "/get.php", "/xmltv.php", "/panel_api.php")
+XC_ACT_MEM, XC_ACT_LOCK, XC_ACT_T = None, threading.Lock(), [0.0]
+
+
+def xc_note(user, ip, ua, chan=None):
+    """Запомнить заход клиента через Xtream (и какой канал включил). Сохраняется в файл не чаще раза в 10 секунд."""
+    global XC_ACT_MEM
+    with XC_ACT_LOCK:
+        if XC_ACT_MEM is None: XC_ACT_MEM = read_json(XC_ACT, {}) or {}
+        a = XC_ACT_MEM.setdefault(user, {"days": {}})
+        now = time.strftime("%Y-%m-%dT%H:%M:%S"); day = now[:10]
+        a.update({"last": now, "ip": ip, "ua": ua})
+        a["days"][day] = a["days"].get(day, 0) + (0 if chan else 1)
+        if chan: a.update({"chan": chan[:100], "chan_at": now})
+        lim = time.strftime("%Y-%m-%d", time.localtime(time.time() - 14 * 86400))
+        a["days"] = {d: n for d, n in a["days"].items() if d >= lim}
+        if time.time() - XC_ACT_T[0] > 10:
+            XC_ACT_T[0] = time.time()
+            try: write_json_atomic(XC_ACT, XC_ACT_MEM)
+            except OSError: pass
+
+
+def ip_ok(ip, nets):
+    if not nets: return True
+    try: a = ipaddress.ip_address(ip)
+    except ValueError: return False
+    for n in nets:
+        try:
+            if a in ipaddress.ip_network(n, strict=False): return True
+        except ValueError: pass
+    return False
+
+
+def xc_user(q, ip):
+    """(клиент, причина отказа). Клиент — запись из xc.json."""
+    u, pw = (q.get("username") or [""])[0].lower()[:32], (q.get("password") or [""])[0][:64]
+    c = (read_json(XC_FILE, {}) or {}).get(u)
+    if not c or not hmac.compare_digest(str(c.get("pw", "")), pw): return None, "auth"
+    if not ip_ok(ip, c.get("ips")): return None, "ip"
+    return dict(c, user=u), None
+
+
+def xc_status(c):
+    if not c.get("enabled", True): return "Disabled"
+    e = c.get("expires")
+    if e and time.strftime("%Y-%m-%d") > e: return "Expired"
+    return "Active"
+
+
+def _ts(d):
+    try: return str(int(time.mktime(time.strptime(d, "%Y-%m-%d"))) + 86399)
+    except Exception: return None
 
 
 class H(BaseHTTPRequestHandler):
@@ -472,6 +566,65 @@ class H(BaseHTTPRequestHandler):
                 if exp.isdigit() and int(exp) > time.time() and hmac.compare_digest(sig.encode(), sign(a, int(exp)).encode()):
                     return True
         return False
+
+    def _xc(self, path):
+        ip = self._ip(); ua = (self.headers.get("User-Agent") or "")[:200]
+        if locked_for(ip): return self._send(429, {"user_info": {"auth": 0}})
+        q = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
+        if path.startswith("/live/"):   # /live/<логин>/<пароль>/<номер>.<ts|m3u8> -> ссылка на поток
+            m = re.fullmatch(r"/live/([^/]{1,32})/([^/]{1,64})/(\d{1,6})(?:\.(?:ts|m3u8|m3u))?", path)
+            if not m: return self._send(404, "not found", "text/plain")
+            q = {"username": [urllib.parse.unquote(m.group(1))], "password": [urllib.parse.unquote(m.group(2))]}
+        c, why = xc_user(q, ip)
+        if not c:
+            if why == "auth": add_fail(ip)
+            return self._send(403 if path.startswith("/live/") or why == "ip" else 200,
+                              {"user_info": {"auth": 0, "status": "Forbidden" if why == "ip" else ""}} if not path.startswith("/live/") else "forbidden",
+                              "application/json; charset=utf-8" if not path.startswith("/live/") else "text/plain")
+        st = xc_status(c); chans = c.get("channels") if st == "Active" else []
+        host = self.headers.get("Host") or E4.get("host") or "localhost"
+        proto = "https" if E4.get("scheme") == "https" else "http"
+        base = f"{proto}://{host}"
+        if path.startswith("/live/"):
+            i = int(m.group(3)) - 1
+            if st != "Active" or not (0 <= i < len(chans)): return self._send(404, "not found", "text/plain")
+            xc_note(c["user"], ip, ua, chans[i]["name"])
+            return self._redirect(chans[i]["url"])
+        if path == "/xmltv.php":
+            return self._redirect(E4.get("player_epg") or E4["epg_url"])
+        gm, cats = {}, []
+        for ch in chans:
+            if ch["group"] not in gm: gm[ch["group"]] = str(len(gm) + 1); cats.append({"category_id": gm[ch["group"]], "category_name": ch["group"], "parent_id": 0})
+        if path == "/get.php":   # плейлист M3U со ссылками /live/…
+            xc_note(c["user"], ip, ua)
+            ext = "m3u8" if (q.get("output") or ["m3u8"])[0] in ("m3u8", "hls") else "ts"
+            u, pw = urllib.parse.quote(c["user"]), urllib.parse.quote(c["pw"])
+            out = ["#EXTM3U"]
+            for i, ch in enumerate(chans, 1):
+                a = (f' tvg-id="{ch["tvg_id"]}"' if ch.get("tvg_id") else "") + (f' tvg-logo="{ch["logo"]}"' if ch.get("logo") else "")
+                out += [f'#EXTINF:-1{a} group-title="{ch["group"]}",{ch["name"]}', f"{base}/live/{u}/{pw}/{i}.{ext}"]
+            return self._send(200, "\n".join(out) + "\n", "audio/x-mpegurl; charset=utf-8")
+        act = (q.get("action") or [""])[0]
+        if not act:
+            xc_note(c["user"], ip, ua)
+            port = (host.rsplit(":", 1)[1] if ":" in host.split("]")[-1] else ("443" if proto == "https" else "80"))
+            return self._send(200, {"user_info": {"username": c["user"], "password": c["pw"], "message": "", "auth": 1, "status": st,
+                                                  "exp_date": _ts(c.get("expires")) if c.get("expires") else None, "is_trial": "0", "active_cons": "0",
+                                                  "created_at": _ts(c.get("created") or "") or "0", "max_connections": str(c.get("streams") or 0),
+                                                  "allowed_output_formats": ["m3u8", "ts"]},
+                                    "server_info": {"url": host.rsplit(":", 1)[0] if ":" in host.split("]")[-1] else host, "port": port,
+                                                    "https_port": "443", "server_protocol": proto, "rtmp_port": "0",
+                                                    "timezone": time.strftime("%Z") or "UTC", "timestamp_now": int(time.time()),
+                                                    "time_now": time.strftime("%Y-%m-%d %H:%M:%S")}})
+        if act == "get_live_categories": return self._send(200, cats)
+        if act == "get_live_streams":
+            want = (q.get("category_id") or [""])[0]
+            return self._send(200, [{"num": i, "name": ch["name"], "stream_type": "live", "stream_id": i, "stream_icon": ch.get("logo") or "",
+                                     "epg_channel_id": ch.get("tvg_id") or None, "added": "0", "is_adult": "0", "category_id": gm[ch["group"]],
+                                     "category_ids": [int(gm[ch["group"]])], "custom_sid": "", "tv_archive": 0, "direct_source": "", "tv_archive_duration": 0}
+                                    for i, ch in enumerate(chans, 1) if not want or gm[ch["group"]] == want])
+        if act in ("get_short_epg", "get_simple_data_table"): return self._send(200, {"epg_listings": []})
+        return self._send(200, [])   # фильмы и сериалы не поддерживаются
 
     def _play(self, u):
         """Пересылка потока в браузер (у потоков обычно нет CORS). Плейлисты HLS переписываются на /api/play."""
@@ -575,6 +728,8 @@ class H(BaseHTTPRequestHandler):
                 return self._send(200, f.read(), "text/html; charset=utf-8")
         if path == "/logout":
             return self._redirect("/login" if LOGIN_ON else "/", self._cookie("", 0))
+        if path in XC_PATHS or path.startswith("/live/"):   # Xtream Codes — без входа в редактор, по логину клиента
+            return self._xc(path)
         if not self._session():
             return self._redirect("/login") if not path.startswith("/api/") else self._send(401, {"error": "нужен вход"})
         if path in ("/", "/index.html"):
@@ -596,6 +751,8 @@ class H(BaseHTTPRequestHandler):
             return self._play(urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query).get("u", [""])[0])
         if self.path == "/api/epg":
             return self._send(200, read_json(EPG, []))
+        if self.path == "/api/now":
+            return self._send(200, now_watching())
         if self.path == "/api/status":
             return self._send(200, prep_status())
         return self._send(404, {"error": "not found"})

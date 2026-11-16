@@ -304,6 +304,71 @@ def _url_idx(lines):
     return None
 
 
+XCCH = {}   # id клиента -> каналы для Xtream Codes
+
+
+def xc_channels(lines):
+    """Строки M3U -> [{name, group, logo, tvg_id, url}] для входа через Xtream Codes."""
+    out, cur = [], None
+    for l in lines:
+        if l.startswith("#EXTINF"):
+            a = dict(re.findall(r'([\w-]+)="([^"]*)"', l))
+            m = INF.match(l)
+            cur = {"name": (m.group(1).strip() if m else "") or a.get("tvg-name", "") or "Канал", "group": a.get("group-title") or "Без группы",
+                   "logo": a.get("tvg-logo", ""), "tvg_id": a.get("tvg-id", "")}
+        elif l.startswith("#") or not l.strip(): continue
+        elif cur: cur["url"] = l.strip(); out.append(cur); cur = None
+    return out
+
+
+def write_xc(clients):
+    """xc.json для редактора: логин -> пароль, статус, срок, IP и каналы (каналы — только у активных)."""
+    d = {}
+    for x in clients:
+        u = str(x.get("xc_user") or "")
+        if not re.fullmatch(r"[a-z0-9_]{3,32}", u) or not re.fullmatch(r"[A-Za-z0-9]{8,32}", str(x.get("xc_pw") or "")): continue
+        d[u] = {"id": x["id"], "pw": x["xc_pw"], "enabled": x.get("enabled") is not False, "expires": x.get("expires") or "",
+                "created": x.get("created") or "", "streams": x.get("streams") or 0, "ips": x.get("ips") or [],
+                "channels": XCCH.get(str(x["id"]), [])}
+    p = E4["editor_dir"] + "/xc.json"; tmp = p + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f: json.dump(d, f, ensure_ascii=False)
+    try: os.chown(tmp, 0, grp.getgrnam(E4.get("editor_group", "e4tv")).gr_gid)
+    except Exception: pass
+    os.chmod(tmp, 0o640); os.replace(tmp, p)
+
+
+ACL = "/etc/nginx/e4tv-acl.conf"
+
+
+def write_acl(clients):
+    """Разрешённые IP клиентов -> правила nginx для ссылок /pl/<токен>.m3u8 (если поменялись — проверка и перезагрузка nginx)."""
+    import ipaddress, subprocess
+    geo, mp = [], []
+    for x in clients:
+        nets = []
+        for n in x.get("ips") or []:
+            try: nets.append(str(ipaddress.ip_network(str(n), strict=False)))
+            except ValueError: pass
+        if not nets or not TOK.match(str(x.get("token", ""))) or not re.fullmatch(r"[a-z0-9]{1,16}", str(x.get("id", ""))): continue
+        v = f"$e4tv_ip_{x['id']}"
+        geo.append(f"geo $remote_addr {v} {{ default 0; " + " ".join(f"{n} 1;" for n in nets) + " }")
+        mp.append('    "~^/pl/' + x["token"] + r'\.m3u8?$" ' + v + ';')
+    txt = ("# Evgen4ik TV: разрешённые IP клиентов. Файл пишет lists.py — правки вручную будут перезаписаны.\n" + "\n".join(geo) + ("\n" if geo else "")
+           + "map $uri $e4tv_acl {\n    default 1;\n" + "".join(l + "\n" for l in mp) + "}\n")
+    try: old = open(ACL, encoding="utf-8").read()
+    except OSError: old = None
+    if old == txt or not os.path.isdir("/etc/nginx"): return
+    with open(ACL, "w", encoding="utf-8") as f: f.write(txt)
+    try:
+        if subprocess.run(["nginx", "-t"], capture_output=True, timeout=30).returncode != 0:
+            if old is not None:
+                with open(ACL, "w", encoding="utf-8") as f: f.write(old)
+            print("nginx не принял разрешённые IP — оставлены прежние"); return
+        subprocess.run(["systemctl", "reload", "nginx"], timeout=30)
+    except Exception as e:
+        print("не удалось обновить nginx:", e)
+
+
 def build_clients(active, LOUT, head, keep, wgid, st, items=None, fmap=None):
     """Личный плейлист клиента: каналы выбранных ему плейлистов (без повторов) + его правки:
     off — выключенные каналы, add — добавленные из основного, extra — свои каналы, urls — своя ссылка у канала.
@@ -339,6 +404,8 @@ def build_clients(active, LOUT, head, keep, wgid, st, items=None, fmap=None):
             lg = f' tvg-logo="{c["logo"]}"' if URLOK.match(str(c.get("logo") or "")) else ""
             ent.append({"n": nm.lower(), "k": "x:" + str(c.get("id")), "free": True, "g": gr,
                         "lines": [f'#EXTINF:-1{lg} group-title="{gr}",{nm}', c["url"]]})
+        ORD = {k: i for i, k in enumerate(x.get("order") or [])}
+        if ORD: ent.sort(key=lambda e: ORD.get(e.get("k"), 10**6))   # свой порядок клиента (перетаскивание), остальные — после
         cmap, miss = None, 0
         if E4["mode"] == "hls" and any(not e["free"] for e in ent):
             t0, err = time.time(), None
@@ -362,6 +429,7 @@ def build_clients(active, LOUT, head, keep, wgid, st, items=None, fmap=None):
         with open(tmp, "w", encoding="utf-8") as f: f.write("\n".join(out) + "\n")
         os.chown(tmp, 0, wgid); os.chmod(tmp, 0o640); os.replace(tmp, fn); keep.add(fn)
         st["clients"][cid] = {"channels": sum(1 for l in out if l.startswith("#EXTINF")), "missing": miss}
+        XCCH[cid] = xc_channels(out)
 
 
 # ---------- активность: кто открывал плейлисты (журнал nginx /var/log/nginx/e4tv-pl.log) ----------
@@ -527,6 +595,11 @@ def main():
         fn = f"{OUTDIR}/{x['token']}.m3u8"
         if fn not in keep and os.path.exists(fn) and (st["error"] or str(x["id"]) in st.get("clients_err", {})): keep.add(fn)
     st["clients_off"] = [str(x["id"]) for x in clients if x not in active]
+    if items is not None or not active:
+        try: write_xc(clients)
+        except OSError as e: print("xc.json:", e)
+    try: write_acl(active)
+    except OSError as e: print("e4tv-acl.conf:", e)
     if st["error"] is None:   # удалить файлы удалённых листов / старых ссылок
         for f in glob.glob(f"{OUTDIR}/*.m3u8"):
             if f not in keep:

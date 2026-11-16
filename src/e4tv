@@ -130,7 +130,7 @@ P
     read -r -p "Для подтверждения введите УДАЛИТЬ: " a; [ "$a" = "УДАЛИТЬ" ] || { echo "Отменено"; exit 1; }
     systemctl disable --now $UNITS e4tv-build.service e4tv-lists.service 2>/dev/null
     rm -f /etc/systemd/system/e4tv-*.service /etc/systemd/system/e4tv-*.path /etc/systemd/system/e4tv-*.timer
-    rm -f /etc/nginx/sites-enabled/evgen4ik-tv /etc/nginx/sites-available/evgen4ik-tv /etc/letsencrypt/renewal-hooks/deploy/e4tv.sh
+    rm -f /etc/nginx/sites-enabled/evgen4ik-tv /etc/nginx/sites-available/evgen4ik-tv /etc/letsencrypt/renewal-hooks/deploy/e4tv.sh /etc/nginx/e4tv-acl.conf
     systemctl reload nginx 2>/dev/null
     if [ "${2:-}" = --purge ]; then
       if [ -f /opt/hls-proxy/.installed-by-e4tv ]; then systemctl disable --now hls-proxy 2>/dev/null; rm -rf /opt/hls-proxy /etc/systemd/system/hls-proxy.service; fi
