@@ -98,6 +98,28 @@ with open(tmp, "w", encoding="utf-8") as f: json.dump(r, f, ensure_ascii=False, 
 os.chown(tmp, st.st_uid, st.st_gid); os.chmod(tmp, 0o640); os.replace(tmp, p)
 P
     systemctl restart hls-proxy && { [ "$2" = 0 ] && echo "Готово: без лимита каналов. HLS Proxy перезапущен." || echo "Готово: не больше $2 каналов одновременно. HLS Proxy перезапущен."; } ;;
+  token)
+    need_root "$@"
+    old=$(c main_token)
+    echo "Будет сделана новая ссылка основного плейлиста. Старая перестанет работать сразу:"
+    echo "во всех телевизорах и плеерах нужно будет вставить новую."
+    echo "(Ссылки плейлистов из редактора не меняются — для них есть кнопка «Новая ссылка».)"
+    if [ "${2:-}" != -y ]; then read -r -p "Продолжить? [д/Н]: " a; case "${a,,}" in д|да|y|yes) ;; *) echo "Отменено"; exit 1;; esac; fi
+    python3 - "$CONF" <<'P' || { echo "Не удалось записать $CONF"; exit 1; }
+import json, os, secrets, string, sys
+p = sys.argv[1]
+c = json.load(open(p, encoding="utf-8"))
+a = string.ascii_letters + string.digits
+c["main_token"] = "".join(secrets.choice(a) for _ in range(24))
+st = os.stat(p); tmp = p + ".tmp"
+with open(tmp, "w", encoding="utf-8") as f: json.dump(c, f, ensure_ascii=False, indent=1)
+os.chown(tmp, st.st_uid, st.st_gid); os.chmod(tmp, st.st_mode & 0o777); os.replace(tmp, p)
+P
+    systemctl restart e4tv-editor.service
+    echo "Собираю плейлист по новой ссылке…"
+    systemctl start e4tv-lists.service || echo "Сборка завершилась с ошибкой: e4tv logs"
+    pl=$(c pl_dir); [ -n "$old" ] && rm -f "$pl/$old.m3u8"
+    echo; echo "Готово. Новый основной плейлист:  $(c public_base)$(c main_token).m3u8" ;;
   rebuild)
     need_root "$@"; date +%s > "$(c data)/editor/apply.trigger"; echo "Пересборка запущена. Ход: e4tv logs" ;;
   logs) journalctl -u e4tv-build -u e4tv-lists -u e4tv-editor -n "${2:-80}" --no-pager ;;
@@ -120,6 +142,7 @@ P
 e4tv info       — ссылки: редактор, основной плейлист, EPG
 e4tv status     — состояние служб и последней сборки
 e4tv passwd     — сменить логин/пароль редактора
+e4tv token      — новая ссылка основного плейлиста (старая перестанет работать)
 e4tv rebuild    — пересобрать плейлист сейчас
 e4tv streams N  — сколько каналов одновременно (лимит провайдера, режим с HLS Proxy); 0 — без лимита
 e4tv logs [N]   — последние строки журнала

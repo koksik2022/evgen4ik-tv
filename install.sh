@@ -8,7 +8,7 @@
 # Повторный запуск обновляет программу и сохраняет настройки.
 set -uo pipefail
 
-E4_VER="1.1"
+E4_VER="1.2"
 HLSP_VER="8.4.8"
 HLSP_URL="https://www.hls-proxy.com/downloads/${HLSP_VER}/hls-proxy-${HLSP_VER}.linux-x64.zip"
 APP=/opt/evgen4ik-tv
@@ -609,7 +609,7 @@ final_report() {
   echo
   [ "${HOME_LAN:-0}" = 1 ] && echo -e "${Y}Сервер в домашней сети: плейлисты работают дома и пока этот компьютер включён.${N}"
   echo -e "${D}Эти данные сохранены в $CREDS (виден только root).${N}"
-  echo -e "${D}Команды: e4tv info · e4tv status · e4tv passwd · e4tv logs${N}"
+  echo -e "${D}Команды: e4tv info · e4tv status · e4tv passwd · e4tv token · e4tv logs${N}"
   [ "$MODE" = hls ] && echo -e "${D}HLS Proxy — программа стороннего автора (hls-proxy.com), скачана с его сайта; условия использования — на сайте автора.${N}"
   return 0
 }
