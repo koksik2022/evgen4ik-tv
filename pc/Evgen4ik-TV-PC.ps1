@@ -229,24 +229,39 @@ Say "Запускаю установщик Evgen4ik TV — отвечайте н
 if ($LASTEXITCODE -ne 0) { Fail "Установщик внутри Ubuntu завершился с ошибкой (см. выше). Исправьте и запустите «ЗАПУСТИТЬ установку на компьютер.bat» снова." }
 
 # ---------- автозапуск ----------
-@"
-# Evgen4ik TV: при входе в Windows поднимает Ubuntu и держит её включённой
-`$env:WSL_UTF8 = "1"
-`$D = "$Distro"
-if ("$Net" -eq "portproxy") {
-  `$ip = `$null
-  for (`$i = 0; `$i -lt 30 -and -not `$ip; `$i++) {
-    `$ip = ((wsl.exe -d `$D -u root -- hostname -I) -replace "``0", "" -split '\s+' | Where-Object { `$_ -match '^\d+\.\d+\.\d+\.\d+$' } | Select-Object -First 1)
-    if (-not `$ip) { Start-Sleep 2 }
-  }
-  foreach (`$p in $($Ports -join ', ')) {
-    netsh interface portproxy delete v4tov4 listenport=`$p listenaddress=0.0.0.0 | Out-Null
-    netsh interface portproxy delete v4tov4 listenport=`$p listenaddress=$Ip | Out-Null
-    if (`$ip) { netsh interface portproxy add v4tov4 listenport=`$p listenaddress=$Ip connectport=`$p connectaddress=`$ip | Out-Null }
-  }
+# keepalive.ps1 работает всё время: держит Ubuntu включённой и следит, чтобы проброс портов
+# указывал на текущий адрес Ubuntu (он меняется после wsl --shutdown, обновления WSL и т.п.)
+$ka = @'
+# Evgen4ik TV: при входе в Windows поднимает Ubuntu, держит её включённой и следит за пробросом портов
+$env:WSL_UTF8 = "1"
+$D = "__DISTRO__"; $Net = "__NET__"; $LanIp = "__IP__"; $Ports = @(__PORTS__)
+$keeper = $null; $last = ""
+function Get-WslIp {
+  $o = ((& wsl.exe -d $D -u root -- hostname -I 2>$null) | Out-String) -replace "`0", ""
+  return (($o -split '\s+') | Where-Object { $_ -match '^\d+\.\d+\.\d+\.\d+$' } | Select-Object -First 1)
 }
-wsl.exe -d `$D -u root --exec sleep infinity
-"@ | Set-Content -Path "$Dir\keepalive.ps1" -Encoding UTF8
+while ($true) {
+  if (-not $keeper -or $keeper.HasExited) {   # пока жив этот процесс, Ubuntu не выключается; если её остановили — поднимаем снова
+    $keeper = Start-Process wsl.exe -ArgumentList @("-d", $D, "-u", "root", "--exec", "sleep", "infinity") -WindowStyle Hidden -PassThru
+    Start-Sleep 3
+  }
+  if ($Net -eq "portproxy") {
+    $ip = Get-WslIp
+    if ($ip -and $ip -ne $last) {   # адрес Ubuntu сменился — переносим проброс портов на новый
+      foreach ($p in $Ports) {
+        netsh interface portproxy delete v4tov4 listenport=$p listenaddress=0.0.0.0 2>$null | Out-Null
+        netsh interface portproxy delete v4tov4 listenport=$p listenaddress=$LanIp 2>$null | Out-Null
+        netsh interface portproxy add v4tov4 listenport=$p listenaddress=$LanIp connectport=$p connectaddress=$ip | Out-Null
+      }
+      $last = $ip
+    }
+    if (-not $last) { Start-Sleep 5; continue }   # Ubuntu ещё загружается — проверяем чаще
+  }
+  Start-Sleep 60
+}
+'@
+$ka.Replace("__DISTRO__", $Distro).Replace("__NET__", $Net).Replace("__IP__", $Ip).Replace("__PORTS__", ($Ports -join ", ")) |
+  Set-Content -Path "$Dir\keepalive.ps1" -Encoding UTF8
 @{ distro = $Distro; net = $Net; ip = $Ip; installed = (Get-Date -Format "dd.MM.yyyy HH:mm") } | ConvertTo-Json | Set-Content "$Dir\pc.json" -Encoding UTF8
 $user = "$env:USERDOMAIN\$env:USERNAME"
 $act = New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$Dir\keepalive.ps1`""
