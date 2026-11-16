@@ -1072,7 +1072,7 @@ function cChannels(c){const out=[], seen=new Set(), off=new Set(c.off||[]), urls
     for(const f of freeItems(L)){if(seen.has(f.k)||kid(f.g)) continue; seen.add(f.k); out.push({k:f.k,n:f.n,g:f.g,kind:"list",from:L.name,src:""})}}
   for(const k of c.add||[]){const ch=findC(k); if(!ch||seen.has(k)) continue; const g=effGroup(ch); if(kid(g)) continue; seen.add(k);
     out.push({k,n:dispName(ch),g,kind:"add",from:"добавлен",src:(ch.u&&ch.u[0]&&ch.u[0][1])||""})}
-  for(const x of c.extra||[]) out.push({k:"x:"+x.id,n:x.name,g:x.group,kind:"own",from:"свой",src:x.url,x});
+  for(const x of c.extra||[]) out.push({k:"x:"+x.id,n:x.name,g:x.group,kind:"own",from:x.src?"файл: "+x.src:"свой",src:x.url,x});
   for(const r of out){r.on=!off.has(r.k); r.url=r.kind==="own"?r.x.url:(urls[r.k]||"")}
   return out}
 function cChansHtml(c){const all=cChannels(c), q=cChQ.toLowerCase(), list=all.filter(r=>!q||(r.n+" "+r.g).toLowerCase().includes(q)), shown=list.slice(0,cChLim);
@@ -1094,17 +1094,39 @@ function cAddHtml(c){const have=new Set(cChannels(c).map(r=>r.k)), q=cAddQ.toLow
 function cChCard(c){const hls=CONF.mode==="hls";
   return `<div class="card"><h2>Каналы клиента</h2><p class="hint">Его личный список: каналы отмеченных плейлистов плюс ваши правки. Правки действуют только на этого клиента — сами плейлисты не меняются.${hls?" Канал со своей ссылкой идёт напрямую, мимо HLS Proxy: лимит каналов клиента на него не действует.":""}</p>
     <div class="pills" style="margin-bottom:10px"><input type="search" id="cChQ" placeholder="Поиск канала у клиента" aria-label="Поиск канала у клиента" value="${esc(cChQ)}" style="flex:1 1 220px">
-      <button id="cAddBtn"${cPanel==="add"?' class="pill on"':""}>+ Из основного плейлиста</button><button id="cOwnBtn"${cPanel==="own"?' class="pill on"':""}>+ Свой канал по ссылке</button>
+      <button id="cAddBtn"${cPanel==="add"?' class="pill on"':""}>+ Из основного плейлиста</button><button id="cOwnBtn"${cPanel==="own"?' class="pill on"':""}>+ Свой канал по ссылке</button><button id="cFileBtn" title="Файл .m3u / .m3u8 с компьютера — каналы станут своими каналами клиента">+ Из файла с ПК</button><input type="file" id="cFile" accept=".m3u,.m3u8,.txt,audio/x-mpegurl,application/vnd.apple.mpegurl" hidden>
       <button id="cAllOn" title="Включить все выключенные">Включить все</button></div>
     <div id="cAddBox" ${cPanel==="add"?"":"hidden"} style="margin-bottom:12px;padding:12px;border:1px solid var(--line);border-radius:10px"><input type="search" id="cAddQ" placeholder="Название канала из основного плейлиста" aria-label="Поиск в основном плейлисте" value="${esc(cAddQ)}" style="width:100%;margin-bottom:8px"><div id="cAddRes">${cAddHtml(c)}</div></div>
     <div id="cOwnBox" ${cPanel==="own"?"":"hidden"} style="margin-bottom:12px;padding:12px;border:1px solid var(--line);border-radius:10px">
       <div class="pills"><input type="text" id="cOwnName" placeholder="Название" aria-label="Название канала" maxlength="100" style="flex:1 1 180px"><input type="text" id="cOwnGroup" placeholder="Группа (Мои каналы)" aria-label="Группа" maxlength="60" style="flex:1 1 140px">
       <input type="text" id="cOwnUrl" placeholder="http://… ссылка на поток" aria-label="Ссылка на поток" spellcheck="false" style="flex:2 1 260px;font:12.5px var(--mono)"><button class="primary" id="cOwnAdd">Добавить</button></div></div>
+    ${cFilesHtml(c)}
     <div id="cChans">${cChansHtml(c)}</div></div>`}
+function cFilesHtml(c){const m=new Map(); for(const x of c.extra||[]) if(x.src) m.set(x.src,(m.get(x.src)||0)+1);
+  return m.size?`<div class="pills" style="margin-bottom:10px"><span class="muted">Из файлов:</span>${[...m].map(([n,k])=>`<span class="badge ok">${esc(n)} · ${k}</span><button class="sm danger" data-rmfile="${esc(n)}" title="Убрать все каналы этого файла">Убрать</button>`).join("")}</div>`:""}
+function parseM3U(text){const out=[]; let cur=null;
+  for(const raw of String(text).replace(/\r/g,"").split("\n")){const l=raw.trim(); if(!l) continue;
+    if(l.startsWith("#EXTINF")){const a={}; let rest=l.replace(/^#EXTINF:\s*-?\d+(\.\d+)?/,"").replace(/([\w-]+)="([^"]*)"/g,(m,k,v)=>{a[k.toLowerCase()]=v; return ""});
+      const i=rest.indexOf(","); cur={name:(i>=0?rest.slice(i+1):"").trim()||a["tvg-name"]||"",group:a["group-title"]||"",logo:a["tvg-logo"]||""}}
+    else if(l.startsWith("#EXTGRP:")&&cur&&!cur.group) cur.group=l.slice(8).trim();
+    else if(l.startsWith("#")) continue;
+    else if(cur){cur.url=l; out.push(cur); cur=null}}
+  return out}
+async function cAddFile(f){const c=CC(); if(!c||!f) return; if(f.size>30*1024*1024){toast("Файл больше 30 МБ");return}
+  let items; try{items=parseM3U(await f.text())}catch(e){toast("Не удалось прочитать файл: "+e);return}
+  if(!items.length){toast("Это не M3U-плейлист: не найдено ни одного канала (#EXTINF)");return}
+  c.extra=c.extra||[]; const have=new Set(c.extra.map(x=>x.url)), src=clean(f.name.replace(/\.(m3u8?|txt)$/i,"")).slice(0,60)||"файл";
+  let add=0, bad=0, dup=0, over=0;
+  for(const it of items){const u=String(it.url||"").trim(), n=clean(it.name);
+    if(!n||!URLRX.test(u)){bad++; continue} if(have.has(u)){dup++; continue} if(c.extra.length>=3000){over++; continue}
+    have.add(u); c.extra.push({id:newId(),name:n,group:clean(it.group).slice(0,60)||src,url:u,logo:/^https?:\/\/[^\s"]{1,1000}$/.test(it.logo)?it.logo:"",src}); add++}
+  cChQ=""; render();
+  toast(`Из «${src}» добавлено ${plural(add,"канал","канала","каналов")}`+(dup?`, уже были: ${dup}`:"")+(bad?`, без ссылки: ${bad}`:"")+(over?`, не влезло (лимит 3000): ${over}`:"")+" — нажмите «Сохранить»")}
 function cChRefresh(){const c=CC(); if(c&&$("cChans")) $("cChans").innerHTML=cChansHtml(c)}
 $("settings").addEventListener("input",e=>{if(mode!=="client") return; const t=e.target;
   if(t.id==="cChQ"){cChQ=t.value; cChLim=150; cChRefresh(); return}
   if(t.id==="cAddQ"){cAddQ=t.value; const c=CC(); if(c) $("cAddRes").innerHTML=cAddHtml(c); return}});
+$("settings").addEventListener("change",e=>{if(mode==="client"&&e.target.id==="cFile") cAddFile(e.target.files[0])});
 $("settings").addEventListener("change",e=>{if(mode!=="client") return; const c=CC(), t=e.target, tr=t.closest("tr[data-ck]"); if(!c||!tr) return; const k=tr.dataset.ck;
   if(t.classList.contains("cOn")){c.off=(c.off||[]).filter(x=>x!==k); if(!t.checked) c.off.push(k); cChRefresh(); markDirty(); return}
   if(t.classList.contains("cUrl")){const u=t.value.trim();
@@ -1115,6 +1137,9 @@ $("settings").addEventListener("change",e=>{if(mode!=="client") return; const c=
 $("settings").addEventListener("click",e=>{if(mode!=="client") return; const c=CC(), t=e.target; if(!c) return;
   if(t.id==="cAddBtn"||t.id==="cOwnBtn"){const p=t.id==="cAddBtn"?"add":"own"; cPanel=cPanel===p?"":p; render(); const f=$(cPanel==="add"?"cAddQ":"cOwnName"); if(f) f.focus(); return}
   if(t.id==="cChMore"){cChLim+=300; cChRefresh(); return}
+  if(t.id==="cFileBtn"){$("cFile").value=""; $("cFile").click(); return}
+  if(t.dataset.rmfile){const n=t.dataset.rmfile, ks=new Set((c.extra||[]).filter(x=>x.src===n).map(x=>"x:"+x.id)); if(!confirm("Убрать у клиента все каналы файла «"+n+"» ("+ks.size+")?")) return;
+    c.extra=(c.extra||[]).filter(x=>x.src!==n); c.off=(c.off||[]).filter(k=>!ks.has(k)); render(); return}
   if(t.id==="cAllOn"){if(!(c.off||[]).length){toast("Выключенных каналов нет");return} c.off=[]; cChRefresh(); markDirty(); return}
   if(t.dataset.addk){const k=t.dataset.addk; c.add=c.add||[]; if(!c.add.includes(k)) c.add.push(k); c.off=(c.off||[]).filter(x=>x!==k); $("cAddRes").innerHTML=cAddHtml(c); cChRefresh(); markDirty(); toast("Канал добавлен клиенту"); return}
   if(t.id==="cOwnAdd"){const n=clean($("cOwnName").value), u=$("cOwnUrl").value.trim(), g=clean($("cOwnGroup").value).slice(0,60)||"Мои каналы";

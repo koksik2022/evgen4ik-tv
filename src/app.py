@@ -28,7 +28,7 @@ FILE_RX = re.compile(r"^file://" + re.escape(UPLOADS) + r"/([a-z0-9]{4,16})\.m3u
 TOK_RX = re.compile(r"^[A-Za-z0-9_-]{16,64}$")
 BACKUPS = f"{DATA}/backups"
 HERE = os.path.dirname(os.path.abspath(__file__))
-MAX_BODY = 4 * 1024 * 1024
+MAX_BODY = 16 * 1024 * 1024   # правила целиком (у клиентов могут быть тысячи своих каналов из файлов)
 ALLOWED_HOSTS = {"localhost", "127.0.0.1", *[str(h).lower() for h in E4["hosts"]]}
 LOGIN_ON = E4["access"] == "login"
 COOKIE = "e4tv"
@@ -233,8 +233,9 @@ def validate(r):
                                         if isinstance(k, str) and k.strip() and isinstance(u, str) and URL_RX.match(u.strip())} if isinstance(c.get("urls"), dict) else {},
                                "extra": [{"id": x["id"] if isinstance(x.get("id"), str) and re.fullmatch(r"[a-z0-9]{1,16}", x["id"]) else secrets.token_hex(4),
                                           "name": s(x["name"], 100), "group": s(x.get("group"), 60) or "Мои каналы", "url": x["url"].strip(),
-                                          "logo": x["logo"].strip() if isinstance(x.get("logo"), str) and re.match(r"^https?://[^\s\"]{1,1000}$", x["logo"].strip()) else ""}
-                                         for x in (c.get("extra") or [])[:500]
+                                          "logo": x["logo"].strip() if isinstance(x.get("logo"), str) and re.match(r"^https?://[^\s\"]{1,1000}$", x["logo"].strip()) else "",
+                                          "src": s(x.get("src"), 60) or ""}   # из какого файла (пусто — добавлен вручную)
+                                         for x in (c.get("extra") or [])[:3000]
                                          if isinstance(x, dict) and s(x.get("name"), 100) and isinstance(x.get("url"), str) and URL_RX.match(x["url"].strip())],
                                "created": c["created"] if isinstance(c.get("created"), str) and re.fullmatch(r"\d{4}-\d{2}-\d{2}", c["created"]) else time.strftime("%Y-%m-%d")})
     msg = r.get("client_msg")
