@@ -390,7 +390,7 @@ function render(){buildAll(); snapUndo();
   if(mode==="client"&&!CC()) mode="clients";
   const grid=mode==="main"||mode==="lists";
   document.querySelectorAll("#nav button").forEach(b=>b.classList.toggle("on",b.dataset.mode===mode||(mode==="lists"&&b.dataset.mode==="plist")||(mode==="client"&&b.dataset.mode==="clients")));
-  $("navLists").textContent=R.lists.length;
+  $("navLists").textContent=shared().length;
   $("navClients").textContent=R.clients.length;
   $("gtools").hidden=mode!=="main";
   $("settings").hidden=grid; $("mainGrid").hidden=!grid;
@@ -398,7 +398,7 @@ function render(){buildAll(); snapUndo();
   if(mode!=="lists") lsrc="main";
   const L=LL();
   $("ptitle").textContent=mode==="lists"&&L?L.name:mode==="client"&&CC()?CC().name:PAGES[mode]||"Редактор";
-  $("crumbs").innerHTML=mode==="lists"?(cBack&&R.clients.some(x=>x.id===cBack)?`<button data-go="client">← Клиент «${esc(R.clients.find(x=>x.id===cBack).name)}»</button> · `:"")+`<button data-go="plist">Объединённые плейлисты</button> › Изменить`:mode==="client"?`<button data-go="clients">Клиенты</button> › Изменить`:mode==="clients"?"Плейлисты":mode==="main"?"Основной плейлист":mode==="plist"?"Плейлисты":"Настройки";
+  $("crumbs").innerHTML=mode==="lists"?((()=>{const bc=R.clients.find(x=>x.id===(cBack||(L&&L.owner)))||null; return bc?`<button data-go="client" data-cid="${esc(bc.id)}">← Клиент «${esc(bc.name)}»</button> · `:""})())+`<button data-go="plist">Объединённые плейлисты</button> › Изменить`:mode==="client"?`<button data-go="clients">Клиенты</button> › Изменить`:mode==="clients"?"Плейлисты":mode==="main"?"Основной плейлист":mode==="plist"?"Плейлисты":"Настройки";
   renderStats();renderLbar();
   const fb=$("srcFBar"); if(mode==="main"&&srcF){const ch=ALL.filter(c=>!c.alias&&inSrcF(c)), gN=new Set(ch.map(effGroup)).size;
     fb.innerHTML=`<span style="font-size:16px">🔎</span><b>Источник: ${esc(srcF)}</b><span class="muted">${ch.length} каналов в ${gN} группах — прячьте, переименовывайте, переносите и смотрите ▶ прямо здесь</span><span style="flex:1"></span><button id="srcFClear">✕ Показать все источники</button>`;
@@ -426,7 +426,8 @@ function renderLbar(){
     <div class="card"><h2>Основное</h2>
       <div class="field"><span>Название</span><input type="text" id="lName" value="${esc(L.name)}" maxlength="80"></div>
       <div style="margin-top:12px;display:flex;gap:16px;align-items:center;flex-wrap:wrap">
-        <label class="switch"><input type="checkbox" id="lEn" ${L.enabled!==false?"checked":""}><i></i>Включён</label>
+        ${L.owner?`<span class="badge warn" title="Своей ссылки нет — работает через ссылку клиента">личный плейлист клиента «${esc((R.clients.find(c=>c.id===L.owner)||{}).name||"?")}»</span>`
+          :`<label class="switch" title="Своя ссылка плейлиста"><input type="checkbox" id="lEn" ${L.enabled!==false?"checked":""}><i></i>Включён</label><label class="switch" title="Можно отмечать у клиентов в разделе «Клиенты»"><input type="checkbox" id="lCl" ${L.no_clients?"":"checked"}><i></i>Клиентам${usedBy(L)?" ("+usedBy(L)+")":""}</label>`}
         <label class="switch" title="Все группы основного плейлиста, в том числе новые; ненужные снимите слева"><input type="checkbox" id="lAll" ${L.all?"checked":""}><i></i>Все группы</label>
         <label class="switch" title="Группа 18+ никогда не попадёт в этот плейлист"><input type="checkbox" id="lKids" ${L.no_adult?"checked":""}><i></i>Детский (без 18+)</label>
         <span class="muted">в плейлисте <b style="color:var(--ink)">${listCount(L)}</b> каналов${st?` · в файле ${st.channels}, групп ${st.groups??"—"}`:""}</span></div></div>
@@ -438,7 +439,7 @@ function renderLbar(){
       <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><label class="switch"><input type="checkbox" id="lNumOn" ${L.chno?"checked":""}><i></i>Нумеровать</label>
       <label class="muted">с номера <input type="number" id="lNum" min="1" max="99999" value="${L.chno||1}" style="width:90px" ${L.chno?"":"disabled"}></label></div></div>
   </div>
-  <div class="card"><h2>Ссылки</h2>
+  ${L.owner?`<div class="card"><h2>Ссылка</h2><p class="hint">У личного плейлиста своей ссылки нет: его каналы попадают только в ссылку клиента. Правки здесь касаются только этого клиента.</p><button id="lDel" class="danger">Удалить личный плейлист</button></div>`:`  <div class="card"><h2>Ссылки</h2>
     ${L.token&&savedL?`<div class="linkrow"><span class="badge">M3U</span><input type="text" id="lLink" readonly value="${esc(link)}"><button id="lCopy">Копировать</button><button id="lQr">QR</button><button id="lOpen">Скачать</button></div>`:`<p class="hint">Ссылка появится после сохранения.</p>`}
     <div class="linkrow" style="margin-top:8px"><span class="badge">Коротко</span><span class="muted">${esc(BASE)}</span><input type="text" id="lSlug" value="${esc(L.slug||"")}" placeholder="например kuhnya-7x" maxlength="32" style="flex:0 1 200px;font:inherit">.m3u8
       <button id="lSlugGen" title="Придумать из названия">Предложить</button>${L.slug&&savedL&&savedL.slug===L.slug?`<button id="lCopyS">Копировать</button><button id="lQrS">QR</button>`:L.slug?'<span class="muted">заработает после сохранения</span>':""}</div>
@@ -451,7 +452,7 @@ function renderLbar(){
     ${L.password&&savedL&&savedL.password===L.password&&L.token?`<div class="linkrow" style="margin-top:8px"><span class="badge">С паролем</span><input type="text" id="lLinkP" readonly value="${esc(credLink(L))}"><button id="lCopyP">Копировать</button><button id="lQrP">QR</button></div><small class="muted">Если плеер не спрашивает пароль, используйте эту ссылку — логин и пароль уже внутри.</small>`:""}
     <div class="linkrow" style="margin-top:8px"><span class="badge">EPG</span><input type="text" id="lEpg" readonly value="${EPG_URL}"><button id="lCopyEpg">Копировать</button></div>
     <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap"><button id="lRegen" title="Старая ссылка перестанет работать">Новая ссылка</button><button id="lDel" class="danger">Удалить плейлист</button>
-    <span class="sp"></span><span class="muted">${st?`файл обновлён ${esc(LST.at||"")}`:""}${LST.error?` · <span class="st-bad">ошибка: ${esc(LST.error)}</span>`:""}</span></div></div>
+    <span class="sp"></span><span class="muted">${st?`файл обновлён ${esc(LST.at||"")}`:""}${LST.error?` · <span class="st-bad">ошибка: ${esc(LST.error)}</span>`:""}</span></div></div>`}
   <p class="hint" style="margin:0">Слева выберите, откуда брать каналы — основной плейлист или загруженный по ссылке, отмечайте группы и каналы. Справа — ваш плейлист: порядок меняется перетаскиванием, ✕ убирает канал.</p>`;
 }
 function renderGroups(){
@@ -601,7 +602,7 @@ $("mlist").addEventListener("drop",e=>{const r=e.target.closest("[data-mk]"), L=
   const ks=mineItems(L).map(x=>x.k).filter(k=>k!==dragM); ks.splice(ks.indexOf(r.dataset.mk),0,dragM); L.order=ks; dragM=null; render()});
 $("mlist").addEventListener("dragend",()=>{dragM=null;document.querySelectorAll(".m.dragover").forEach(x=>x.classList.remove("dragover"))});
 $("nav").addEventListener("click",e=>{const b=e.target.closest("button[data-mode]"); if(b) go(b.dataset.mode)});
-$("crumbs").addEventListener("click",e=>{const b=e.target.closest("[data-go]"); if(!b) return; if(b.dataset.go==="client"&&cBack) curC=cBack; go(b.dataset.go)});
+$("crumbs").addEventListener("click",e=>{const b=e.target.closest("[data-go]"); if(!b) return; if(b.dataset.go==="client") curC=b.dataset.cid||cBack||curC; go(b.dataset.go)});
 $("lbar").addEventListener("click",e=>{const id=e.target.id, L=LL(); if(!L) return;
   if(id==="lCopy"){copyText($("lLink").value,"Ссылка на плейлист скопирована");return}
   if(id==="lCopyEpg"){copyText(EPG_URL,"Ссылка на EPG скопирована");return}
@@ -617,13 +618,15 @@ $("lbar").addEventListener("click",e=>{const id=e.target.id, L=LL(); if(!L) retu
   if(id==="lPassGen"){const a="abcdefghjkmnpqrstuvwxyz23456789"; L.password=Array.from(crypto.getRandomValues(new Uint8Array(8)),x=>a[x%a.length]).join(""); render(); return}
   if(id==="lExpClr"){L.expires=""; render(); return}
   if(id==="lRegen"){if(!confirm("Сделать новую ссылку для «"+L.name+"»? Старая перестанет работать после сохранения.")) return; L.token=""; render(); toast("Сохраните — появится новая ссылка"); return}
-  if(id==="lDel"){if(!confirm("Удалить плейлист «"+L.name+"»? Его ссылка перестанет работать после сохранения.")) return;
-    R.lists=R.lists.filter(x=>x!==L); curL=null; go("plist"); return}
+  if(id==="lDel"){if(!confirm(L.owner?"Удалить личный плейлист «"+L.name+"»? Его каналы пропадут у клиента после сохранения.":"Удалить плейлист «"+L.name+"»? Его ссылка перестанет работать после сохранения."+delWarn(L))) return;
+    const ow=L.owner; R.lists=R.lists.filter(x=>x!==L); for(const c of R.clients) c.lists=c.lists.filter(x=>x!==L.id); curL=null;
+    if(ow&&R.clients.some(c=>c.id===ow)){curC=ow; go("client")} else go("plist"); return}
 });
 $("lbar").addEventListener("keydown",e=>{if(e.target.id==="lUrl"&&e.key==="Enter") addUrl()});
 $("lbar").addEventListener("change",e=>{const L=LL(), t=e.target; if(!L) return;
   if(t.id==="lName"){L.name=clean(t.value).slice(0,80)||L.name;render()}
   if(t.id==="lEn"){L.enabled=t.checked;markDirty()}
+  if(t.id==="lCl"){L.no_clients=!t.checked; if(L.no_clients&&usedBy(L)) toast("Клиенты, у которых он отмечен ("+usedBy(L)+"), перестанут получать его каналы после сохранения"); render()}
   if(t.id==="lKids"){L.no_adult=t.checked;render()}
   if(t.id==="lSlug"){const v=t.value.trim().toLowerCase(); if(v&&!/^[a-z0-9][a-z0-9-]{2,31}$/.test(v)){toast("Короткая ссылка: латиница, цифры и -, от 3 знаков");t.value=L.slug||"";return}
     if(v&&R.lists.some(x=>x!==L&&x.slug===v)){toast("Такая короткая ссылка уже есть");t.value=L.slug||"";return} L.slug=v; render()}
@@ -671,7 +674,7 @@ $("settings").addEventListener("click",e=>{if(mode!=="plist") return; const t=e.
   if(act==="qr"){showQr(L.password?credLink(L):(L.slug?shortLink(L):BASE+L.token+".m3u8"),L.name);return}
   if(act==="epg"){copyText(EPG_URL,"Ссылка на EPG скопирована");return}
   if(act==="dl"){window.open(BASE+L.token+".m3u8","_blank","noopener");return}
-  if(act==="del"){if(!confirm("Удалить плейлист «"+L.name+"»? Его ссылка перестанет работать после сохранения.")) return; R.lists=R.lists.filter(x=>x!==L); render(); return}
+  if(act==="del"){if(!confirm("Удалить плейлист «"+L.name+"»? Его ссылка перестанет работать после сохранения."+delWarn(L))) return; R.lists=R.lists.filter(x=>x!==L); render(); return}
 });
 $("settings").addEventListener("change",e=>{if(mode!=="plist") return; const t=e.target; if(!t.classList.contains("pEn")) return;
   const L=R.lists.find(x=>x.id===t.closest("tr").dataset.id); if(L){L.enabled=t.checked; render(); toast(t.checked?"Включится после сохранения":"Ссылка перестанет работать после сохранения")}});
@@ -927,7 +930,10 @@ async function renderHistory(){
 }
 /* ---------- настройки ---------- */
 // ---------- Клиенты: люди со своей личной ссылкой, сроком и лимитом (файл собирает lists.py) ----------
-let curC=null, cFilt="all", cQ="", ACTV={}, cBack=null;   // cBack — клиент, из которого открыли плейлист
+let curC=null, cFilt="all", cQ="", ACTV={}, cBack=null;
+const shared=()=>R.lists.filter(L=>!L.owner);   // общие плейлисты (без личных плейлистов клиентов)
+const usedBy=L=>R.clients.filter(c=>c.lists.includes(L.id)).length;
+function delWarn(L){const n=usedBy(L); return n?"\nОн отмечен у "+plural(n,"клиента","клиентов","клиентов")+" — у них пропадут его каналы.":""}   // cBack — клиент, из которого открыли плейлист
 const CC=()=>R.clients.find(c=>c.id===curC);
 function isoLocal(d){const x=new Date(d); x.setMinutes(x.getMinutes()-x.getTimezoneOffset()); return x.toISOString().slice(0,10)}
 const todayISO=()=>isoLocal(new Date());
@@ -970,7 +976,7 @@ function renderClients(){
   const rows=list.map(c=>{const [bc,bt]=cState(c), sv=cSaved(c), d=daysLeft(c), [seen,ua]=seenText(c), en=c.enabled!==false;
     const tail=(d!==null&&d<=7)?`<button class="sm" data-act="ext">+1 месяц</button>`:`<button class="sm" data-act="tog">${en?"Выключить":"Включить"}</button>`;
     return `<tr data-cid="${esc(c.id)}"><td><button class="name" data-act="edit">${esc(c.name)}</button>${c.no_adult?' <span class="badge">без 18+</span>':""}<div class="muted">${esc([c.contact,c.note].filter(Boolean).join(" · "))}</div></td>
-      <td>${c.lists.filter(lname).map(id=>`<button class="badge blink" data-act="openl" data-lid="${esc(id)}" title="Открыть плейлист для редактирования">${esc(lname(id))} ›</button>`).join(" ")||'<span class="muted">не выбраны</span>'}</td>
+      <td>${c.lists.filter(lname).map(id=>`<button class="badge blink" data-act="openl" data-lid="${esc(id)}" title="Открыть плейлист для редактирования">${(R.lists.find(x=>x.id===id)||{}).owner?"личный: ":""}${esc(lname(id))} ›</button>`).join(" ")||'<span class="muted">не выбраны</span>'}</td>
       ${hls?`<td class="num">${c.streams||"без лимита"}</td>`:""}
       <td class="nw">${c.expires?`<span style="${d<0?"color:var(--bad)":d<=7?"color:var(--warn);font-weight:600":""}">${ruDate(c.expires)}</span>`:'<span class="muted">бессрочно</span>'}</td>
       <td class="nw">${esc(seen)}<div class="muted">${esc(ua)}</div></td>
@@ -1008,9 +1014,10 @@ function renderClient(){const c=CC(); if(!c){go("clients");return}
        :`<p class="hint">Лимит каналов на клиента есть только в режиме с HLS Proxy. Сейчас ссылки на потоки идут напрямую от провайдера.</p>`}
      <label style="display:flex;align-items:center;gap:8px;min-height:32px"><input type="checkbox" id="cKid" ${c.no_adult?"checked":""}> Без 18+ (детский режим)</label></div></div>
   <div class="card"><h2>Что смотрит</h2><p class="hint">Отметьте плейлисты — клиент получит одну ссылку, где они собраны вместе (без повторов). Подходят и выключенные плейлисты: своей ссылки у них нет, но клиенту они достаются.</p>
-    ${R.lists.length?`<div class="clists">${R.lists.map(L=>{const on=c.lists.includes(L.id); return `<button class="clist${on?" on":""}" data-lid="${esc(L.id)}" aria-pressed="${on}"><b>${on?"✓ ":""}${esc(L.name)}</b><span class="muted">${plural(listCount(L),"канал","канала","каналов")}${L.enabled===false?" · выключен":""}${L.no_adult?" · без 18+":""}</span></button>`}).join("")}</div>`
+    ${R.lists.length?`<div class="clists">${R.lists.filter(L=>L.owner?L.owner===c.id:(!L.no_clients||c.lists.includes(L.id))).map(L=>{const on=c.lists.includes(L.id); return `<button class="clist${on?" on":""}" data-lid="${esc(L.id)}" aria-pressed="${on}"><b>${on?"✓ ":""}${L.owner?"Личный: ":""}${esc(L.name)}</b><span class="muted">${plural(listCount(L),"канал","канала","каналов")}${L.enabled===false?" · выключен":""}${L.no_adult?" · без 18+":""}</span></button>`}).join("")}</div>`
       :`<div class="empty" style="padding:16px">Сначала создайте плейлист в разделе «Объединённые плейлисты».</div>`}
-    ${c.lists.some(id=>R.lists.some(L=>L.id===id))?`<div class="pills" style="margin-top:10px"><span class="muted">Изменить состав:</span>${c.lists.map(id=>R.lists.find(L=>L.id===id)).filter(Boolean).map(L=>`<button class="sm" data-openl="${esc(L.id)}" title="Открыть плейлист в редакторе — изменения коснутся всех, у кого он отмечен">«${esc(L.name)}» ›</button>`).join("")}</div>`:""}
+    ${c.lists.some(id=>R.lists.some(L=>L.id===id))?`<div class="pills" style="margin-top:10px"><span class="muted">Изменить состав:</span>${c.lists.map(id=>R.lists.find(L=>L.id===id)).filter(Boolean).map(L=>L.owner?`<button class="sm" data-openl="${esc(L.id)}" title="Личный плейлист — правки только для этого клиента">«${esc(L.name)}» ›</button>`
+      :`<button class="sm" data-openl="${esc(L.id)}" title="Общий плейлист — изменения коснутся всех, у кого он отмечен">«${esc(L.name)}» (общий) ›</button><button class="sm primary" data-mkp="${esc(L.id)}" title="Сделать копию только для этого клиента и поставить вместо общего">Сделать личным</button>`).join("")}</div>`:""}
     ${st&&sv?`<div class="muted" style="margin-top:10px">Сейчас в ссылке клиента ${plural(st.channels,"канал","канала","каналов")}${st.missing?` · ${st.missing} не нашлись в HLS Proxy под его логином (подождите минуту после сохранения)`:""}.</div>`:""}${er&&sv?`<div style="margin-top:8px;color:var(--bad)">✖ ${esc(er)}</div>`:""}</div>
   ${cChCard(c)}
   <div class="fgrid">
@@ -1064,8 +1071,9 @@ $("settings").addEventListener("click",e=>{if(mode!=="client") return; const c=C
   if(t.id==="cMsgCopy"){copyText(cMsg(c),"Сообщение скопировано");return}
   if(t.id==="cTpl"){const b=$("cTplBox"); b.hidden=!b.hidden; return}
   if(t.id==="cTplReset"){R.client_msg=""; render(); $("cTplBox").hidden=false; return}
-  if(t.id==="cDup"){const n=JSON.parse(JSON.stringify(c)); Object.assign(n,{id:newId(),name:(c.name+" (копия)").slice(0,80),token:"",hls_pw:"",created:todayISO()}); R.clients.push(n); curC=n.id; render(); toast("Копия создана — поменяйте имя и сохраните"); return}
-  if(t.id==="cDel"){if(!confirm("Удалить клиента «"+c.name+"»? Его ссылка перестанет работать после сохранения.")) return; R.clients=R.clients.filter(x=>x!==c); curC=null; go("clients")}});
+  if(t.id==="cDup"){const n=JSON.parse(JSON.stringify(c)); Object.assign(n,{id:newId(),name:(c.name+" (копия)").slice(0,80),token:"",hls_pw:"",created:todayISO()}); n.lists=n.lists.map(id=>{const L=R.lists.find(x=>x.id===id); if(!L||!L.owner) return id; const d=JSON.parse(JSON.stringify(L)); Object.assign(d,{id:newId(),token:"",owner:n.id,name:(L.name+" (копия)").slice(0,80)}); R.lists.push(d); return d.id});
+    R.clients.push(n); curC=n.id; render(); toast("Копия создана — поменяйте имя и сохраните"); return}
+  if(t.id==="cDel"){if(!confirm("Удалить клиента «"+c.name+"»? Его ссылка перестанет работать после сохранения."+(R.lists.some(L=>L.owner===c.id)?" Его личные плейлисты тоже удалятся.":""))) return; R.clients=R.clients.filter(x=>x!==c); R.lists=R.lists.filter(L=>L.owner!==c.id); curC=null; go("clients")}});
 // ---------- каналы клиента: его список поверх плейлистов ----------
 let cChQ="", cChLim=150, cAddQ="", cPanel="";
 function cChannels(c){const out=[], seen=new Set(), off=new Set(c.off||[]), urls=c.urls||{}, kid=g=>c.no_adult&&(g==="18+"||String(g).includes("18+"));
@@ -1141,6 +1149,10 @@ $("settings").addEventListener("click",e=>{if(mode!=="client") return; const c=C
   if(t.id==="cAddBtn"||t.id==="cOwnBtn"){const p=t.id==="cAddBtn"?"add":"own"; cPanel=cPanel===p?"":p; render(); const f=$(cPanel==="add"?"cAddQ":"cOwnName"); if(f) f.focus(); return}
   if(t.id==="cChMore"){cChLim+=300; cChRefresh(); return}
   if(t.dataset.openl){const L=R.lists.find(x=>x.id===t.dataset.openl); if(!L) return; cBack=c.id; curL=L.id; go("lists"); return}
+  if(t.dataset.mkp){const L=R.lists.find(x=>x.id===t.dataset.mkp); if(!L) return; const n=JSON.parse(JSON.stringify(L));
+    Object.assign(n,{id:newId(),name:(L.name+" — "+c.name).slice(0,80),token:"",slug:"",password:"",expires:"",enabled:false,owner:c.id,no_clients:false});
+    R.lists.push(n); c.lists=c.lists.map(x=>x===L.id?n.id:x); cBack=c.id; curL=n.id; go("lists");
+    toast("Личная копия для «"+c.name+"» — правьте и нажмите «Сохранить». Общий «"+L.name+"» не меняется"); return}
   if(t.id==="cFileBtn"){$("cFile").value=""; $("cFile").click(); return}
   if(t.dataset.rmfile){const n=t.dataset.rmfile, ks=new Set((c.extra||[]).filter(x=>x.src===n).map(x=>"x:"+x.id)); if(!confirm("Убрать у клиента все каналы файла «"+n+"» ("+ks.size+")?")) return;
     c.extra=(c.extra||[]).filter(x=>x.src!==n); c.off=(c.off||[]).filter(k=>!ks.has(k)); render(); return}
@@ -1154,11 +1166,11 @@ $("settings").addEventListener("click",e=>{if(mode!=="client") return; const c=C
   if(t.dataset.cact==="rm"){if(k.startsWith("x:")) c.extra=(c.extra||[]).filter(x=>"x:"+x.id!==k); else c.add=(c.add||[]).filter(x=>x!==k); c.off=(c.off||[]).filter(x=>x!==k); if(c.urls) delete c.urls[k]; cChRefresh(); markDirty(); return}});
 function renderPlist(){
   const svd=JSON.parse(saved).lists;
-  const rows=R.lists.map(L=>{const st=(LST.lists||{})[L.id], sv=svd.find(x=>x.id===L.id&&x.token===L.token), en=L.enabled!==false;
+  const rows=shared().map(L=>{const st=(LST.lists||{})[L.id], sv=svd.find(x=>x.id===L.id&&x.token===L.token), en=L.enabled!==false;
     const exp=(LST.expired||[]).includes(L.id);
     const badge=!sv?'<span class="badge warn">не сохранён</span>':!en?'<span class="badge">выключен</span>':exp?'<span class="badge bad">срок истёк</span>':LST.error?'<span class="badge bad">ошибка</span>':st?'<span class="badge ok">готов</span>':'<span class="badge warn">собирается</span>';
     return `<tr data-id="${esc(L.id)}">
-      <td><button class="name" data-act="edit">${esc(L.name)}</button>${L.password?' <span title="Ссылка с паролем">🔒</span>':""}${L.no_adult?' <span class="badge">детский</span>':""}${L.expires?` <span class="badge" title="Действует до">до ${esc(L.expires.split("-").reverse().join("."))}</span>`:""}${L.slug?`<div class="muted">/${esc(L.slug)}</div>`:""}</td>
+      <td><button class="name" data-act="edit">${esc(L.name)}</button>${usedBy(L)?` <span class="badge" title="У скольких клиентов отмечен">клиентов: ${usedBy(L)}</span>`:""}${L.no_clients?' <span class="badge">не для клиентов</span>':""}${L.password?' <span title="Ссылка с паролем">🔒</span>':""}${L.no_adult?' <span class="badge">детский</span>':""}${L.expires?` <span class="badge" title="Действует до">до ${esc(L.expires.split("-").reverse().join("."))}</span>`:""}${L.slug?`<div class="muted">/${esc(L.slug)}</div>`:""}</td>
       <td>${(L.sources&&L.sources.length?L.sources:["все"]).map(x=>`<span class="badge">${esc(x)}</span>`).join(" ")}</td>
       <td class="num">${st&&en?(st.groups??"—"):"—"}</td>
       <td class="num">${listCount(L)}</td>
@@ -1170,7 +1182,7 @@ function renderPlist(){
         <button class="sm" data-act="dl" ${sv&&L.token&&en?"":"disabled"}>Скачать</button><button class="sm" data-act="edit">Изменить</button><button class="sm danger" data-act="del">Удалить</button></div></td></tr>`}).join("");
   $("settings").innerHTML=`<div class="card tcard">
     <div class="thead"><div><b>Плейлисты для плееров</b><div class="muted">Каждый — своя подборка групп и каналов из основного плейлиста со своей ссылкой. ${CONF.mode==="hls"?"Потоки идут через HLS Proxy.":"Ссылки на потоки — напрямую от провайдера."}</div></div><span class="sp"></span><button class="primary" id="pNew">+ Новый плейлист</button></div>
-    ${R.lists.length?`<div class="twrap"><table class="tbl"><thead><tr><th>Название</th><th>Источники</th><th>Группы</th><th>Каналы</th><th>Нумерация</th><th>Статус</th><th>Обновлён</th><th>Вкл.</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`
+    ${shared().length?`<div class="twrap"><table class="tbl"><thead><tr><th>Название</th><th>Источники</th><th>Группы</th><th>Каналы</th><th>Нумерация</th><th>Статус</th><th>Обновлён</th><th>Вкл.</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`
       :`<div class="empty">Пока нет ни одного плейлиста.<br><br><button class="primary" id="pNew2">+ Создать первый</button></div>`}
   </div>
   <div class="card"><h2>Основной плейлист</h2><p class="hint">Все каналы из всех источников. Состав настраивается в разделе «Группы и каналы», источники — в «Источниках».</p>

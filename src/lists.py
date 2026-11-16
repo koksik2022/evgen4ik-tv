@@ -504,7 +504,7 @@ def main():
                         l0 = re.sub(r'\s+tvg-chno="[^"]*"', "", lines[0])
                         lines[0] = re.sub(r'^(#EXTINF:\s*-?\d+)', lambda mm: f'{mm.group(1)} tvg-chno="{num}"', l0, count=1); num += 1
                     out += lines
-                    LOUT.setdefault(L["id"], []).append({"n": it["name"].lower(), "k": k, "free": k.startswith("f:"), "lines": lines,
+                    if not L.get("no_clients"): LOUT.setdefault(L["id"], []).append({"n": it["name"].lower(), "k": k, "free": k.startswith("f:"), "lines": lines,
                                                          "g": gm.group(1) if gm else ""})
                 if L not in lists: continue   # выключенный плейлист: файла и ссылки нет, но клиенты его каналы получают
                 names = [L["token"]] + ([L["slug"]] if SLUG.match(str(L.get("slug") or "")) else [])   # длинная и короткая ссылка

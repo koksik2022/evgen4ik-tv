@@ -206,6 +206,8 @@ def validate(r):
                              "password": L["password"] if isinstance(L.get("password"), str) and re.fullmatch(r"[A-Za-z0-9_-]{4,64}", L["password"]) else "",
                              "expires": L["expires"] if isinstance(L.get("expires"), str) and re.fullmatch(r"\d{4}-\d{2}-\d{2}", L["expires"]) else "",
                              "no_adult": L.get("no_adult") is True,
+                             "owner": str(L["owner"]) if isinstance(L.get("owner"), str) and re.fullmatch(r"[a-z0-9]{1,16}", L["owner"]) else "",   # личный плейлист клиента
+                             "no_clients": L.get("no_clients") is True,   # общий плейлист, который нельзя давать клиентам
                              "xgroups": [s(g) for g in (L.get("xgroups") or [])[:3000] if s(g)],
                              "sources": [s(x, 40) for x in (L.get("sources") or [])[:20] if s(x, 40)],
                              "chno": L["chno"] if isinstance(L.get("chno"), int) and not isinstance(L.get("chno"), bool) and 1 <= L["chno"] <= 99999 else None})
@@ -238,6 +240,14 @@ def validate(r):
                                          for x in (c.get("extra") or [])[:3000]
                                          if isinstance(x, dict) and s(x.get("name"), 100) and isinstance(x.get("url"), str) and URL_RX.match(x["url"].strip())],
                                "created": c["created"] if isinstance(c.get("created"), str) and re.fullmatch(r"\d{4}-\d{2}-\d{2}", c["created"]) else time.strftime("%Y-%m-%d")})
+    # личные плейлисты: только у живого владельца, без своей ссылки; у клиента — только свои личные и общие
+    cset = {c["id"] for c in out["clients"]}
+    out["lists"] = [L for L in out["lists"] if not L["owner"] or L["owner"] in cset]
+    for L in out["lists"]:
+        if L["owner"]: L.update({"enabled": False, "slug": "", "password": "", "expires": "", "no_clients": False})
+    own = {L["id"]: L["owner"] for L in out["lists"]}
+    for c in out["clients"]:
+        c["lists"] = [x for x in c["lists"] if x in own and own[x] in ("", c["id"])]
     msg = r.get("client_msg")
     out["client_msg"] = re.sub(r"[\x00-\x09\x0b-\x1f\x7f]", " ", msg)[:2000] if isinstance(msg, str) else ""
     seen_slug = set()
