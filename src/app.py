@@ -465,10 +465,35 @@ def prep_status():
     return d
 
 
+NOW_SEEN, NOW_LOCK, NOW_HOLD = {}, threading.Lock(), 30   # IP -> (когда видели, подключений); «смотрит», если видели за последние 30 с
+
+
+def hls_port():
+    return int(E4.get("hls_port") or (443 if E4.get("scheme") == "https" else 80))
+
+
+def now_sampler():
+    """Плеер HLS берёт куски видео короткими запросами, и между ними соединения может не быть.
+    Поэтому опрашиваем подключения раз в 2 секунды и помним IP ещё 30 секунд."""
+    while True:
+        try:
+            ips, t = scan_conns(hls_port()), time.time()
+            with NOW_LOCK:
+                for ip, n in ips.items(): NOW_SEEN[ip] = (t, n)
+                for ip in [k for k, v in NOW_SEEN.items() if t - v[0] > NOW_HOLD]: del NOW_SEEN[ip]
+        except Exception: pass
+        time.sleep(2)
+
+
 def now_watching():
-    """Режим hls: кто сейчас подключён к HLS Proxy (IP -> число подключений). Имени клиента HLS Proxy не сообщает — только IP."""
+    """Режим hls: кто сейчас смотрит через HLS Proxy (IP -> число подключений). Имени клиента HLS Proxy не сообщает — только IP."""
     if E4["mode"] != "hls": return {"mode": "direct"}
-    port = int(E4.get("hls_port") or (443 if E4.get("scheme") == "https" else 80))
+    t = time.time()
+    with NOW_LOCK: ips = {ip: max(v[1], 1) for ip, v in NOW_SEEN.items() if t - v[0] <= NOW_HOLD}
+    return {"mode": "hls", "port": hls_port(), "ips": ips, "at": time.strftime("%H:%M:%S")}
+
+
+def scan_conns(port):
     ips = {}
     for fn, v6 in (("/proc/net/tcp", False), ("/proc/net/tcp6", True)):   # без внешних программ и без root
         try: lines = open(fn).read().splitlines()[1:]
@@ -486,7 +511,7 @@ def now_watching():
             except ValueError: continue
             if a.is_loopback: continue
             ips[str(a)] = ips.get(str(a), 0) + 1
-    return {"mode": "hls", "port": port, "ips": ips, "at": time.strftime("%H:%M:%S")}
+    return ips
 
 
 # ---------- обновления: есть ли новая версия на GitHub, обновление по кнопке (делает root-служба e4tv-update) ----------
@@ -501,7 +526,8 @@ def vtuple(v):
 
 
 def version_info(force=False):
-    if force or time.time() - VER_CACHE["t"] > 6 * 3600:   # GitHub спрашиваем не чаще раза в 6 часов
+    age = time.time() - VER_CACHE["t"]
+    if (force and age > 30) or age > 6 * 3600:   # GitHub спрашиваем раз в 6 часов; по кнопке «проверить» — не чаще раза в 30 секунд
         try:
             rq = urllib.request.Request(UPD_URL, headers={"User-Agent": "Evgen4ik-TV"})
             txt = urllib.request.urlopen(rq, timeout=10).read(20000).decode("utf-8", "replace")
@@ -534,7 +560,7 @@ def xc_note(user, ip, ua, chan=None):
     with XC_ACT_LOCK:
         if XC_ACT_MEM is None: XC_ACT_MEM = read_json(XC_ACT, {}) or {}
         a = XC_ACT_MEM.setdefault(user, {"days": {}})
-        now = time.strftime("%Y-%m-%dT%H:%M:%S"); day = now[:10]
+        now = time.strftime("%Y-%m-%dT%H:%M:%S%z"); now = now[:-2] + ":" + now[-2:]; day = now[:10]   # с часовым поясом сервера
         a.update({"last": now, "ip": ip, "ua": ua})
         a["days"][day] = a["days"].get(day, 0) + (0 if chan else 1)
         if chan: a.update({"chan": chan[:100], "chan_at": now})
@@ -866,4 +892,5 @@ PUBLIC_CONF = {"version": E4.get("version") or "", "mode": E4["mode"], "host": E
 
 if __name__ == "__main__":
     ThreadingHTTPServer.daemon_threads = True
+    if E4["mode"] == "hls": threading.Thread(target=now_sampler, daemon=True).start()
     ThreadingHTTPServer((HOST, PORT), H).serve_forever()

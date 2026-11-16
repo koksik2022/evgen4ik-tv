@@ -306,9 +306,11 @@ const PLAIN_HTTP=location.protocol==="http:"&&!/^(localhost|127\.|10\.|192\.168\
 function showVer(){const el=$("verbox"); if(!el) return;
   const hw=PLAIN_HTTP&&CONF.login?'<div class="st-bad" style="margin-top:4px" title="Подключите домен (HTTPS) или вход только через SSH-туннель: установщик → «изменить настройки»">⚠ вход по http — пароль идёт открытым текстом</div>':"";
   if(VER.updating){el.innerHTML='⏳ Обновляется… редактор перезапустится сам'+hw; return}
-  el.innerHTML=`Версия ${esc(VER.current||CONF.version||"?")}${VER.newer?` · <b style="color:var(--accent)">есть ${esc(VER.latest)}</b> <button class="sm primary" id="verUpd">Обновить</button>`:VER.latest?' · последняя':""}`+
+  el.innerHTML=`Версия ${esc(VER.current||CONF.version||"?")}${VER.newer?` · <b style="color:var(--accent)">есть ${esc(VER.latest)}</b> <button class="sm primary" id="verUpd">Обновить</button>`:VER.latest?' · последняя · <a href="#" id="verChk" title="Спросить GitHub сейчас">проверить</a>':' · <a href="#" id="verChk">проверить обновления</a>'}`+
     (VER.last_result&&VER.last_result!=="success"?' · <span class="st-bad" title="Подробности на сервере: /var/log/e4tv-update.log">прошлое обновление не удалось</span>':"")+hw}
-$("sidefoot").addEventListener("click",async e=>{if(e.target.id!=="verUpd") return;
+$("sidefoot").addEventListener("click",async e=>{
+  if(e.target.id==="verChk"){e.preventDefault(); e.target.textContent="проверяю…"; await checkVersion(true); if(!VER.newer) toast(VER.error?"Не удалось проверить: "+VER.error:"Установлена последняя версия "+(VER.current||"")); return}
+  if(e.target.id!=="verUpd") return;
   if(!VER.can_update){copyText("sudo e4tv update","Команда «sudo e4tv update» скопирована — выполните её на сервере");return}
   if(!confirm("Обновить Evgen4ik TV до "+VER.latest+"?\nНастройки, плейлисты, клиенты и ссылки сохранятся. Редактор перезапустится, просмотр через HLS Proxy прервётся на несколько секунд.")) return;
   const r=await fetch("/api/update",{method:"POST",headers:{"Content-Type":"application/json","X-M3U-Editor":"1"},body:"{}"}); const j=await r.json().catch(()=>({}));
@@ -956,16 +958,21 @@ let curC=null, cFilt="all", cQ="", ACTV={}, cBack=null, XCA={}, NOW={};
 const XC_SERVER=()=>{try{return new URL(BASE).origin}catch(e){return location.origin}};
 function uaShort(u){u=String(u||""); const m=[["ott navigator","OTT Navigator"],["tivimate","TiviMate"],["televizo","Televizo"],["smarters","IPTV Smarters"],["perfect player","Perfect Player"],["kodi","Kodi"],["vlc","VLC"],["okhttp","Android-плеер"],["dalvik","Android-плеер"],["exoplayer","Android-плеер"],["mozilla","браузер"]];
   const l=u.toLowerCase(); for(const [k,v] of m) if(l.includes(k)) return v; return u.split(/[\/\s(]/)[0].slice(0,40)}
+function locTS(s){   // время с сервера (UTC или с поясом) -> местное время браузера "ГГГГ-ММ-ДДTЧЧ:ММ:СС"
+  if(!s) return ""; const z=/[zZ]|[+-]\d\d:?\d\d$/.test(s)?s:s+"Z", d=new Date(z); if(isNaN(d)) return s;
+  d.setMinutes(d.getMinutes()-d.getTimezoneOffset()); return d.toISOString().slice(0,19)}
 function cAct(c){const a=ACTV[c.token]||{}, x=XCA[c.xc_user]||{}, days={};
   for(const d of [a.days||{},x.days||{}]) for(const k in d) days[k]=(days[k]||0)+d[k];
-  const xl=(x.last||"")>(a.last||""), l=xl?x:a;
-  return {last:l.last||"",ip:l.ip||"",ua:l.last?(xl?uaShort(x.ua)+" · Xtream":(a.ua||"")):"",days,chan:x.chan||"",chan_at:x.chan_at||""}}
+  const al=locTS(a.last), xlast=locTS(x.last), xl=xlast>al, l=xl?x:a;
+  return {last:xl?xlast:al,ip:l.ip||"",ua:l.last?(xl?uaShort(x.ua)+" · Xtream":(a.ua||"")):"",days,chan:x.chan||"",chan_at:locTS(x.chan_at)}}
 function nowConns(c){const ip=cAct(c).ip; return ip&&NOW.ips?NOW.ips[ip]||0:0}
 async function pollNow(){   // раз в 20 секунд на странице клиентов: заходы, статус и (с HLS Proxy) кто смотрит сейчас
   try{const st=await (await fetch("/api/status")).json(); LST=st.lists||LST; ACTV=st.activity||ACTV; XCA=st.xc||XCA}catch(e){}
   if(CONF.mode==="hls"){try{NOW=await (await fetch("/api/now")).json()}catch(e){}}
   if(mode==="clients"&&document.activeElement!==$("cQ")) renderClients(); else if(mode==="client"){const b=$("cNow"); const c=CC(); if(b&&c) b.innerHTML=nowHtml(c)}}
-setInterval(()=>{if(mode==="clients"||mode==="client") pollNow()},20000);
+let nowT=0, nowBusy=false;
+async function pollNowSafe(){if(nowBusy) return; nowBusy=true; nowT=Date.now(); try{await pollNow()}finally{nowBusy=false}}
+setInterval(()=>{if(mode==="clients"||mode==="client") pollNowSafe()},20000);
 function nowHtml(c){if(CONF.mode!=="hls") return "";
   const n=nowConns(c), a=cAct(c);
   return n?`<span class="badge ok">▶ сейчас подключений: ${n}</span> <span class="muted">с IP ${esc(a.ip)}${a.chan?` · последний канал через Xtream: «${esc(a.chan)}» в ${esc(a.chan_at.slice(11,16))}`:""}</span>`
@@ -1010,7 +1017,8 @@ function csvClients(){const q=v=>'"'+String(v??"").replace(/"/g,'""')+'"', ln=id
       c.expires?ruDate(c.expires):"бессрочно",c.enabled!==false?"да":"нет",cSaved(c)?cLink(c):"",a.last?a.last.replace("T"," "):"",a.ua||""]}));
   const b=new Blob(["﻿"+rows.map(r=>r.map(q).join(";")).join("\r\n")],{type:"text/csv;charset=utf-8"}), u=URL.createObjectURL(b), l=document.createElement("a");
   l.href=u; l.download="clients-"+todayISO()+".csv"; document.body.appendChild(l); l.click(); l.remove(); setTimeout(()=>URL.revokeObjectURL(u),5000)}
-function renderClients(){
+function renderClients(){if(CONF.mode&&Date.now()-nowT>15000) setTimeout(pollNowSafe,0);   // свежие заходы и «смотрят сейчас» сразу при открытии
+
   const cs=R.clients, hls=CONF.mode==="hls", act=cs.filter(cActive), soon=act.filter(c=>{const d=daysLeft(c);return d!==null&&d<=7}),
     off=cs.filter(c=>!cActive(c)), seenT=cs.filter(c=>cAct(c).last.slice(0,10)===todayISO()).length, watching=CONF.mode==="hls"?cs.filter(c=>nowConns(c)).length:0,
     known=new Set(cs.map(c=>cAct(c).ip).filter(Boolean)), strangers=Object.keys(NOW.ips||{}).filter(ip=>!known.has(ip)).length;
@@ -1039,7 +1047,7 @@ function renderClients(){
     <div class="twrap" style="margin-top:8px"><table class="tbl"><thead><tr><th>Клиент</th><th>Плейлисты</th>${hls?"<th>Каналов одновр.</th>":""}<th>Действует до</th><th>Последний заход</th><th>Статус</th><th></th></tr></thead><tbody>${rows||`<tr><td colspan="7" class="muted">Никого не найдено</td></tr>`}</tbody></table></div>`
     :`<div class="empty">Пока нет клиентов. Клиент — это человек или телевизор: ему собирается личная ссылка из выбранных плейлистов, со сроком${hls?" и своим лимитом каналов":""}.<br><br><button class="primary" id="cNew2">+ Добавить первого</button></div>`}</div>
   <p class="muted" style="margin:0">«Последний заход» — когда плеер последний раз скачивал плейлист (журнал nginx, обновляется раз в минуту). Какие каналы смотрели — не записывается.${hls?" Лимит каналов работает через HLS Proxy: у каждого клиента там свой логин; общий лимит провайдера он всё равно не превысит.":""}</p>`}
-function renderClient(){const c=CC(); if(!c){go("clients");return}
+function renderClient(){const c=CC(); if(!c){go("clients");return} if(Date.now()-nowT>15000) setTimeout(pollNowSafe,0);
   const sv=cSaved(c), d=daysLeft(c), [seen,ua]=seenText(c), a=sv?cAct(c):{}, hls=CONF.mode==="hls", st=(LST.clients||{})[c.id], er=(LST.clients_err||{})[c.id];
   const days=[]; for(let i=6;i>=0;i--){const iso=isoLocal(Date.now()-i*864e5); days.push({iso,n:(a.days||{})[iso]||0,w:["вс","пн","вт","ср","чт","пт","сб"][new Date(iso+"T00:00:00").getDay()]})}
   const mx=Math.max(1,...days.map(x=>x.n)), en=c.enabled!==false;
