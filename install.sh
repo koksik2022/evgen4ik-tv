@@ -8,7 +8,7 @@
 # Повторный запуск обновляет программу и сохраняет настройки.
 set -uo pipefail
 
-E4_VER="2.5"
+E4_VER="2.6"
 HLSP_VER="8.4.8"
 HLSP_URL="https://www.hls-proxy.com/downloads/${HLSP_VER}/hls-proxy-${HLSP_VER}.linux-x64.zip"
 HLSP_SHA256="96a2faad73df375e2ce1b92466f21f4389e07b79a038435343659c984e16b587"   # SHA-256 архива 8.4.8 (сверено 16.11.2026); пусто — не сверяется
@@ -610,11 +610,12 @@ ExecStart=/usr/bin/python3 $APP/lists.py --activity
 EOF
   cat > $U/e4tv-activity.timer <<EOF
 [Unit]
-Description=Evgen4ik TV — активность клиентов раз в 5 минут
+Description=Evgen4ik TV — активность клиентов раз в минуту
 
 [Timer]
-OnBootSec=2min
-OnUnitActiveSec=5min
+OnBootSec=1min
+OnUnitActiveSec=1min
+AccuracySec=10s
 
 [Install]
 WantedBy=timers.target

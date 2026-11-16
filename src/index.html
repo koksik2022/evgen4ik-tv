@@ -961,7 +961,9 @@ function cAct(c){const a=ACTV[c.token]||{}, x=XCA[c.xc_user]||{}, days={};
   const xl=(x.last||"")>(a.last||""), l=xl?x:a;
   return {last:l.last||"",ip:l.ip||"",ua:l.last?(xl?uaShort(x.ua)+" · Xtream":(a.ua||"")):"",days,chan:x.chan||"",chan_at:x.chan_at||""}}
 function nowConns(c){const ip=cAct(c).ip; return ip&&NOW.ips?NOW.ips[ip]||0:0}
-async function pollNow(){if(CONF.mode!=="hls") return; try{NOW=await (await fetch("/api/now")).json()}catch(e){return}
+async function pollNow(){   // раз в 20 секунд на странице клиентов: заходы, статус и (с HLS Proxy) кто смотрит сейчас
+  try{const st=await (await fetch("/api/status")).json(); LST=st.lists||LST; ACTV=st.activity||ACTV; XCA=st.xc||XCA}catch(e){}
+  if(CONF.mode==="hls"){try{NOW=await (await fetch("/api/now")).json()}catch(e){}}
   if(mode==="clients"&&document.activeElement!==$("cQ")) renderClients(); else if(mode==="client"){const b=$("cNow"); const c=CC(); if(b&&c) b.innerHTML=nowHtml(c)}}
 setInterval(()=>{if(mode==="clients"||mode==="client") pollNow()},20000);
 function nowHtml(c){if(CONF.mode!=="hls") return "";
@@ -1036,7 +1038,7 @@ function renderClients(){
     ${cs.length?`<div class="pills" style="padding:12px 16px 0"><input type="search" id="cQ" placeholder="Поиск: имя, связь, заметка" aria-label="Поиск клиента" value="${esc(cQ)}" style="flex:1 1 240px">${pill("all","Все",cs.length)}${pill("active","Активные",act.length)}${pill("soon","Скоро истекают",soon.length)}${pill("off","Выключены",off.length)}</div>
     <div class="twrap" style="margin-top:8px"><table class="tbl"><thead><tr><th>Клиент</th><th>Плейлисты</th>${hls?"<th>Каналов одновр.</th>":""}<th>Действует до</th><th>Последний заход</th><th>Статус</th><th></th></tr></thead><tbody>${rows||`<tr><td colspan="7" class="muted">Никого не найдено</td></tr>`}</tbody></table></div>`
     :`<div class="empty">Пока нет клиентов. Клиент — это человек или телевизор: ему собирается личная ссылка из выбранных плейлистов, со сроком${hls?" и своим лимитом каналов":""}.<br><br><button class="primary" id="cNew2">+ Добавить первого</button></div>`}</div>
-  <p class="muted" style="margin:0">«Последний заход» — когда плеер последний раз скачивал плейлист (журнал nginx, обновляется раз в 5 минут). Какие каналы смотрели — не записывается.${hls?" Лимит каналов работает через HLS Proxy: у каждого клиента там свой логин; общий лимит провайдера он всё равно не превысит.":""}</p>`}
+  <p class="muted" style="margin:0">«Последний заход» — когда плеер последний раз скачивал плейлист (журнал nginx, обновляется раз в минуту). Какие каналы смотрели — не записывается.${hls?" Лимит каналов работает через HLS Proxy: у каждого клиента там свой логин; общий лимит провайдера он всё равно не превысит.":""}</p>`}
 function renderClient(){const c=CC(); if(!c){go("clients");return}
   const sv=cSaved(c), d=daysLeft(c), [seen,ua]=seenText(c), a=sv?cAct(c):{}, hls=CONF.mode==="hls", st=(LST.clients||{})[c.id], er=(LST.clients_err||{})[c.id];
   const days=[]; for(let i=6;i>=0;i--){const iso=isoLocal(Date.now()-i*864e5); days.push({iso,n:(a.days||{})[iso]||0,w:["вс","пн","вт","ср","чт","пт","сб"][new Date(iso+"T00:00:00").getDay()]})}
