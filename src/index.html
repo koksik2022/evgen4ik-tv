@@ -954,7 +954,7 @@ function cMsg(c){return (R.client_msg||DEF_MSG()).replace(/\{ИМЯ\}/g,c.name).
   .replace(/\{ССЫЛКА\}/g,cSaved(c)?cLink(c):"(ссылка появится после сохранения)").replace(/\{EPG\}/g,EPG_URL||"—")
   .replace(/\{ПОТОКИ\}/g,c.streams?plural(c.streams,"канал","канала","каналов"):"сколько угодно каналов")}
 function newClient(){const c={id:newId(),name:"Новый клиент",contact:"",note:"",enabled:true,expires:"",lists:R.lists.length===1?[R.lists[0].id]:[],
-  streams:1,no_adult:false,token:"",hls_pw:"",created:todayISO()}; R.clients.push(c); curC=c.id; go("client")}
+  streams:1,no_adult:false,token:"",hls_pw:"",created:todayISO(),off:[],add:[],urls:{},extra:[]}; R.clients.push(c); curC=c.id; cChQ=""; cPanel=""; go("client")}
 function csvClients(){const q=v=>'"'+String(v??"").replace(/"/g,'""')+'"', ln=id=>(R.lists.find(x=>x.id===id)||{}).name||"";
   const rows=[["Имя","Связь","Заметка","Плейлисты","Каналов одновременно","Действует до","Включён","Ссылка","Последний заход","Плеер"]]
     .concat(R.clients.map(c=>{const a=ACTV[c.token]||{}; return [c.name,c.contact,c.note,c.lists.map(ln).filter(Boolean).join(", "),CONF.mode==="hls"?(c.streams||"без лимита"):"—",
@@ -1010,6 +1010,7 @@ function renderClient(){const c=CC(); if(!c){go("clients");return}
     ${R.lists.length?`<div class="clists">${R.lists.map(L=>{const on=c.lists.includes(L.id); return `<button class="clist${on?" on":""}" data-lid="${esc(L.id)}" aria-pressed="${on}"><b>${on?"✓ ":""}${esc(L.name)}</b><span class="muted">${plural(listCount(L),"канал","канала","каналов")}${L.enabled===false?" · выключен":""}${L.no_adult?" · без 18+":""}</span></button>`}).join("")}</div>`
       :`<div class="empty" style="padding:16px">Сначала создайте плейлист в разделе «Объединённые плейлисты».</div>`}
     ${st&&sv?`<div class="muted" style="margin-top:10px">Сейчас в ссылке клиента ${plural(st.channels,"канал","канала","каналов")}${st.missing?` · ${st.missing} не нашлись в HLS Proxy под его логином (подождите минуту после сохранения)`:""}.</div>`:""}${er&&sv?`<div style="margin-top:8px;color:var(--bad)">✖ ${esc(er)}</div>`:""}</div>
+  ${cChCard(c)}
   <div class="fgrid">
    <div class="card"><h2>Ссылка клиента</h2>
      ${sv?`<div class="linkrow"><span class="badge">M3U</span><input type="text" readonly value="${esc(cLink(c))}" aria-label="Ссылка клиента"><button id="cCopy">Копировать</button><button id="cQr">QR</button></div>
@@ -1030,7 +1031,7 @@ $("settings").addEventListener("click",e=>{if(mode!=="clients") return; const t=
   if(t.id==="cCsv"){csvClients();return}
   const f=t.closest("[data-cf]"); if(f){cFilt=f.dataset.cf; renderClients(); return}
   const tr=t.closest("tr[data-cid]"); if(!tr) return; const c=R.clients.find(x=>x.id===tr.dataset.cid); if(!c) return; const act=t.dataset.act;
-  if(act==="edit"){curC=c.id; go("client"); return}
+  if(act==="edit"){curC=c.id; cChQ=""; cAddQ=""; cPanel=""; cChLim=150; go("client"); return}
   if(act==="copy"){copyText(cLink(c),"Ссылка «"+c.name+"» скопирована");return}
   if(act==="qr"){showQr(cLink(c),c.name);return}
   if(act==="msg"){copyText(cMsg(c),"Сообщение для «"+c.name+"» скопировано");return}
@@ -1062,6 +1063,66 @@ $("settings").addEventListener("click",e=>{if(mode!=="client") return; const c=C
   if(t.id==="cTplReset"){R.client_msg=""; render(); $("cTplBox").hidden=false; return}
   if(t.id==="cDup"){const n=JSON.parse(JSON.stringify(c)); Object.assign(n,{id:newId(),name:(c.name+" (копия)").slice(0,80),token:"",hls_pw:"",created:todayISO()}); R.clients.push(n); curC=n.id; render(); toast("Копия создана — поменяйте имя и сохраните"); return}
   if(t.id==="cDel"){if(!confirm("Удалить клиента «"+c.name+"»? Его ссылка перестанет работать после сохранения.")) return; R.clients=R.clients.filter(x=>x!==c); curC=null; go("clients")}});
+// ---------- каналы клиента: его список поверх плейлистов ----------
+let cChQ="", cChLim=150, cAddQ="", cPanel="";
+function cChannels(c){const out=[], seen=new Set(), off=new Set(c.off||[]), urls=c.urls||{}, kid=g=>c.no_adult&&(g==="18+"||String(g).includes("18+"));
+  for(const id of c.lists){const L=R.lists.find(x=>x.id===id); if(!L) continue;
+    for(const ch of ALL){if(!member(L,ch)||seen.has(ch.k)) continue; const g=effGroup(ch); if(kid(g)) continue; seen.add(ch.k);
+      out.push({k:ch.k,n:dispName(ch),g,kind:"list",from:L.name,src:(ch.u&&ch.u[0]&&ch.u[0][1])||""})}
+    for(const f of freeItems(L)){if(seen.has(f.k)||kid(f.g)) continue; seen.add(f.k); out.push({k:f.k,n:f.n,g:f.g,kind:"list",from:L.name,src:""})}}
+  for(const k of c.add||[]){const ch=findC(k); if(!ch||seen.has(k)) continue; const g=effGroup(ch); if(kid(g)) continue; seen.add(k);
+    out.push({k,n:dispName(ch),g,kind:"add",from:"добавлен",src:(ch.u&&ch.u[0]&&ch.u[0][1])||""})}
+  for(const x of c.extra||[]) out.push({k:"x:"+x.id,n:x.name,g:x.group,kind:"own",from:"свой",src:x.url,x});
+  for(const r of out){r.on=!off.has(r.k); r.url=r.kind==="own"?r.x.url:(urls[r.k]||"")}
+  return out}
+function cChansHtml(c){const all=cChannels(c), q=cChQ.toLowerCase(), list=all.filter(r=>!q||(r.n+" "+r.g).toLowerCase().includes(q)), shown=list.slice(0,cChLim);
+  const on=all.filter(r=>r.on).length, own=Object.keys(c.urls||{}).length;
+  return `<div class="muted" style="margin-bottom:8px">${plural(all.length,"канал","канала","каналов")} · включено ${on}${all.length-on?` · выключено ${all.length-on}`:""}${own?` · своих ссылок ${own}`:""}${(c.extra||[]).length?` · своих каналов ${c.extra.length}`:""}</div>
+  ${list.length?`<div class="twrap"><table class="tbl"><thead><tr><th style="width:52px">Вкл.</th><th>Канал</th><th>Группа</th><th>Откуда</th><th>Ссылка на поток</th><th></th></tr></thead><tbody>${shown.map(r=>`<tr data-ck="${esc(r.k)}"${r.on?"":' style="opacity:.55"'}>
+    <td><label class="switch" title="${r.on?"Выключить канал у клиента":"Включить канал"}"><input type="checkbox" class="cOn" ${r.on?"checked":""} aria-label="Канал ${esc(r.n)} включён"><i></i></label></td>
+    <td><b>${esc(r.n)}</b></td><td class="muted">${esc(r.g)}</td>
+    <td><span class="badge${r.kind==="own"?" ok":r.kind==="add"?" warn":""}">${esc(r.from)}</span></td>
+    <td style="min-width:260px"><input type="text" class="cUrl" spellcheck="false" style="width:100%;font:12px var(--mono)" value="${esc(r.url)}" placeholder="${esc(r.kind==="own"?"":"как в плейлисте"+(CONF.mode==="hls"?" (через HLS Proxy)":""))}" aria-label="Ссылка на поток ${esc(r.n)}"></td>
+    <td class="nw">${r.kind==="list"?(r.url?'<button class="sm" data-cact="reset" title="Вернуть ссылку из плейлиста">Сбросить</button>':""):'<button class="sm danger" data-cact="rm">Убрать</button>'}</td></tr>`).join("")}</tbody></table></div>
+  ${list.length>shown.length?`<div style="margin-top:8px"><button class="sm" id="cChMore">Показать ещё (${list.length-shown.length})</button></div>`:""}`
+  :`<div class="empty" style="padding:16px">${all.length?"Ничего не найдено":"Пока пусто: отметьте плейлисты выше или добавьте каналы"}</div>`}`}
+function cAddHtml(c){const have=new Set(cChannels(c).map(r=>r.k)), q=cAddQ.toLowerCase();
+  if(!q) return '<div class="muted">Начните вводить название канала</div>';
+  const res=ALL.filter(ch=>visMain(ch)&&!have.has(ch.k)&&(dispName(ch)+" "+effGroup(ch)).toLowerCase().includes(q)).slice(0,30);
+  return res.length?res.map(ch=>`<div class="srow" style="grid-template-columns:1fr auto auto"><b>${esc(dispName(ch))}</b><span class="muted">${esc(effGroup(ch))}</span><button class="sm primary" data-addk="${esc(ch.k)}">Добавить</button></div>`).join("")
+    :'<div class="muted">Не найдено (или канал уже есть у клиента)</div>'}
+function cChCard(c){const hls=CONF.mode==="hls";
+  return `<div class="card"><h2>Каналы клиента</h2><p class="hint">Его личный список: каналы отмеченных плейлистов плюс ваши правки. Правки действуют только на этого клиента — сами плейлисты не меняются.${hls?" Канал со своей ссылкой идёт напрямую, мимо HLS Proxy: лимит каналов клиента на него не действует.":""}</p>
+    <div class="pills" style="margin-bottom:10px"><input type="search" id="cChQ" placeholder="Поиск канала у клиента" aria-label="Поиск канала у клиента" value="${esc(cChQ)}" style="flex:1 1 220px">
+      <button id="cAddBtn"${cPanel==="add"?' class="pill on"':""}>+ Из основного плейлиста</button><button id="cOwnBtn"${cPanel==="own"?' class="pill on"':""}>+ Свой канал по ссылке</button>
+      <button id="cAllOn" title="Включить все выключенные">Включить все</button></div>
+    <div id="cAddBox" ${cPanel==="add"?"":"hidden"} style="margin-bottom:12px;padding:12px;border:1px solid var(--line);border-radius:10px"><input type="search" id="cAddQ" placeholder="Название канала из основного плейлиста" aria-label="Поиск в основном плейлисте" value="${esc(cAddQ)}" style="width:100%;margin-bottom:8px"><div id="cAddRes">${cAddHtml(c)}</div></div>
+    <div id="cOwnBox" ${cPanel==="own"?"":"hidden"} style="margin-bottom:12px;padding:12px;border:1px solid var(--line);border-radius:10px">
+      <div class="pills"><input type="text" id="cOwnName" placeholder="Название" aria-label="Название канала" maxlength="100" style="flex:1 1 180px"><input type="text" id="cOwnGroup" placeholder="Группа (Мои каналы)" aria-label="Группа" maxlength="60" style="flex:1 1 140px">
+      <input type="text" id="cOwnUrl" placeholder="http://… ссылка на поток" aria-label="Ссылка на поток" spellcheck="false" style="flex:2 1 260px;font:12.5px var(--mono)"><button class="primary" id="cOwnAdd">Добавить</button></div></div>
+    <div id="cChans">${cChansHtml(c)}</div></div>`}
+function cChRefresh(){const c=CC(); if(c&&$("cChans")) $("cChans").innerHTML=cChansHtml(c)}
+$("settings").addEventListener("input",e=>{if(mode!=="client") return; const t=e.target;
+  if(t.id==="cChQ"){cChQ=t.value; cChLim=150; cChRefresh(); return}
+  if(t.id==="cAddQ"){cAddQ=t.value; const c=CC(); if(c) $("cAddRes").innerHTML=cAddHtml(c); return}});
+$("settings").addEventListener("change",e=>{if(mode!=="client") return; const c=CC(), t=e.target, tr=t.closest("tr[data-ck]"); if(!c||!tr) return; const k=tr.dataset.ck;
+  if(t.classList.contains("cOn")){c.off=(c.off||[]).filter(x=>x!==k); if(!t.checked) c.off.push(k); cChRefresh(); markDirty(); return}
+  if(t.classList.contains("cUrl")){const u=t.value.trim();
+    if(u&&!URLRX.test(u)){toast("Нужна ссылка вида http(s)://…, rtmp://, udp://…"); t.value=k.startsWith("x:")?((c.extra||[]).find(x=>"x:"+x.id===k)||{}).url||"":((c.urls||{})[k]||""); return}
+    if(k.startsWith("x:")){const x=(c.extra||[]).find(x=>"x:"+x.id===k); if(x&&u) x.url=u; else if(x&&!u){toast("У своего канала ссылка обязательна"); t.value=x.url; return}}
+    else{c.urls=c.urls||{}; if(u) c.urls[k]=u; else delete c.urls[k]}
+    cChRefresh(); markDirty(); toast(u?"Ссылка канала изменена — нажмите «Сохранить»":"Ссылка как в плейлисте")}});
+$("settings").addEventListener("click",e=>{if(mode!=="client") return; const c=CC(), t=e.target; if(!c) return;
+  if(t.id==="cAddBtn"||t.id==="cOwnBtn"){const p=t.id==="cAddBtn"?"add":"own"; cPanel=cPanel===p?"":p; render(); const f=$(cPanel==="add"?"cAddQ":"cOwnName"); if(f) f.focus(); return}
+  if(t.id==="cChMore"){cChLim+=300; cChRefresh(); return}
+  if(t.id==="cAllOn"){if(!(c.off||[]).length){toast("Выключенных каналов нет");return} c.off=[]; cChRefresh(); markDirty(); return}
+  if(t.dataset.addk){const k=t.dataset.addk; c.add=c.add||[]; if(!c.add.includes(k)) c.add.push(k); c.off=(c.off||[]).filter(x=>x!==k); $("cAddRes").innerHTML=cAddHtml(c); cChRefresh(); markDirty(); toast("Канал добавлен клиенту"); return}
+  if(t.id==="cOwnAdd"){const n=clean($("cOwnName").value), u=$("cOwnUrl").value.trim(), g=clean($("cOwnGroup").value).slice(0,60)||"Мои каналы";
+    if(!n){toast("Введите название");return} if(!URLRX.test(u)){toast("Нужна ссылка вида http(s)://…");return}
+    c.extra=c.extra||[]; c.extra.push({id:newId(),name:n,group:g,url:u,logo:""}); $("cOwnName").value=""; $("cOwnUrl").value=""; cChRefresh(); markDirty(); toast("Свой канал добавлен — нажмите «Сохранить»"); return}
+  const tr=t.closest("tr[data-ck]"); if(!tr||!t.dataset.cact) return; const k=tr.dataset.ck;
+  if(t.dataset.cact==="reset"){c.urls=c.urls||{}; delete c.urls[k]; cChRefresh(); markDirty(); return}
+  if(t.dataset.cact==="rm"){if(k.startsWith("x:")) c.extra=(c.extra||[]).filter(x=>"x:"+x.id!==k); else c.add=(c.add||[]).filter(x=>x!==k); c.off=(c.off||[]).filter(x=>x!==k); if(c.urls) delete c.urls[k]; cChRefresh(); markDirty(); return}});
 function renderPlist(){
   const svd=JSON.parse(saved).lists;
   const rows=R.lists.map(L=>{const st=(LST.lists||{})[L.id], sv=svd.find(x=>x.id===L.id&&x.token===L.token), en=L.enabled!==false;

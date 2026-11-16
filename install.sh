@@ -8,7 +8,7 @@
 # Повторный запуск обновляет программу и сохраняет настройки.
 set -uo pipefail
 
-E4_VER="1.4"
+E4_VER="1.5"
 HLSP_VER="8.4.8"
 HLSP_URL="https://www.hls-proxy.com/downloads/${HLSP_VER}/hls-proxy-${HLSP_VER}.linux-x64.zip"
 APP=/opt/evgen4ik-tv

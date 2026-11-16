@@ -304,17 +304,41 @@ def _url_idx(lines):
     return None
 
 
-def build_clients(active, LOUT, head, keep, wgid, st):
-    """Личный плейлист клиента: каналы выбранных ему плейлистов (без повторов), в режиме hls — со ссылками под его логином."""
+def build_clients(active, LOUT, head, keep, wgid, st, items=None, fmap=None):
+    """Личный плейлист клиента: каналы выбранных ему плейлистов (без повторов) + его правки:
+    off — выключенные каналы, add — добавленные из основного, extra — свои каналы, urls — своя ссылка у канала.
+    В режиме hls ссылки — под логином клиента (кроме своих ссылок и отдельных плейлистов: они идут напрямую)."""
     st["clients"], st["clients_err"] = {}, {}
+    kmap = {}   # ключ канала основного плейлиста -> (строки, группа)
+    for it in items or []:
+        m = (fmap or {}).get(it["name"].lower())
+        if m and m[0] not in kmap: kmap[m[0]] = (it, m[1])
     for x in active:
         cid = str(x["id"])
-        seen, ent, multi = set(), [], len([l for l in (x.get("lists") or []) if l in LOUT]) > 1
+        OFF, URLS = set(x.get("off") or []), x.get("urls") if isinstance(x.get("urls"), dict) else {}
+        seen, ent, multi = set(), [], len([l for l in (x.get("lists") or []) if l in LOUT]) > 1 or bool(x.get("add") or x.get("extra"))
+        kid = lambda g: x.get("no_adult") and (g in ADULT_GROUPS or "18+" in g)
         for lid in x.get("lists") or []:
             for e in LOUT.get(lid, []):
-                if e["n"] in seen: continue
-                if x.get("no_adult") and (e["g"] in ADULT_GROUPS or "18+" in e["g"]): continue
+                if e["n"] in seen or e.get("k") in OFF or kid(e["g"]): continue
                 seen.add(e["n"]); ent.append(e)
+        for k in x.get("add") or []:   # добавленные вручную из основного плейлиста
+            if k in OFF or k not in kmap: continue
+            it, g = kmap[k]
+            if it["name"].lower() in seen or kid(g): continue
+            seen.add(it["name"].lower()); ent.append({"n": it["name"].lower(), "k": k, "free": False, "lines": list(it["lines"]), "g": g})
+        for j, e in enumerate(ent):   # своя ссылка у канала: идёт напрямую, мимо HLS Proxy (копия — записи общие для всех клиентов)
+            u = URLS.get(e.get("k"))
+            i = _url_idx(e["lines"]) if u and URLOK.match(u) else None
+            if i is not None:
+                ln = list(e["lines"]); ln[i] = u
+                ent[j] = dict(e, lines=ln, free=True)
+        for c in x.get("extra") or []:   # свои каналы клиента
+            if not (isinstance(c, dict) and c.get("name") and URLOK.match(str(c.get("url", "")))) or ("x:" + str(c.get("id"))) in OFF: continue
+            nm = re.sub(r"\s{2,}", " ", re.sub(r'[\r\n,"]', " ", c["name"])).strip(); gr = re.sub(r'[\r\n"]', " ", c.get("group") or "Мои каналы").strip()
+            lg = f' tvg-logo="{c["logo"]}"' if URLOK.match(str(c.get("logo") or "")) else ""
+            ent.append({"n": nm.lower(), "k": "x:" + str(c.get("id")), "free": True, "g": gr,
+                        "lines": [f'#EXTINF:-1{lg} group-title="{gr}",{nm}', c["url"]]})
         cmap, miss = None, 0
         if E4["mode"] == "hls" and any(not e["free"] for e in ent):
             t0, err = time.time(), None
@@ -480,7 +504,7 @@ def main():
                         l0 = re.sub(r'\s+tvg-chno="[^"]*"', "", lines[0])
                         lines[0] = re.sub(r'^(#EXTINF:\s*-?\d+)', lambda mm: f'{mm.group(1)} tvg-chno="{num}"', l0, count=1); num += 1
                     out += lines
-                    LOUT.setdefault(L["id"], []).append({"n": it["name"].lower(), "free": k.startswith("f:"), "lines": lines,
+                    LOUT.setdefault(L["id"], []).append({"n": it["name"].lower(), "k": k, "free": k.startswith("f:"), "lines": lines,
                                                          "g": gm.group(1) if gm else ""})
                 if L not in lists: continue   # выключенный плейлист: файла и ссылки нет, но клиенты его каналы получают
                 names = [L["token"]] + ([L["slug"]] if SLUG.match(str(L.get("slug") or "")) else [])   # длинная и короткая ссылка
@@ -498,7 +522,7 @@ def main():
                     keep.add(fn)
                 st["lists"][str(L.get("id"))] = {"channels": sum(1 for x in out if x.startswith("#EXTINF")), "groups": len(groups), "unmatched": miss}
     if items is not None:
-        build_clients(active, LOUT, head, keep, wgid, st)
+        build_clients(active, LOUT, head, keep, wgid, st, items, fmap)
     for x in active:   # не удалять прошлый файл клиента, если в этот раз собрать не вышло
         fn = f"{OUTDIR}/{x['token']}.m3u8"
         if fn not in keep and os.path.exists(fn) and (st["error"] or str(x["id"]) in st.get("clients_err", {})): keep.add(fn)

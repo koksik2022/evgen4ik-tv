@@ -227,6 +227,15 @@ def validate(r):
                                "lists": [x for x in dict.fromkeys(str(x) for x in (c.get("lists") or [])[:50]) if x in lids],
                                "streams": st if isinstance(st, int) and not isinstance(st, bool) and 0 <= st <= 50 else 1,
                                "no_adult": c.get("no_adult") is True, "token": tok, "hls_pw": hp,
+                               # свой список поверх плейлистов: выключенные каналы, добавленные из основного, свои ссылки и свои каналы
+                               "off": keys(c.get("off"), 5000), "add": keys(c.get("add"), 3000),
+                               "urls": {k.lower()[:200]: u.strip() for k, u in list((c.get("urls") or {}).items())[:3000]
+                                        if isinstance(k, str) and k.strip() and isinstance(u, str) and URL_RX.match(u.strip())} if isinstance(c.get("urls"), dict) else {},
+                               "extra": [{"id": x["id"] if isinstance(x.get("id"), str) and re.fullmatch(r"[a-z0-9]{1,16}", x["id"]) else secrets.token_hex(4),
+                                          "name": s(x["name"], 100), "group": s(x.get("group"), 60) or "Мои каналы", "url": x["url"].strip(),
+                                          "logo": x["logo"].strip() if isinstance(x.get("logo"), str) and re.match(r"^https?://[^\s\"]{1,1000}$", x["logo"].strip()) else ""}
+                                         for x in (c.get("extra") or [])[:500]
+                                         if isinstance(x, dict) and s(x.get("name"), 100) and isinstance(x.get("url"), str) and URL_RX.match(x["url"].strip())],
                                "created": c["created"] if isinstance(c.get("created"), str) and re.fullmatch(r"\d{4}-\d{2}-\d{2}", c["created"]) else time.strftime("%Y-%m-%d")})
     msg = r.get("client_msg")
     out["client_msg"] = re.sub(r"[\x00-\x09\x0b-\x1f\x7f]", " ", msg)[:2000] if isinstance(msg, str) else ""
