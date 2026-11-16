@@ -41,16 +41,25 @@ def rj(path, default):
     except Exception: return default
 
 
-def master():
+HPFX = "e4c_"   # логины клиентов в HLS Proxy (local.json -> clients), их ведёт только lists.py
+NO_LIMIT = 999   # «без лимита» для HLS Proxy
+
+
+def master(user=None, pw=None):
+    """Плейлист для плееров. Режим hls — от HLS Proxy под логином user (по умолчанию — общий логин установщика)."""
     if E4["mode"] != "hls":   # без HLS Proxy: собранный плейлист как есть
         with open(E4["combined"], encoding="utf-8", errors="replace") as f: return f.read()
     c = json.load(open(CONF, encoding="utf-8"))
-    S = c["SERVER"]; key = list(c["clients"])[0]; cl = c["clients"][key]
+    S = c["SERVER"]
+    if user: names, pw0 = [user], pw
+    else:
+        key = next(k for k in c["clients"] if not k.startswith(HPFX)); cl = c["clients"][key]
+        names, pw0 = [key, cl.get("name")], cl["password"]
     ctx = ssl.create_default_context(); ctx.check_hostname = False; ctx.verify_mode = ssl.CERT_NONE
     last = None
-    for user in dict.fromkeys([key, cl.get("name")]):
+    for user in dict.fromkeys(names):
         if not user: continue
-        url = f"{S.get('protocol') or 'https'}://127.0.0.1:{S.get('port', 443)}/m3u8?username={urllib.parse.quote(str(user))}&password={urllib.parse.quote(cl['password'])}"
+        url = f"{S.get('protocol') or 'https'}://127.0.0.1:{S.get('port', 443)}/m3u8?username={urllib.parse.quote(str(user))}&password={urllib.parse.quote(pw0)}"
         try:
             rq = urllib.request.Request(url, headers={"Host": S.get("address", "localhost"), "User-Agent": "m3u-lists"})
             with urllib.request.urlopen(rq, context=ctx, timeout=60) as r:
@@ -241,11 +250,155 @@ def free_items(src):
     return items
 
 
+def _hls_hash():
+    """Та же сумма, что считает e4tv-build (combined.m3u + local.json): чтобы после нашего перезапуска он не перезапускал ещё раз."""
+    h = hashlib.sha256()
+    for p in (E4["hls_dir"] + "/combined.m3u", CONF):
+        try: h.update(open(p, "rb").read())
+        except OSError: pass
+    return h.hexdigest()
+
+
+def sync_hls_clients(active):
+    """Режим hls: у каждого клиента свой логин в HLS Proxy со своим лимитом потоков.
+    Выключенные и просроченные клиенты из HLS Proxy убираются — их старые ссылки на потоки перестают работать.
+    Если что-то поменялось — перезапуск HLS Proxy. Возвращает True, если перезапускали."""
+    if E4["mode"] != "hls": return False
+    try: c = json.load(open(CONF, encoding="utf-8"))
+    except Exception: return False
+    cls = c.get("clients")
+    if not isinstance(cls, dict): return False
+    base = next((v for k, v in cls.items() if not k.startswith(HPFX) and isinstance(v, dict)), None)
+    if base is None: return False
+    F = ("name", "password", "maxStreamCount", "isAdultAllowed", "isHttp")
+    want = {}
+    for x in active:
+        n = HPFX + x["id"]
+        e = dict(base); e.update(cls.get(n) or {})
+        e.update({"name": n, "password": x.get("hls_pw") or "", "isHttp": base.get("isHttp"),
+                  "maxStreamCount": int(x.get("streams") or 0) or NO_LIMIT, "isAdultAllowed": not x.get("no_adult")})
+        if not re.fullmatch(r"[A-Za-z0-9_-]{16,64}", e["password"]): continue
+        want[n] = e
+    cur = {k: v for k, v in cls.items() if k.startswith(HPFX)}
+    if set(cur) == set(want) and all({f: cur[k].get(f) for f in F} == {f: want[k].get(f) for f in F} for k in want): return False
+    for k in cur: cls.pop(k)
+    cls.update(want)
+    st_ = os.stat(CONF); tmp = CONF + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f: json.dump(c, f, ensure_ascii=False, indent=1)
+    os.chown(tmp, st_.st_uid, st_.st_gid); os.chmod(tmp, 0o600); os.replace(tmp, CONF)
+    import subprocess
+    try: subprocess.run(["systemctl", "restart", "hls-proxy"], timeout=60)
+    except Exception as e: print("не удалось перезапустить HLS Proxy:", e)
+    try:
+        hf = E4["build_dir"] + "/hls.sha256"
+        if os.path.isdir(E4["build_dir"]):
+            with open(hf, "w") as f: f.write(_hls_hash() + "  -\n")
+    except OSError: pass
+    time.sleep(3)
+    return True
+
+
+def _url_idx(lines):
+    for i in range(len(lines) - 1, 0, -1):
+        if lines[i].strip() and not lines[i].startswith("#"): return i
+    return None
+
+
+def build_clients(active, LOUT, head, keep, wgid, st):
+    """Личный плейлист клиента: каналы выбранных ему плейлистов (без повторов), в режиме hls — со ссылками под его логином."""
+    st["clients"], st["clients_err"] = {}, {}
+    for x in active:
+        cid = str(x["id"])
+        seen, ent, multi = set(), [], len([l for l in (x.get("lists") or []) if l in LOUT]) > 1
+        for lid in x.get("lists") or []:
+            for e in LOUT.get(lid, []):
+                if e["n"] in seen: continue
+                if x.get("no_adult") and (e["g"] in ADULT_GROUPS or "18+" in e["g"]): continue
+                seen.add(e["n"]); ent.append(e)
+        cmap, miss = None, 0
+        if E4["mode"] == "hls" and any(not e["free"] for e in ent):
+            t0, err = time.time(), None
+            while True:   # после перезапуска HLS Proxy логин появляется не сразу
+                try: cmap = {it["name"].lower(): it["lines"] for it in parse(master(HPFX + cid, x.get("hls_pw") or ""))[1]}; break
+                except Exception as e:
+                    err = e
+                    if time.time() - t0 > 45: break
+                    time.sleep(5)
+            if cmap is None: st["clients_err"][cid] = f"HLS Proxy не отдал плейлист клиента: {err}"; continue
+        out = [head]
+        for e in ent:
+            lines = list(e["lines"])
+            if multi: lines[0] = re.sub(r'\s+tvg-chno="[^"]*"', "", lines[0])   # номера из разных плейлистов совпали бы
+            if cmap is not None and not e["free"]:
+                cl = cmap.get(e["n"]); i, j = _url_idx(lines), (_url_idx(cl) if cl else None)
+                if i is None or j is None: miss += 1; continue   # без своей ссылки клиент шёл бы мимо своего лимита
+                lines[i] = cl[j]
+            out += lines
+        fn = f"{OUTDIR}/{x['token']}.m3u8"; tmp = fn + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f: f.write("\n".join(out) + "\n")
+        os.chown(tmp, 0, wgid); os.chmod(tmp, 0o640); os.replace(tmp, fn); keep.add(fn)
+        st["clients"][cid] = {"channels": sum(1 for l in out if l.startswith("#EXTINF")), "missing": miss}
+
+
+# ---------- активность: кто открывал плейлисты (журнал nginx /var/log/nginx/e4tv-pl.log) ----------
+ALOG = "/var/log/nginx/e4tv-pl.log"
+ACT = E4["editor_dir"] + "/activity.json"
+APOS = E4["build_dir"] + "/activity.pos"
+UA_NAMES = [("ott navigator", "OTT Navigator"), ("ott-navigator", "OTT Navigator"), ("tivimate", "TiviMate"), ("televizo", "Televizo"),
+            ("perfect player", "Perfect Player"), ("smarters", "IPTV Smarters"), ("kodi", "Kodi"), ("vlc", "VLC"), ("lavf", "плеер (ffmpeg)"),
+            ("lampa", "Lampa"), ("ss iptv", "SS IPTV"), ("tizen", "Samsung TV"), ("webos", "LG TV"), ("exoplayer", "Android-плеер"),
+            ("okhttp", "Android-плеер"), ("dalvik", "Android-плеер"), ("mozilla", "браузер")]
+
+
+def ua_name(ua):
+    u = (ua or "").lower()
+    for k, v in UA_NAMES:
+        if k in u: return v
+    return re.split(r"[/\s(]", ua or "", 1)[0][:40] or "неизвестно"
+
+
+def activity():
+    """Разобрать новые строки журнала (с прошлого места) и обновить activity.json: последний заход, плеер, IP, заходы по дням."""
+    act = rj(ACT, {}) or {}
+    pos = rj(APOS, {}) or {}
+    try: stt = os.stat(ALOG)
+    except OSError: return 0
+    off = pos.get("off", 0) if pos.get("ino") == stt.st_ino and pos.get("off", 0) <= stt.st_size else 0   # журнал сменился — с начала
+    rx = re.compile(r"^/pl/([A-Za-z0-9_-]{3,64})\.m3u8?(?:\?|$)")
+    with open(ALOG, "rb") as f:
+        f.seek(off)
+        for raw in f:
+            p = raw.decode("utf-8", "replace").rstrip("\n").split(" ", 4)   # время IP код запрос плеер
+            if len(p) < 5 or p[2] not in ("200", "304"): continue
+            m = rx.match(p[3])
+            if not m: continue
+            day = p[0][:10]
+            a = act.setdefault(m.group(1), {"days": {}})
+            if p[0][:19] >= a.get("last", ""): a.update({"last": p[0][:19], "ip": p[1][:64], "ua": ua_name(p[4].strip('"'))})
+            a["days"][day] = a["days"].get(day, 0) + 1
+        off = f.tell()
+    lim = (datetime.date.today() - datetime.timedelta(days=14)).isoformat()
+    for a in act.values(): a["days"] = {d: n for d, n in a.get("days", {}).items() if d >= lim}
+    tmp = ACT + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f: json.dump(act, f, ensure_ascii=False)
+    try: os.chown(tmp, 0, grp.getgrnam(E4.get("editor_group", "e4tv")).gr_gid)
+    except Exception: pass
+    os.chmod(tmp, 0o640); os.replace(tmp, ACT)
+    os.makedirs(os.path.dirname(APOS), exist_ok=True)
+    with open(APOS, "w") as f: json.dump({"ino": stt.st_ino, "off": off}, f)
+    return 0
+
+
 def main():
     rules = rj(RULES, {}) or {}
     alll = [x for x in (rules.get("lists") or []) if isinstance(x, dict) and TOK.match(str(x.get("token", "")))]
     # выключенный или просроченный плейлист: файла нет, ссылка отдаёт 404
     lists = [x for x in alll if x.get("enabled") is not False and not expired(x)]
+    calc = [x for x in alll if not expired(x)]   # выключенные тоже считаем: их могут брать клиенты
+    LOUT = {}   # id плейлиста -> каналы (для клиентов)
+    clients = [x for x in (rules.get("clients") or []) if isinstance(x, dict) and TOK.match(str(x.get("token", "")))
+               and re.fullmatch(r"[a-z0-9]{1,16}", str(x.get("id", "")))]
+    active = [x for x in clients if x.get("enabled") is not False and not expired(x)]
     AUTH = f"{OUTDIR}/auth"
     fmap = rj(FINAL, {}) or {}
     os.makedirs(OUTDIR, exist_ok=True)
@@ -256,6 +409,7 @@ def main():
     st = {"at": time.strftime("%d.%m.%Y %H:%M:%S"), "lists": {}, "error": None,
           "expired": [str(x.get("id")) for x in alll if expired(x)]}
     keep, keep_auth = set(), set()
+    items, head = None, "#EXTM3U"
     FREE = [x for x in (rules.get("free_sources") or []) if isinstance(x, dict) and re.fullmatch(r"[a-z0-9]{1,16}", str(x.get("id", ""))) and str(x.get("url", "")).startswith(("http://", "https://", "e4://"))]
     FCACHE = {}
     for fs in FREE:   # подборки собираем всегда — чтобы редактор мог показать их каналы
@@ -263,7 +417,8 @@ def main():
             FCACHE[fs["id"]] = free_items(fs)
             ps = preset_stat(fs["url"][5:])
             if ps: st.setdefault("presets", {})[fs["url"][5:]] = ps
-    if lists or MAIN:
+    sync_hls_clients(active)   # свои логины клиентов в HLS Proxy (перезапускает его, если что-то поменялось)
+    if lists or MAIN or active:
         t0 = time.time()
         while True:   # после перезапуска HLS Proxy плейлист появляется не сразу
             try:
@@ -278,7 +433,7 @@ def main():
             os.chown(tmp, 0, wgid); os.chmod(tmp, 0o640); os.replace(tmp, fn); keep.add(fn)
             st["main"] = {"channels": len(items)}
         if items is not None:
-            for L in lists:
+            for L in calc:
                 G, C, X = set(L.get("groups") or []), set(L.get("channels") or []), set(L.get("exclude") or [])
                 SRCS = set(L.get("sources") or [])   # пусто = все источники, кроме «только для плейлистов»
                 LO = set(rules.get("lists_only_sources") or [])
@@ -325,6 +480,9 @@ def main():
                         l0 = re.sub(r'\s+tvg-chno="[^"]*"', "", lines[0])
                         lines[0] = re.sub(r'^(#EXTINF:\s*-?\d+)', lambda mm: f'{mm.group(1)} tvg-chno="{num}"', l0, count=1); num += 1
                     out += lines
+                    LOUT.setdefault(L["id"], []).append({"n": it["name"].lower(), "free": k.startswith("f:"), "lines": lines,
+                                                         "g": gm.group(1) if gm else ""})
+                if L not in lists: continue   # выключенный плейлист: файла и ссылки нет, но клиенты его каналы получают
                 names = [L["token"]] + ([L["slug"]] if SLUG.match(str(L.get("slug") or "")) else [])   # длинная и короткая ссылка
                 pw = L.get("password") if PASS.match(str(L.get("password") or "")) else None
                 for nm in names:
@@ -339,6 +497,12 @@ def main():
                     os.chown(tmp, 0, wgid); os.chmod(tmp, 0o640); os.replace(tmp, fn)
                     keep.add(fn)
                 st["lists"][str(L.get("id"))] = {"channels": sum(1 for x in out if x.startswith("#EXTINF")), "groups": len(groups), "unmatched": miss}
+    if items is not None:
+        build_clients(active, LOUT, head, keep, wgid, st)
+    for x in active:   # не удалять прошлый файл клиента, если в этот раз собрать не вышло
+        fn = f"{OUTDIR}/{x['token']}.m3u8"
+        if fn not in keep and os.path.exists(fn) and (st["error"] or str(x["id"]) in st.get("clients_err", {})): keep.add(fn)
+    st["clients_off"] = [str(x["id"]) for x in clients if x not in active]
     if st["error"] is None:   # удалить файлы удалённых листов / старых ссылок
         for f in glob.glob(f"{OUTDIR}/*.m3u8"):
             if f not in keep:
@@ -356,6 +520,7 @@ def main():
 
 
 if __name__ == "__main__":
+    if "--activity" in sys.argv: sys.exit(activity())
     rc = 0
     for _ in range(3):   # если листы сохранили ещё раз, пока шла сборка, — собрать заново
         m0 = os.path.getmtime(RULES) if os.path.exists(RULES) else 0

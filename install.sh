@@ -8,7 +8,7 @@
 # Повторный запуск обновляет программу и сохраняет настройки.
 set -uo pipefail
 
-E4_VER="1.3"
+E4_VER="1.4"
 HLSP_VER="8.4.8"
 HLSP_URL="https://www.hls-proxy.com/downloads/${HLSP_VER}/hls-proxy-${HLSP_VER}.linux-x64.zip"
 APP=/opt/evgen4ik-tv
@@ -291,8 +291,8 @@ n = os.environ.get("E4_STREAMS", "")
 if n.isdigit():   # лимит провайдера: на всех клиентов и по умолчанию; 0 = без лимита (в HLS Proxy пишем 999)
     v = int(n) or 999
     c["maxSimultaneousStreamCountPerClientDefault"] = v
-    for cl in c.get("clients", {}).values():
-        if isinstance(cl, dict): cl["maxStreamCount"] = v
+    for k, cl in c.get("clients", {}).items():
+        if isinstance(cl, dict) and not k.startswith("e4c_"): cl["maxStreamCount"] = v   # e4c_* — клиенты, у них свой лимит
 c.setdefault("isHtmlPlayerEnabled", False)
 c["isBackupStreams"] = True   # каналы с одинаковым названием = резервные потоки
 tmp = path + ".tmp"
@@ -378,6 +378,7 @@ pl_locations() {
         alias $PL/\$pl.m3u8;
         types { } default_type "application/x-mpegURL; charset=utf-8";
         add_header Cache-Control "no-store";
+        access_log /var/log/nginx/e4tv-pl.log e4tv_pl;   # кто открывал ссылку (раздел «Клиенты» → активность)
     }
     location ~ "^/_auth/([A-Za-z0-9_-]{3,64})\$" {
         internal;
@@ -387,6 +388,7 @@ pl_locations() {
         alias $PL/\$pa.m3u8;
         types { } default_type "application/x-mpegURL; charset=utf-8";
         add_header Cache-Control "no-store";
+        access_log /var/log/nginx/e4tv-pl.log e4tv_pl;
     }
 EOF
 }
@@ -413,6 +415,7 @@ write_nginx() {
   [ -L /etc/nginx/sites-enabled/default ] && rm -f /etc/nginx/sites-enabled/default
   {
     echo "# Evgen4ik TV — создано установщиком, при повторной установке перезаписывается"
+    echo 'log_format e4tv_pl "$time_iso8601 $remote_addr $status $request_uri $http_user_agent";'   # журнал открытий ссылок (плеер — в конце)
     if [ -n "$DOMAIN" ]; then
       echo "server {"
       lsn 80
@@ -554,10 +557,29 @@ RandomizedDelaySec=120
 [Install]
 WantedBy=timers.target
 EOF
+  cat > $U/e4tv-activity.service <<EOF
+[Unit]
+Description=Evgen4ik TV — кто открывал плейлисты (журнал nginx)
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 $APP/lists.py --activity
+EOF
+  cat > $U/e4tv-activity.timer <<EOF
+[Unit]
+Description=Evgen4ik TV — активность клиентов раз в 5 минут
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+
+[Install]
+WantedBy=timers.target
+EOF
   systemctl daemon-reload
   if [ "$MODE" = hls ]; then systemctl enable -q --now hls-proxy; systemctl restart hls-proxy
   elif [ -f "$HLS/.installed-by-e4tv" ]; then systemctl disable -q --now hls-proxy 2>/dev/null; warn "HLS Proxy остановлен (выбран режим без него). Файлы остались в $HLS."; fi
-  systemctl enable -q --now e4tv-editor.service e4tv-build.path e4tv-build.timer e4tv-lists.path e4tv-lists.timer
+  systemctl enable -q --now e4tv-editor.service e4tv-build.path e4tv-build.timer e4tv-lists.path e4tv-lists.timer e4tv-activity.timer
   systemctl restart e4tv-editor.service
   ok "Службы запущены"
 }

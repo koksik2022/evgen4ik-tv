@@ -3,7 +3,7 @@
 set -u
 CONF=${E4TV_CONF:-/etc/evgen4ik-tv/config.json}
 APP=/opt/evgen4ik-tv
-UNITS="e4tv-editor.service e4tv-build.path e4tv-build.timer e4tv-lists.path e4tv-lists.timer"
+UNITS="e4tv-editor.service e4tv-build.path e4tv-build.timer e4tv-lists.path e4tv-lists.timer e4tv-activity.timer"
 
 c() { python3 -c 'import json,sys; c=json.load(open(sys.argv[1])); v=c
 for k in sys.argv[2].split("."): v=v.get(k,"") if isinstance(v,dict) else ""
@@ -79,8 +79,8 @@ p, n = sys.argv[1], int(sys.argv[2])
 n = n or 999   # 0 = без лимита: в HLS Proxy пишем заведомо большое число
 c = json.load(open(p, encoding="utf-8"))
 c["maxSimultaneousStreamCountPerClientDefault"] = n
-for cl in c.get("clients", {}).values():
-    if isinstance(cl, dict): cl["maxStreamCount"] = n
+for k, cl in c.get("clients", {}).items():
+    if isinstance(cl, dict) and not k.startswith("e4c_"): cl["maxStreamCount"] = n   # e4c_* — клиенты, у них свой лимит
 st = os.stat(p); tmp = p + ".tmp"
 with open(tmp, "w", encoding="utf-8") as f: json.dump(c, f, ensure_ascii=False, indent=1)
 os.chown(tmp, st.st_uid, st.st_gid); os.chmod(tmp, 0o600); os.replace(tmp, p)

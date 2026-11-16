@@ -19,6 +19,7 @@ STATE = f"{DATA}/state.json"
 TRIGGER = f"{DATA}/apply.trigger"
 LTRIGGER = f"{DATA}/lists.trigger"
 LSTATUS = f"{DATA}/lists-status.json"
+ACTIVITY = f"{DATA}/activity.json"
 EPG = f"{DATA}/epg.json"
 PUBLIC_BASE = E4["public_base"]
 URL_RX = re.compile(r"^(https?|rtmp|rtsp|udp|rtp)://[^\s\"]{1,2000}$", re.I)
@@ -208,6 +209,27 @@ def validate(r):
                              "xgroups": [s(g) for g in (L.get("xgroups") or [])[:3000] if s(g)],
                              "sources": [s(x, 40) for x in (L.get("sources") or [])[:20] if s(x, 40)],
                              "chno": L["chno"] if isinstance(L.get("chno"), int) and not isinstance(L.get("chno"), bool) and 1 <= L["chno"] <= 99999 else None})
+    # клиенты: люди со своей личной ссылкой, сроком и лимитом; файл плейлиста собирает lists.py
+    lids = {L["id"] for L in out["lists"]}
+    out["clients"], cids, ctoks = [], set(), {L["token"] for L in out["lists"]}
+    for c in (r.get("clients") or [])[:200]:
+        if not isinstance(c, dict) or not s(c.get("name"), 80): continue
+        cid = str(c.get("id") or "")
+        if not re.fullmatch(r"[a-z0-9]{1,16}", cid) or cid in cids: cid = secrets.token_hex(4)
+        cids.add(cid)
+        tok = c.get("token") if isinstance(c.get("token"), str) and TOK_RX.match(c["token"]) and c["token"] not in ctoks else secrets.token_urlsafe(18)
+        ctoks.add(tok)
+        hp = c.get("hls_pw") if isinstance(c.get("hls_pw"), str) and re.fullmatch(r"[A-Za-z0-9_-]{16,64}", c["hls_pw"]) else secrets.token_urlsafe(18)
+        st = c.get("streams")
+        out["clients"].append({"id": cid, "name": s(c["name"], 80), "contact": s(c.get("contact"), 80) or "",
+                               "note": s(c.get("note"), 300) or "", "enabled": c.get("enabled") is not False,
+                               "expires": c["expires"] if isinstance(c.get("expires"), str) and re.fullmatch(r"\d{4}-\d{2}-\d{2}", c["expires"]) else "",
+                               "lists": [x for x in dict.fromkeys(str(x) for x in (c.get("lists") or [])[:50]) if x in lids],
+                               "streams": st if isinstance(st, int) and not isinstance(st, bool) and 0 <= st <= 50 else 1,
+                               "no_adult": c.get("no_adult") is True, "token": tok, "hls_pw": hp,
+                               "created": c["created"] if isinstance(c.get("created"), str) and re.fullmatch(r"\d{4}-\d{2}-\d{2}", c["created"]) else time.strftime("%Y-%m-%d")})
+    msg = r.get("client_msg")
+    out["client_msg"] = re.sub(r"[\x00-\x09\x0b-\x1f\x7f]", " ", msg)[:2000] if isinstance(msg, str) else ""
     seen_slug = set()
     for L in out["lists"]:
         if L["slug"] in seen_slug: L["slug"] = ""
@@ -400,6 +422,7 @@ def prep_status():
     d["built_at"] = st.get("built_at")
     d["log"] = st.get("log", [])
     d["lists"] = read_json(LSTATUS, {})
+    d["activity"] = read_json(ACTIVITY, {})   # кто и когда открывал плейлисты (по журналу nginx, собирает lists.py --activity)
     return d
 
 
@@ -610,7 +633,7 @@ class H(BaseHTTPRequestHandler):
             clean_uploads(rules)
             if body.get("apply"):   # полная пересборка; листы пересоберутся после неё сами
                 with open(TRIGGER, "w") as f: f.write(str(time.time()))
-            elif old.get("lists") != rules["lists"] or old.get("lists_only_sources") != rules["lists_only_sources"] or old.get("free_sources") != rules["free_sources"] or (old.get("free_edits") or {}) != rules["free_edits"]:
+            elif old.get("lists") != rules["lists"] or old.get("lists_only_sources") != rules["lists_only_sources"] or old.get("free_sources") != rules["free_sources"] or (old.get("free_edits") or {}) != rules["free_edits"] or (old.get("clients") or []) != rules["clients"]:
                 with open(LTRIGGER, "w") as f: f.write(str(time.time()))
             return self._send(200, {"ok": True, "applied": bool(body.get("apply")), "rules": rules})
         return self._send(404, {"error": "not found"})

@@ -292,7 +292,7 @@ def apply_stream_limit(R, log):
     n = (R or {}).get("stream_limit")
     if not isinstance(n, int) or DRY: return
     hn = n or NO_LIMIT   # 0 в редакторе = без лимита: в HLS Proxy заведомо большое число
-    cls = [v for v in (c.get("clients") or {}).values() if isinstance(v, dict)]
+    cls = [v for k, v in (c.get("clients") or {}).items() if isinstance(v, dict) and not k.startswith("e4c_")]   # e4c_* — логины клиентов, их лимит свой
     if c.get("maxSimultaneousStreamCountPerClientDefault") == hn and all(v.get("maxStreamCount") == hn for v in cls): return
     c["maxSimultaneousStreamCountPerClientDefault"] = hn
     for v in cls: v["maxStreamCount"] = hn
