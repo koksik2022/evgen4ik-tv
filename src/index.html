@@ -981,6 +981,7 @@ const shared=()=>R.lists.filter(L=>!L.owner);   // общие плейлисты
 const usedBy=L=>R.clients.filter(c=>c.lists.includes(L.id)).length;
 function delWarn(L){const n=usedBy(L); return n?"\nОн отмечен у "+plural(n,"клиента","клиентов","клиентов")+" — у них пропадут его каналы.":""}   // cBack — клиент, из которого открыли плейлист
 const CC=()=>R.clients.find(c=>c.id===curC);
+function hlsStatus(){try{return CONF.hls_url?new URL("status",CONF.hls_url).href:""}catch(e){return ""}}   // /status в HLS Proxy: кто какой канал смотрит
 function isoLocal(d){const x=new Date(d); x.setMinutes(x.getMinutes()-x.getTimezoneOffset()); return x.toISOString().slice(0,10)}
 const todayISO=()=>isoLocal(new Date());
 const ruDate=iso=>iso?iso.split("-").reverse().join("."):"";
@@ -1037,7 +1038,7 @@ function renderClients(){if(CONF.mode&&Date.now()-nowT>15000) setTimeout(pollNow
   $("settings").innerHTML=`<div class="ktiles">
     <input type="file" id="cRowFile" accept=".m3u,.m3u8,.txt,audio/x-mpegurl,application/vnd.apple.mpegurl" hidden>
     <div class="ktile"><span class="muted">Активны</span><b>${act.length}</b></div>
-    ${CONF.mode==="hls"?`<div class="ktile ok" title="Подключены к HLS Proxy прямо сейчас (по IP клиента). Обновляется раз в 20 секунд"><span class="muted">Смотрят сейчас</span><b>${watching}${strangers?` <span style="font-size:13px;color:var(--muted);font-weight:500">+ ${plural(strangers,"неизвестный IP","неизвестных IP","неизвестных IP")}</span>`:""}</b></div>`:""}
+    ${CONF.mode==="hls"?`<div class="ktile ok" title="Подключены к HLS Proxy прямо сейчас (по IP клиента). Обновляется раз в 20 секунд"><span class="muted">Смотрят сейчас</span><b>${watching}${strangers?` <span style="font-size:13px;color:var(--muted);font-weight:500">+ ${plural(strangers,"неизвестный IP","неизвестных IP","неизвестных IP")}</span>`:""}</b>${hlsStatus()?`<a href="${esc(hlsStatus())}" target="_blank" rel="noopener" style="font-size:13px" title="Страница HLS Proxy: какой логин какой канал смотрит, IP, скорость. Вход — логин admin и пароль панели">Кто что смотрит →</a>`:""}</div>`:""}
     <div class="ktile ok"><span class="muted">Заходили сегодня</span><b>${seenT}</b></div>
     <div class="ktile${soon.length?" warn":""}"><span class="muted">Срок кончается за 7 дней</span><b>${soon.length}</b></div>
     <div class="ktile"><span class="muted">Выключены и истекли</span><b>${off.length}</b></div></div>
