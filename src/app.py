@@ -103,7 +103,11 @@ def urls(v):
 
 
 def keys(v, n=20000):
-    return [k.lower()[:200] for k in (v or [])[:n] if isinstance(k, str) and k.strip()]
+    return [k.lower()[:200] for k in (v if isinstance(v, list) else [])[:n] if isinstance(k, str) and k.strip()]
+
+
+def lst(v):
+    return v if isinstance(v, list) else []
 
 
 def validate(r):
@@ -216,7 +220,7 @@ def validate(r):
     # клиенты: люди со своей личной ссылкой, сроком и лимитом; файл плейлиста собирает lists.py
     lids = {L["id"] for L in out["lists"]}
     out["clients"], cids, ctoks = [], set(), {L["token"] for L in out["lists"]}
-    for c in (r.get("clients") or [])[:200]:
+    for c in lst(r.get("clients"))[:200]:
         if not isinstance(c, dict) or not s(c.get("name"), 80): continue
         cid = str(c.get("id") or "")
         if not re.fullmatch(r"[a-z0-9]{1,16}", cid) or cid in cids: cid = secrets.token_hex(4)
@@ -228,7 +232,7 @@ def validate(r):
         out["clients"].append({"id": cid, "name": s(c["name"], 80), "contact": s(c.get("contact"), 80) or "",
                                "note": s(c.get("note"), 300) or "", "enabled": c.get("enabled") is not False,
                                "expires": c["expires"] if isinstance(c.get("expires"), str) and re.fullmatch(r"\d{4}-\d{2}-\d{2}", c["expires"]) else "",
-                               "lists": [x for x in dict.fromkeys(str(x) for x in (c.get("lists") or [])[:50]) if x in lids],
+                               "lists": [x for x in dict.fromkeys(str(x) for x in lst(c.get("lists"))[:50]) if x in lids],
                                "streams": st if isinstance(st, int) and not isinstance(st, bool) and 0 <= st <= 50 else 1,
                                "no_adult": c.get("no_adult") is True, "token": tok, "hls_pw": hp,
                                # свой список поверх плейлистов: выключенные каналы, добавленные из основного, свои ссылки и свои каналы
@@ -239,7 +243,7 @@ def validate(r):
                                           "name": s(x["name"], 100), "group": s(x.get("group"), 60) or "Мои каналы", "url": x["url"].strip(),
                                           "logo": x["logo"].strip() if isinstance(x.get("logo"), str) and re.match(r"^https?://[^\s\"]{1,1000}$", x["logo"].strip()) else "",
                                           "src": s(x.get("src"), 60) or ""}   # из какого файла (пусто — добавлен вручную)
-                                         for x in (c.get("extra") or [])[:3000]
+                                         for x in lst(c.get("extra"))[:3000]
                                          if isinstance(x, dict) and s(x.get("name"), 100) and isinstance(x.get("url"), str) and URL_RX.match(x["url"].strip())],
                                "created": c["created"] if isinstance(c.get("created"), str) and re.fullmatch(r"\d{4}-\d{2}-\d{2}", c["created"]) else time.strftime("%Y-%m-%d")})
     # личные плейлисты: только у живого владельца, без своей ссылки; у клиента — только свои личные и общие
@@ -251,13 +255,13 @@ def validate(r):
     for c in out["clients"]:
         c["lists"] = [x for x in c["lists"] if x in own and own[x] in ("", c["id"])]
     xu = set()
-    for c, src in zip(out["clients"], [x for x in (r.get("clients") or [])[:200] if isinstance(x, dict) and s(x.get("name"), 80)]):
+    for c, src in zip(out["clients"], [x for x in lst(r.get("clients"))[:200] if isinstance(x, dict) and s(x.get("name"), 80)]):
         u = str(src.get("xc_user") or "").lower()
         if not re.fullmatch(r"[a-z0-9_]{3,32}", u) or u in xu: u = "tv" + c["id"]
         xu.add(u); c["xc_user"] = u
         c["xc_pw"] = src["xc_pw"] if isinstance(src.get("xc_pw"), str) and re.fullmatch(r"[A-Za-z0-9]{8,32}", src["xc_pw"]) else secrets.token_hex(6)
         ips = []
-        for x in (src.get("ips") or [])[:50]:
+        for x in lst(src.get("ips"))[:50]:
             try: ips.append(str(ipaddress.ip_network(str(x).strip(), strict=False)))
             except ValueError: pass
         c["ips"] = list(dict.fromkeys(ips))
