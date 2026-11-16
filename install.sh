@@ -8,7 +8,7 @@
 # Повторный запуск обновляет программу и сохраняет настройки.
 set -uo pipefail
 
-E4_VER="1.0"
+E4_VER="1.1"
 HLSP_VER="8.4.8"
 HLSP_URL="https://www.hls-proxy.com/downloads/${HLSP_VER}/hls-proxy-${HLSP_VER}.linux-x64.zip"
 APP=/opt/evgen4ik-tv
@@ -37,7 +37,7 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --mode) MODE=$2; shift;; --domain) DOMAIN=$2; shift;; --email) EMAIL=$2; shift;;
     --access) ACCESS=$2; shift;; --user) USERNAME=$2; shift;; --password) PASSWORD=$2; shift;;
-    --streams) STREAMS=$2; shift;;   # сколько каналов одновременно разрешает провайдер (режим hls)
+    --streams) STREAMS=$2; shift;;   # сколько каналов одновременно разрешает провайдер (режим hls); 0 — без лимита
     --alt-port) ALT_PORT=$2; shift;;   # порт редактора без домена в режиме hls (если 8080 занят)
     --address) ADDR=$2; shift;;   # адрес для плееров (домашний ПК: IP в домашней сети)
     --yes|-y) YES=1;; --update) ACTION=update;; --reconfigure) ACTION=reconfigure;;
@@ -104,6 +104,16 @@ port_busy() {   # занят ли порт чем-то кроме nginx и hls-p
   ss -ltnpH "sport = :$1" 2>/dev/null | grep -v -e nginx -e hls-proxy | grep -q LISTEN
 }
 
+valid_input() {   # всё, что подставляется в конфиги nginx/Python/certbot, — только безопасные символы
+  DOMAIN=${DOMAIN,,}
+  [ -z "$DOMAIN" ] || [[ $DOMAIN =~ ^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$ ]] || die "Неверный домен: «$DOMAIN». Пример: tv.example.com"
+  [ -z "$EMAIL" ] || [[ $EMAIL =~ ^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,63}$ ]] || die "Неверный e-mail: «$EMAIL»"
+  [ -z "$ADDR" ] || [[ $ADDR =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]] || die "Неверный адрес --address: «$ADDR». Нужен IPv4, например 192.168.1.10"
+  [ -z "$ALT_PORT" ] || { [[ $ALT_PORT =~ ^[0-9]{2,5}$ ]] && [ "$ALT_PORT" -le 65535 ]; } || die "Неверный порт --alt-port: «$ALT_PORT»"
+  [ -z "$USERNAME" ] || [[ $USERNAME =~ ^[A-Za-z0-9._-]{1,32}$ ]] || die "Логин: только латиница, цифры и . _ - (до 32 символов)"
+  return 0
+}
+
 # ---------- вопросы ----------
 wizard() {
   echo
@@ -119,13 +129,8 @@ wizard() {
   if [ "$MODE" = hls ] && [ "$(uname -m)" != x86_64 ]; then
     warn "HLS Proxy ставится только на x86_64, а у сервера $(uname -m). Выбран режим без HLS Proxy."; MODE=direct
   fi
-  if [ "$MODE" = hls ] && [ -z "$STREAMS" ]; then
-    echo
-    echo -e "${B}Сколько каналов одновременно разрешает ваш провайдер?${N}"
-    echo -e "${D}В условиях подписки это «устройств» или «одновременных просмотров». HLS Proxy не даст открыть больше,${N}"
-    echo -e "${D}и провайдер не заблокирует за превышение. Один канал на нескольких телевизорах обычно идёт одним потоком.${N}"
-    ask "Число" "${STREAMS_DEF:-3}"; STREAMS=$REPLY
-  fi
+  # лимит каналов не спрашиваем: в редакторе режим «Авто» сам берёт лимит провайдера по источникам
+  # (вручную: --streams N при установке, e4tv streams N или в редакторе; 0 — без лимита)
 
   if [ "${HOME_LAN:-0}" = 1 ]; then DOMAIN=""; else   # дома домен не нужен
   echo
@@ -163,7 +168,12 @@ summary() {
   echo -e "  Режим:     $( [ "$MODE" = hls ] && echo "с HLS Proxy ${HLSP_VER}" || echo 'без HLS Proxy')"
   echo -e "  Адрес:     ${DOMAIN:-$IP} $( [ -n "$DOMAIN" ] && echo '(HTTPS, Let’s Encrypt)' || echo '(http, без домена)')"
   echo -e "  Редактор:  $( [ "$ACCESS" = login ] && echo "логин ${USERNAME}" || echo 'только SSH-туннель')"
-  [ "$MODE" = hls ] && echo -e "  Потоков:   не больше ${STREAMS:-3} одновременно (лимит провайдера)"
+  if [ "$MODE" = hls ]; then
+    if [ "${STREAMS:-}" = 0 ]; then echo -e "  Потоков:   без лимита (сторонний плейлист без ограничения устройств)"
+    elif [ -n "${STREAMS:-}" ]; then echo -e "  Потоков:   не больше ${STREAMS} одновременно (лимит провайдера)"
+    elif [ -f "$HLS/local.json" ]; then echo -e "  Потоков:   как сейчас ${D}(сменить — в редакторе или e4tv streams N)${N}"
+    else echo -e "  Потоков:   авто — по лимиту провайдера, которого добавите в редакторе ${D}(до этого 3)${N}"; fi
+  fi
   echo -e "  Пакеты:    python3, nginx$( [ -n "$DOMAIN" ] && echo ', certbot'), curl, unzip"
   if [ "$YES" != 1 ]; then yesno "Начинаем?" д || die "Отменено"; fi
 }
@@ -190,7 +200,11 @@ install_files() {
   install -d -m 755 "$APP/lib"; install -m 644 "$SRC"/lib/* "$APP/lib/"   # плееры hls.js и mpegts.js (Apache-2.0)
   install -m 755 "$SRC/e4tv" /usr/local/bin/e4tv
   for t in apply.trigger lists.trigger; do [ -f "$DATA/editor/$t" ] || install -m 640 -o e4tv -g e4tv /dev/null "$DATA/editor/$t"; done
-  [ -f "$DATA/editor/rules.json" ] || { echo '{}' > "$DATA/editor/rules.json"; chown e4tv:e4tv "$DATA/editor/rules.json"; chmod 640 "$DATA/editor/rules.json"; }
+  if [ ! -f "$DATA/editor/rules.json" ]; then   # новая установка: лимит каналов «Авто», если не задан --streams
+    if [[ ${STREAMS:-} =~ ^[0-9]+$ ]] && [ "$STREAMS" -le 50 ]; then echo "{\"stream_limit_mode\": \"manual\", \"stream_limit\": $((10#$STREAMS))}"
+    else echo '{"stream_limit_mode": "auto"}'; fi > "$DATA/editor/rules.json"
+    chown e4tv:e4tv "$DATA/editor/rules.json"; chmod 640 "$DATA/editor/rules.json"
+  fi
   echo "$E4_VER" > "$APP/VERSION"
   ok "Программа скопирована в $APP"
 }
@@ -214,9 +228,8 @@ $(lsn 80)
 EOF
   ln -sf /etc/nginx/sites-available/evgen4ik-tv /etc/nginx/sites-enabled/evgen4ik-tv
   nginx -t >/dev/null 2>&1 && systemctl reload nginx
-  local em="--register-unsafely-without-email"; [ -n "$EMAIL" ] && em="--email $EMAIL"
-  # shellcheck disable=SC2086
-  if certbot certonly --webroot -w "$ACME" -d "$DOMAIN" $em --agree-tos -n --keep-until-expiring >/tmp/e4tv-certbot.log 2>&1; then
+  local em=(--register-unsafely-without-email); [ -n "$EMAIL" ] && em=(--email "$EMAIL")
+  if certbot certonly --webroot -w "$ACME" -d "$DOMAIN" "${em[@]}" --agree-tos -n --keep-until-expiring >/tmp/e4tv-certbot.log 2>&1; then
     ok "Сертификат получен (продлевается сам)"
   else
     warn "Сертификат получить не удалось. Подробности: /tmp/e4tv-certbot.log"
@@ -250,7 +263,7 @@ install_hlsproxy() {
   fi
   [ -f "$HLS/combined.m3u" ] || echo "#EXTM3U" > "$HLS/combined.m3u"
   # local.json: создаём или обновляем только адрес/порт/сертификат и плейлист Combined
-  [[ ${STREAMS:-} =~ ^[0-9]+$ ]] && [ "$STREAMS" -ge 1 ] && [ "$STREAMS" -le 50 ] || { [ -n "${STREAMS:-}" ] && warn "Число потоков «$STREAMS» не подходит — ставлю 3"; [ -n "${STREAMS:-}" ] && STREAMS=3; }
+  [[ ${STREAMS:-} =~ ^[0-9]+$ ]] && [ "$STREAMS" -ge 0 ] && [ "$STREAMS" -le 50 ] || { [ -n "${STREAMS:-}" ] && warn "Число потоков «$STREAMS» не подходит — ставлю 3"; [ -n "${STREAMS:-}" ] && STREAMS=3; }
   [ -f "$HLS/local.json" ] || STREAMS=${STREAMS:-3}
   E4_STREAMS=${STREAMS:-} HLS_ADMIN_PW=$(rnd 16) HLS_CLIENT_PW=$(rnd 20) python3 - "$HLS/local.json" "${DOMAIN:-$IP}" "$( [ -n "$DOMAIN" ] && echo https || echo http)" "$EPG_DEFAULT" <<'P'
 import json, os, sys
@@ -275,10 +288,11 @@ if not c.get("clients"):
                            "isHttp": proto == "http", "maxStreamCount": 3, "n": 0}}
 c.setdefault("maxSimultaneousStreamCountPerClientDefault", 3)
 n = os.environ.get("E4_STREAMS", "")
-if n.isdigit():   # лимит провайдера: на всех клиентов и по умолчанию
-    c["maxSimultaneousStreamCountPerClientDefault"] = int(n)
+if n.isdigit():   # лимит провайдера: на всех клиентов и по умолчанию; 0 = без лимита (в HLS Proxy пишем 999)
+    v = int(n) or 999
+    c["maxSimultaneousStreamCountPerClientDefault"] = v
     for cl in c.get("clients", {}).values():
-        if isinstance(cl, dict): cl["maxStreamCount"] = int(n)
+        if isinstance(cl, dict): cl["maxStreamCount"] = v
 c.setdefault("isHtmlPlayerEnabled", False)
 c["isBackupStreams"] = True   # каналы с одинаковым названием = резервные потоки
 tmp = path + ".tmp"
@@ -448,7 +462,7 @@ write_units() {
   local U=/etc/systemd/system post=
   if [ "$MODE" = hls ]; then
     post="ExecStartPost=/bin/sh -c \"chown hlsproxy:hlsproxy $HLS/combined.m3u; chmod 640 $HLS/combined.m3u\"
-ExecStartPost=/bin/systemctl restart hls-proxy
+ExecStartPost=/bin/sh -c 'n=\$\$(cat $HLS/combined.m3u $HLS/local.json 2>/dev/null | sha256sum); f=$DATA/build/hls.sha256; [ \"\$\$n\" = \"\$\$(cat \$\$f 2>/dev/null)\" ] || { systemctl restart hls-proxy && echo \"\$\$n\" > \$\$f; }'
 ExecStartPost=-/usr/bin/python3 $APP/lists.py --wait 180"
   else
     post="ExecStartPost=-/usr/bin/python3 $APP/lists.py"
@@ -579,7 +593,7 @@ final_report() {
     echo "Программа (EPG):   $(conf_get player_epg)"
     if [ "$MODE" = hls ]; then
       echo "Панель HLS Proxy:  $(conf_get hls_url)"
-      echo "Потоков максимум:  $(python3 -c 'import json;print(json.load(open("'"$HLS"'/local.json")).get("maxSimultaneousStreamCountPerClientDefault","?"))') (сменить: e4tv streams N)"
+      echo "Потоков максимум:  $(python3 -c 'import json;v=json.load(open("'"$HLS"'/local.json")).get("maxSimultaneousStreamCountPerClientDefault","?");print("без лимита" if isinstance(v,int) and v>=999 else v)') (сменить: e4tv streams N, 0 — без лимита)"
       echo "Пароль панели:     $(python3 -c 'import json;print(json.load(open("'"$HLS"'/local.json"))["SERVER"].get("password",""))')"
     fi
   } > "$CREDS"; chmod 600 "$CREDS"
@@ -611,7 +625,6 @@ main() {
   [ -f "$ETC/config.json" ] && [ -n "$(conf_get address)" ] && IP=$(conf_get address)
   if [ -f "$ETC/config.json" ]; then
     MODE_DEF=$( [ "$(conf_get mode)" = hls ] && echo 1 || echo 2 ); DOMAIN_DEF=$(conf_get domain); ACCESS_DEF=$(conf_get access)
-    STREAMS_DEF=$(python3 -c 'import json;print(json.load(open("'"$HLS"'/local.json")).get("maxSimultaneousStreamCountPerClientDefault",""))' 2>/dev/null)
     USER_DEF=$(python3 -c 'import json;print(json.load(open("'"$ETC"'/auth.json"))["user"])' 2>/dev/null || echo admin)
     if [ -z "$ACTION" ] && [ -z "$MODE" ]; then
       echo; echo -e "Найдена установка $(cat "$APP/VERSION" 2>/dev/null || echo '?'): $( [ "$MODE_DEF" = 1 ] && echo 'с HLS Proxy' || echo 'без HLS Proxy'), ${DOMAIN_DEF:-$IP}"
@@ -629,6 +642,7 @@ main() {
   [ -z "$MODE" ] && [ "$YES" != 1 ] && wizard
   MODE=${MODE:-direct}; ACCESS=${ACCESS:-login}; [ "$MODE" = hls ] || MODE=direct
   case "$MODE" in direct|hls) ;; *) die "--mode: direct или hls";; esac
+  valid_input
   if [ "$ACTION" != update ]; then
     for p in 80 443 8443 8080; do port_busy $p && warn "Порт $p уже занят другой программой: $(ss -ltnpH "sport = :$p" | grep -o 'users:(("[^"]*' | cut -d'"' -f2 | head -1)"; done
     summary

@@ -283,7 +283,7 @@ const PAGES={plist:"Объединённые плейлисты",lists:"Объе
 function toast(t){const e=$("toast");e.textContent=t;e.classList.add("on");clearTimeout(e._t);e._t=setTimeout(()=>e.classList.remove("on"),3200)}
 function norm(r){r=r||{};return{version:1,hidden_patterns:r.hidden_patterns||(ST&&ST.default_hidden)||[],groups:r.groups||{},channels:r.channels||{},
   group_order:r.group_order||[],custom_groups:r.custom_groups||[],custom_channels:r.custom_channels||[],lists:r.lists||[],
-  sources:r.sources||[],disabled_sources:r.disabled_sources||[],primary_source:r.primary_source||null,stream_limit:r.stream_limit||null,
+  sources:r.sources||[],disabled_sources:r.disabled_sources||[],primary_source:r.primary_source||null,stream_limit:r.stream_limit??null,stream_limit_mode:r.stream_limit_mode==="auto"?"auto":"manual",
   lists_only_sources:r.lists_only_sources||[],channel_order:r.channel_order||{},auto_rules:r.auto_rules||[],free_sources:r.free_sources||[],free_edits:r.free_edits||{}}}
 function isDirty(){return JSON.stringify(R)!==saved}
 function markDirty(){$("dirty").hidden=!isDirty()}
@@ -1003,12 +1003,21 @@ function galUrl(){const fr=FREE.find(f=>f.id===galSel); return fr?fr.url:galSel=
 function provOf(x){return PROV.find(p=>p.id===x.prov)||PROV.find(p=>p.name===x.name)||null}
 function limRec(){const ls=R.sources.filter(x=>x.enabled!==false).map(provOf).filter(p=>p&&p.lim); if(!ls.length) return null;
   const m=Math.min(...ls.map(p=>p.lim)); return {n:m,by:ls.filter(p=>p.lim===m).map(p=>p.name)}}
+function autoLim(){   // режим «Авто»: лимит по включённым источникам (0 — без лимита, null — источников нет)
+  const src=R.sources.filter(x=>x.enabled!==false), bsOn=((ST&&ST.builtin_sources)||[]).filter(n=>!R.disabled_sources.includes(n));
+  const rec=limRec(); if(rec) return {n:rec.n,why:"по лимиту "+rec.by.join(", ")};
+  const unk=src.filter(x=>!x.nolim).map(x=>"«"+x.name+"»").concat(bsOn.map(n=>"«"+n+"»"));
+  if(unk.length) return {n:3,why:"лимит "+unk.join(", ")+" неизвестен — 3 на всякий случай. Сторонний плейлист без лимита отметьте «без лимита устройств» в списке источников"};
+  if(src.length) return {n:0,why:"все источники — сторонние без лимита устройств"};
+  return {n:null,why:"добавьте источник"}}
 function addSource(url,name,prov){name=clean(name).slice(0,40); if(!name){toast("Введите название");return false}
   if(new Set([...allSources(),"Свой"]).has(name)){toast("Источник «"+name+"» уже есть — дайте другое название");return false}
   if(R.sources.length>=10){toast("Своих источников не больше 10");return false}
   R.sources.push({id:Math.random().toString(36).slice(2,10).replace(/[^a-z0-9]/g,"")||"s"+Date.now(),name,url,enabled:true,...(prov?{prov}:{})}); galSel=null;
   const p=PROV.find(x=>x.id===prov); let extra="";
-  if(p&&p.lim&&CONF.mode==="hls"&&(!R.stream_limit||R.stream_limit>p.lim)){R.stream_limit=p.lim; extra=" Лимит: не больше "+p.lim+" каналов одновременно, как у "+p.name+"."}
+  if(CONF.mode==="hls"&&R.stream_limit_mode==="auto"){const a=autoLim(); if(a.n!=null) R.stream_limit=a.n;
+    extra=" Лимит (авто): "+(a.n===0?"без лимита":a.n)+"."+(p?"":" Если это сторонний плейлист без лимита устройств — отметьте «без лимита устройств» у источника ниже.")}
+  else if(p&&p.lim&&CONF.mode==="hls"&&(!R.stream_limit||R.stream_limit>p.lim)){R.stream_limit=p.lim; extra=" Лимит: не больше "+p.lim+" каналов одновременно, как у "+p.name+"."}
   render(); toast("Источник «"+name+"» добавлен — «Сохранить и применить», чтобы загрузить каналы."+extra); return true}
 function renderSettings(page){
   const bs=(ST&&ST.builtin_sources)||[], info={}; ((ST&&ST.sources)||[]).forEach(x=>info[x.name]=x);
@@ -1021,19 +1030,27 @@ function renderSettings(page){
       <label><input type="radio" name="prim" value="${esc(x.name)}" ${prim===x.name?"checked":""}> основной</label>
       <label title="Каналы источника попадут только в объединённые плейлисты, где он отмечен"><input type="checkbox" class="sLO" ${R.lists_only_sources.includes(x.name)?"checked":""}> только для плейлистов</label>
       <button class="sCh primary" title="${info[x.name]&&info[x.name].count?"Открыть каналы источника в «Группах и каналах»":"Посмотреть, что внутри (источник ещё не применён)"}">Каналы${info[x.name]&&info[x.name].count?" ("+info[x.name].count+")":""} ›</button><button class="sChk" title="Проверить, что ссылка отдаёт плейлист">Проверить</button><button class="sDel danger">Удалить</button>
-      <span class="st" style="grid-column:2/-1">${st(x.name)}${provOf(x)?` · лимит провайдера: ${provOf(x).lim?provOf(x).lim+" устр.":"неизвестен"}`:""}</span></div>`).join("");
+      <span class="st" style="grid-column:2/-1">${st(x.name)}${provOf(x)?` · лимит провайдера: ${provOf(x).lim?provOf(x).lim+" устр.":"неизвестен"}`:` · <label title="Сторонний (бесплатный) плейлист без ограничения устройств — режим «Авто» не будет ставить из-за него лимит"><input type="checkbox" class="sNL" ${x.nolim?"checked":""}> без лимита устройств</label>`}</span></div>`).join("");
   const srcCard=`
   <div class="card"><h2>Источники каналов</h2>
     <p class="hint">Плейлисты, из которых собирается общий список. Подойдёт любая M3U-ссылка; для Xtream Codes — ссылка вида <code>http://сервер:порт/get.php?username=…&amp;password=…&amp;type=m3u_plus&amp;output=ts</code>. Каналы с одинаковым названием из разных источников склеиваются: «основной» источник идёт первым, остальные — резервом. Применяется по «Сохранить и применить».</p>
     <p class="hint"><b>«Только для плейлистов»</b> — каналы источника не берутся в объединённые плейлисты, пока источник явно не отмечен в самом плейлисте. В основном плейлисте они всё равно есть: чтобы их не было в плеере, подключите плеер к объединённому плейлисту с включённым «Все группы».</p>
     <div id="srcRows">${rows}</div>
     <div class="chk-res" id="srcChk" style="margin-top:8px"></div></div>`;
-  const rec=limRec(), cur=ST&&ST.stream_limit;
+  // лимит: «Авто» (по источникам) / своё число / без лимита (0); 0 в HLS Proxy пишется как 999 (build.py)
+  const rec=limRec(), cur=ST?ST.stream_limit:null, auto=R.stream_limit_mode==="auto", al=autoLim();
+  const eff=auto?al.n:(R.stream_limit!=null?R.stream_limit:cur), off=!auto&&eff===0, num=n=>n===0?"без лимита":n;
   const limCard=CONF.mode==="hls"?`<div class="card"><h2>Сколько каналов одновременно</h2>
     <p class="hint">У провайдеров есть лимит устройств или одновременных просмотров. HLS Proxy не откроет больше каналов, чем указано здесь, — провайдер не заблокирует за превышение. Один канал на нескольких телевизорах обычно идёт одним потоком. Применяется по «Сохранить и применить».</p>
-    <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center"><input type="number" id="sLim" min="1" max="50" style="width:90px" value="${R.stream_limit||cur||""}" placeholder="3"><span class="muted">каналов</span>
-    ${cur?`<span class="badge">сейчас в HLS Proxy: ${cur}</span>`:""}
-    ${rec?`<span class="hint" style="margin:0">Рекомендуется <b>${rec.n}</b> — по лимиту ${esc(rec.by.join(", "))}</span>${(R.stream_limit||cur)!==rec.n?`<button id="sLimRec">Поставить ${rec.n}</button>`:""}`:""}</div></div>`
+    <div style="display:flex;flex-direction:column;gap:10px">
+      <label><input type="radio" name="limMode" value="auto" ${auto?"checked":""}> <b>Авто</b> — по источникам: ${al.n==null?"источников ещё нет":"<b>"+num(al.n)+"</b>"} <span class="muted">(${esc(al.why)})</span></label>
+      <label style="display:flex;flex-wrap:wrap;gap:8px;align-items:center"><input type="radio" name="limMode" value="manual" ${!auto&&!off?"checked":""}> <b>Своё число</b>
+        <input type="number" id="sLim" min="1" max="50" style="width:90px" value="${!auto&&!off&&eff?eff:""}" placeholder="${rec?rec.n:3}" ${auto||off?"disabled":""}><span class="muted">каналов</span>
+        ${!auto&&!off&&rec&&eff!==rec.n?`<button id="sLimRec">Поставить ${rec.n} — по лимиту ${esc(rec.by.join(", "))}</button>`:""}</label>
+      <label><input type="radio" name="limMode" value="off" ${off?"checked":""}> <b>Без лимита</b> <span class="muted">— только если все плейлисты сторонние, без ограничения устройств</span></label>
+    </div>
+    ${cur!=null&&cur!==""?`<p class="hint" style="margin:8px 0 0"><span class="badge">сейчас в HLS Proxy: ${num(cur)}</span></p>`:""}
+    ${off&&rec?`<p class="hint" style="margin:8px 0 0">⚠️ У источника ${esc(rec.by.join(", "))} есть лимит — ${rec.n} устр. Без лимита провайдер может заблокировать просмотр за превышение.</p>`:""}</div>`
     :(rec?`<div class="card"><h2>Лимит провайдера</h2><p class="hint" style="margin:0">Без HLS Proxy каждый телевизор подключается к провайдеру сам. По лимиту ${esc(rec.by.join(", "))} одновременно можно смотреть не больше <b>${rec.n}</b> устройствам — иначе провайдер может заблокировать просмотр.</p></div>`:"");
   const galCard=renderGallery(bs);
   const frCard=R.free_sources.length?`<div class="card"><h2>Отдельные плейлисты</h2><p class="hint">Не входят в основной плейлист. Их каналы попадают только в ваши плейлисты (раздел «Объединённые плейлисты» → «Откуда брать каналы»), ссылки напрямую. Обновляются сами раз в 6 часов.</p>
@@ -1047,10 +1064,15 @@ function renderSettings(page){
   $("settings").innerHTML=page==="filters"?fltCard:galCard+frCard+srcCard+limCard;
 }
 $("settings").addEventListener("input",e=>{if(mode==="sources"&&["xSrv","xPort","xUser","xPass"].includes(e.target.id)) $("xUrl").value=xcUrl()});
+$("settings").addEventListener("change",e=>{if(mode!=="sources"||e.target.name!=="limMode") return; const v=e.target.value, r=limRec();
+  if(v==="auto"){R.stream_limit_mode="auto"; const a=autoLim(); if(a.n!=null) R.stream_limit=a.n}
+  else if(v==="off"){R.stream_limit_mode="manual"; R.stream_limit=0}
+  else {R.stream_limit_mode="manual"; if(!R.stream_limit) R.stream_limit=r?r.n:3}
+  markDirty(); render(); toast((v==="auto"?"Авто":v==="off"?"Без лимита":"Лимит "+R.stream_limit)+" — нажмите «Сохранить и применить»")});
 $("settings").addEventListener("change",e=>{if(mode!=="sources"||e.target.id!=="sLim") return; const v=parseInt(e.target.value,10);
-  R.stream_limit=v>=1&&v<=50?v:null; if(!R.stream_limit) e.target.value=""; markDirty()});
+  R.stream_limit_mode="manual"; R.stream_limit=v>=1&&v<=50?v:null; if(!R.stream_limit) e.target.value=""; markDirty()});
 $("settings").addEventListener("click",e=>{if(mode!=="sources"||e.target.id!=="sLimRec") return; const r=limRec(); if(!r) return;
-  R.stream_limit=r.n; render(); toast("Лимит "+r.n+" — нажмите «Сохранить и применить»")});
+  R.stream_limit_mode="manual"; R.stream_limit=r.n; markDirty(); render(); toast("Лимит "+r.n+" — нажмите «Сохранить и применить»")});
 $("settings").addEventListener("click",async e=>{if(mode!=="sources") return; const t=e.target, pv=t.closest("[data-pv]");
   if(pv){const id=pv.dataset.pv; if(id.startsWith("b_")){toast("Этот источник уже подключён — включить/выключить можно в списке ниже");return} galSel=galSel===id?null:id; renderSettings("sources"); const f=$("gUrl")||$("xSrv")||$("fFile"); if(f) f.focus(); return}
   if(t.id==="gChk"){const u=galUrl(); if(!u||!URLRX.test(u)){toast(galSel==="xc"?"Заполните сервер, логин и пароль":"Вставьте ссылку http(s)://…");return} checkUrls([u],$("gRes")); return}
@@ -1092,11 +1114,13 @@ $("settings").addEventListener("change",e=>{const t=e.target, row=t.closest(".sr
   if(t.classList.contains("sOn")) x.enabled=t.checked;
   if(t.classList.contains("sName")){const v=clean(t.value).slice(0,40); if(v){const i=R.lists_only_sources.indexOf(x.name); if(i>=0) R.lists_only_sources[i]=v; x.name=v} else t.value=x.name}
   if(t.classList.contains("sUrl")){const v=t.value.trim(); if(URLRX.test(v)) x.url=v; else {toast("Неверная ссылка");t.value=x.url}}
-  markDirty();
+  if(t.classList.contains("sNL")){if(t.checked) x.nolim=true; else delete x.nolim}
+  markDirty(); if(t.classList.contains("sNL")||t.classList.contains("sOn")) render();   // пересчитать «Авто»
 });
 async function save(apply){
   // пустые пользовательские группы без каналов не храним
   R.custom_groups=R.custom_groups.filter(g=>chansOf(g).length||g===sel);
+  if(R.stream_limit_mode==="auto"){const a=autoLim(); if(a.n!=null) R.stream_limit=a.n}   // «Авто»: число считается по источникам при сохранении
   const before=JSON.stringify(JSON.parse(saved).lists), listsChanged=before!==JSON.stringify(R.lists);
   const r=await fetch("/api/rules",{method:"POST",headers:{"Content-Type":"application/json","X-M3U-Editor":"1"},body:JSON.stringify({rules:R,apply})});
   const j=await r.json(); if(!r.ok){toast("Ошибка: "+(j.error||r.status));return}
@@ -1128,7 +1152,8 @@ function plStatus(t,bad){const e=$("plS"); if(!e) return; e.textContent=t||""; e
 function limInfo(o){
   if(o.free) return "🆓 Это бесплатный открытый канал — лимит вашего провайдера он не тратит. Закройте плеер, когда посмотрели.";
   const rec=limRec(), pv=rec?` Лимит ${esc(rec.by.join(", "))}: до <b>${rec.n}</b> устройств.`:"";
-  if(CONF.mode==="hls"&&!o.direct){const n=(ST&&ST.stream_limit)||R.stream_limit;
+  if(CONF.mode==="hls"&&!o.direct){const n=ST&&ST.stream_limit!=null?ST.stream_limit:R.stream_limit;
+    if(n===0) return `ℹ️ <b>Лимит каналов выключен</b> — HLS Proxy не ограничивает одновременные просмотры.${pv} Если у источника всё же есть лимит устройств, верните число: «Источники» → «Сколько каналов одновременно». Закройте плеер, когда посмотрели.`;
     return `⚠️ <b>Просмотр здесь — это тоже поток к провайдеру.</b> HLS Proxy пускает не больше <b>${n||"?"}</b> каналов одновременно на все устройства вместе.${pv} Если сейчас на телевизорах уже смотрят ${n||"столько"} разных каналов, этот не откроется — закройте один из них. Тот же канал, что идёт на телевизоре, обычно отдельного потока не занимает. Закройте плеер, когда посмотрели, — поток освободится через несколько секунд.`}
   return `⚠️ <b>Просмотр здесь — ещё одно устройство для провайдера</b>${CONF.mode==="hls"?" (мимо HLS Proxy: канала нет в основном плейлисте)":""}.${pv} Если сейчас смотрят столько телевизоров, сколько разрешает провайдер, он может отключить просмотр — у Sharavoz, например, на всех устройствах на 15 минут. Закройте плеер, когда посмотрели.`}
 function closePlayer(){if(!PLR) return; try{PLR.h&&PLR.h.destroy()}catch(e){} try{PLR.ts&&(PLR.ts.pause(),PLR.ts.unload(),PLR.ts.detachMediaElement(),PLR.ts.destroy())}catch(e){}

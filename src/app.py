@@ -147,6 +147,7 @@ def validate(r):
         sids.add(sid)
         src = {"id": sid, "name": s(x["name"], 40), "url": x["url"].strip(), "enabled": x.get("enabled") is not False}
         if re.fullmatch(r"[a-z0-9]{1,16}", str(x.get("prov") or "")): src["prov"] = x["prov"]   # шаблон провайдера (для лимита)
+        if x.get("nolim") is True: src["nolim"] = True   # сторонний плейлист без лимита устройств (режим лимита «Авто»)
         out["sources"].append(src)
     out["disabled_sources"] = [s(x, 40) for x in (r.get("disabled_sources") or [])[:20] if s(x, 40)]
     out["primary_source"] = s(r.get("primary_source"), 40) or None
@@ -166,8 +167,9 @@ def validate(r):
             if isinstance(v.get(f), str) and URL_RX.match(v[f].strip()): e[f] = v[f].strip()
         if e: out["free_edits"][k.lower()] = e
     out["lists_only_sources"] = [s(x, 40) for x in (r.get("lists_only_sources") or [])[:20] if s(x, 40)]
-    sl = r.get("stream_limit")   # сколько каналов одновременно (HLS Proxy), применяет build.py
-    out["stream_limit"] = sl if isinstance(sl, int) and not isinstance(sl, bool) and 1 <= sl <= 50 else None
+    sl = r.get("stream_limit")   # сколько каналов одновременно (HLS Proxy), применяет build.py; 0 = без лимита
+    out["stream_limit"] = sl if isinstance(sl, int) and not isinstance(sl, bool) and 0 <= sl <= 50 else None
+    out["stream_limit_mode"] = "auto" if r.get("stream_limit_mode") == "auto" else "manual"   # «Авто»: число считает редактор по источникам
     for ar in (r.get("auto_rules") or [])[:200]:
         if not isinstance(ar, dict) or ar.get("t") not in ("rename", "group"): continue
         f = ar.get("find") if isinstance(ar.get("find"), str) else ""

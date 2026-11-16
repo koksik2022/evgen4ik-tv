@@ -64,6 +64,11 @@ if ($Remove) {
   $st = if (Test-Path "$Dir\pc.json") { Get-Content "$Dir\pc.json" -Raw | ConvertFrom-Json } else { $null }
   Write-Host "`nУдаление Evgen4ik TV с этого компьютера" -ForegroundColor Yellow
   if (-not (YesNo "Удалить автозапуск, правила брандмауэра и программу внутри Ubuntu?" "н")) { exit }
+  if ($st -and $st.distro) {   # сначала программа в Ubuntu: если не удалилась — Windows-часть не трогаем
+    $script:Distro = $st.distro
+    $rc = WslRoot "echo 'УДАЛИТЬ' | e4tv uninstall"
+    if ($rc -ne 0) { Fail "Программа в Ubuntu не удалилась (код $rc). Автозапуск, брандмауэр и проброс портов оставлены." }
+  }
   Stop-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
   Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false -ErrorAction SilentlyContinue
   Get-NetFirewallRule -DisplayName $RuleName -ErrorAction SilentlyContinue | Remove-NetFirewallRule
@@ -72,7 +77,6 @@ if ($Remove) {
     netsh interface portproxy delete v4tov4 listenport=$p listenaddress=0.0.0.0 2>$null | Out-Null
     if ($st -and $st.ip) { netsh interface portproxy delete v4tov4 listenport=$p listenaddress=$($st.ip) 2>$null | Out-Null }
   }
-  if ($st -and $st.distro) { $script:Distro = $st.distro; & wsl.exe -d $st.distro -u root -- e4tv uninstall }
   Ok "Готово. Ubuntu и настройки WSL (.wslconfig) оставлены."
   Write-Host "Удалить Ubuntu целиком (со всеми файлами внутри!): wsl --unregister $($st.distro)" -ForegroundColor DarkGray
   Read-Host "`nНажмите Enter, чтобы закрыть"; exit
@@ -105,7 +109,8 @@ $Ports = @(80, $AltPort)
 Write-Host "Будет сделано:" -ForegroundColor White
 Write-Host "  • WSL2 и Ubuntu 24.04 (если ещё нет) — встроенная в Windows подсистема Linux"
 Write-Host "  • в Ubuntu включится systemd, внутри поставится Evgen4ik TV"
-if ($Net -eq "mirrored") { Write-Host "  • сеть WSL — «зеркальный» режим (файл $env:USERPROFILE\.wslconfig, копия сохранится): Ubuntu получит адрес компьютера" }
+if ($Net -eq "mirrored") { Write-Host "  • сеть WSL — «зеркальный» режим (файл $env:USERPROFILE\.wslconfig, копия сохранится): Ubuntu получит адрес компьютера"
+  Write-Host "    (режим общий для всех дистрибутивов WSL и Docker Desktop)" -ForegroundColor DarkGray }
 else { Write-Host "  • проброс портов 80 и $AltPort из Windows в Ubuntu (обновляется при каждом входе)" }
 Write-Host "  • брандмауэр: входящие 80 и $AltPort только для частной (домашней) сети"
 Write-Host "  • автозапуск при входе в Windows: задача «$TaskName»"
@@ -166,7 +171,7 @@ Get-NetFirewallRule -DisplayName $RuleName -ErrorAction SilentlyContinue | Remov
 New-NetFirewallRule -DisplayName $RuleName -Direction Inbound -Action Allow -Protocol TCP -LocalPort $Ports -Profile Private -ErrorAction Stop | Out-Null
 if (Get-Command New-NetFirewallHyperVRule -ErrorAction SilentlyContinue) {
   Remove-NetFirewallHyperVRule -Name "E4TV-WSL" -ErrorAction SilentlyContinue
-  try { New-NetFirewallHyperVRule -Name "E4TV-WSL" -DisplayName $RuleName -Direction Inbound -VMCreatorId $WslVmId -Protocol TCP -LocalPorts $Ports -Action Allow -ErrorAction Stop | Out-Null }
+  try { New-NetFirewallHyperVRule -Name "E4TV-WSL" -DisplayName $RuleName -Direction Inbound -VMCreatorId $WslVmId -Protocol TCP -LocalPorts $Ports -Action Allow -Profiles Private -ErrorAction Stop | Out-Null }
   catch { Warn "Правило брандмауэра Hyper-V не создано: $($_.Exception.Message)" }
 }
 $prof = Get-NetConnectionProfile -InterfaceIndex $lan.InterfaceIndex -ErrorAction SilentlyContinue
@@ -271,6 +276,7 @@ Write-Host "  Редактор:  $url   (логин и пароль — выше
 Write-Host "  Работает дома, пока компьютер включён и вы вошли в Windows."
 Write-Host "  ВАЖНО: закрепите за компьютером адрес $Ip в роутере (резервирование DHCP)," -ForegroundColor Yellow
 Write-Host "  иначе после смены адреса ссылки в телевизорах перестанут работать." -ForegroundColor Yellow
-Write-Host "  Если адрес всё же сменился — запустите «ЗАПУСТИТЬ установку на компьютер.bat» снова и выберите «обновить»." -ForegroundColor DarkGray
+Write-Host "  Если адрес всё же сменился — запустите «ЗАПУСТИТЬ установку на компьютер.bat» снова и выберите «обновить»," -ForegroundColor DarkGray
+Write-Host "  а затем вставьте в телевизоры новые ссылки на плейлисты: старые, с прежним адресом, работать не будут." -ForegroundColor DarkGray
 Start-Process $url
 Read-Host "`nНажмите Enter, чтобы закрыть"

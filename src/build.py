@@ -180,8 +180,8 @@ def load_rules(log):
             if isinstance(g, str) and isinstance(ks, list):
                 out["channel_order"][_clean(g)] = {k.lower()[:200]: i for i, k in enumerate(ks[:5000]) if isinstance(k, str)}
         out["group_order"] = [_clean(g) for g in (r.get("group_order") or [])[:3000] if isinstance(g, str) and g.strip()]
-        sl = r.get("stream_limit")
-        out["stream_limit"] = sl if isinstance(sl, int) and not isinstance(sl, bool) and 1 <= sl <= 50 else None
+        sl = r.get("stream_limit")   # 0 = без лимита
+        out["stream_limit"] = sl if isinstance(sl, int) and not isinstance(sl, bool) and 0 <= sl <= 50 else None
         log.append(f"Правила редактора: групп {len(out['groups'])}, каналов {len(out['channels'])}, шаблонов скрытия {len(out['hidden_patterns'])}, своих каналов {len(out['custom_channels'])}, замен ссылок {sum(1 for v in out['channels'].values() if v['urls'])}")
         return out
     except Exception as e:
@@ -279,24 +279,28 @@ def finish_state(log, final_groups, allc, final=True):
     except Exception as e:
         print(f"state.json не записан: {e}")
 
+NO_LIMIT = 999   # «без лимита» в local.json HLS Proxy (как он понимает 0 — не проверено, поэтому большое число)
+
 def apply_stream_limit(R, log):
     """Режим hls: лимит одновременных каналов из редактора -> local.json HLS Proxy (перезапуск — после сборки)."""
     if CONF["mode"] != "hls": return
     p = CONF["hls_dir"] + "/local.json"
     try: c = json.load(open(p, encoding="utf-8"))
     except Exception: return
-    SNAP["stream_limit"] = c.get("maxSimultaneousStreamCountPerClientDefault")
+    cur = c.get("maxSimultaneousStreamCountPerClientDefault")
+    SNAP["stream_limit"] = 0 if isinstance(cur, int) and cur >= NO_LIMIT else cur   # 0 = без лимита
     n = (R or {}).get("stream_limit")
     if not isinstance(n, int) or DRY: return
+    hn = n or NO_LIMIT   # 0 в редакторе = без лимита: в HLS Proxy заведомо большое число
     cls = [v for v in (c.get("clients") or {}).values() if isinstance(v, dict)]
-    if c.get("maxSimultaneousStreamCountPerClientDefault") == n and all(v.get("maxStreamCount") == n for v in cls): return
-    c["maxSimultaneousStreamCountPerClientDefault"] = n
-    for v in cls: v["maxStreamCount"] = n
+    if c.get("maxSimultaneousStreamCountPerClientDefault") == hn and all(v.get("maxStreamCount") == hn for v in cls): return
+    c["maxSimultaneousStreamCountPerClientDefault"] = hn
+    for v in cls: v["maxStreamCount"] = hn
     try:
         st = os.stat(p); tmp = p + ".tmp"
         with open(tmp, "w", encoding="utf-8") as f: json.dump(c, f, ensure_ascii=False, indent=1)
         os.chown(tmp, st.st_uid, st.st_gid); os.chmod(tmp, 0o600); os.replace(tmp, p)
-        SNAP["stream_limit"] = n; log.append(f"HLS Proxy: не больше {n} каналов одновременно")
+        SNAP["stream_limit"] = n; log.append("HLS Proxy: без лимита каналов" if n == 0 else f"HLS Proxy: не больше {n} каналов одновременно")
     except Exception as e:
         log.append(f"Лимит каналов не записан: {e}")
 
