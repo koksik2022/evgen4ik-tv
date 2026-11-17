@@ -5,10 +5,11 @@
 # ╚══════════════════════════════════════════════════════════════════╝
 # Без вопросов:  --mode direct|hls --domain tv.example.com --email me@mail.ru
 #                --access login|tunnel --user admin --password СЕКРЕТ --address 192.168.1.10 --yes
+#                --port 8090 (плейлисты без домена, если 80 занят) --alt-port 8091 (редактор в режиме HLS)
 # Повторный запуск обновляет программу и сохраняет настройки.
 set -uo pipefail
 
-E4_VER="2.8"
+E4_VER="2.9"
 HLSP_VER="8.4.8"
 HLSP_URL="https://www.hls-proxy.com/downloads/${HLSP_VER}/hls-proxy-${HLSP_VER}.linux-x64.zip"
 HLSP_SHA256="96a2faad73df375e2ce1b92466f21f4389e07b79a038435343659c984e16b587"   # SHA-256 архива 8.4.8 (сверено 16.11.2026); пусто — не сверяется
@@ -33,16 +34,17 @@ yesno(){ ask "$1 (д/н)" "${2:-д}"; case "${REPLY,,}" in д|да|y|yes|"") ret
 rnd()  { python3 -c "import secrets,string;a=string.ascii_letters+string.digits;print(''.join(secrets.choice(a) for _ in range($1)))"; }
 
 # ---------- параметры ----------
-MODE='' DOMAIN='' EMAIL='' ACCESS='' USERNAME='' PASSWORD='' YES=0 ACTION='' ADDR='' ALT_PORT='' STREAMS=''
+MODE='' DOMAIN='' EMAIL='' ACCESS='' USERNAME='' PASSWORD='' YES=0 ACTION='' ADDR='' ALT_PORT='' STREAMS='' HTTP_PORT=''
 while [ $# -gt 0 ]; do
   case "$1" in
     --mode) MODE=$2; shift;; --domain) DOMAIN=$2; shift;; --email) EMAIL=$2; shift;;
     --access) ACCESS=$2; shift;; --user) USERNAME=$2; shift;; --password) PASSWORD=$2; shift;;
     --streams) STREAMS=$2; shift;;   # сколько каналов одновременно разрешает провайдер (режим hls); 0 — без лимита
-    --alt-port) ALT_PORT=$2; shift;;   # порт редактора без домена в режиме hls (если 8080 занят)
+    --alt-port) ALT_PORT=$2; shift;;   # порт редактора в режиме hls (по умолчанию 8080, с доменом 8443)
+    --port) HTTP_PORT=$2; shift;;      # порт плейлистов без домена (по умолчанию 80; занят — подбирается сам)
     --address) ADDR=$2; shift;;   # адрес для плееров (домашний ПК: IP в домашней сети)
     --yes|-y) YES=1;; --update) ACTION=update;; --reconfigure) ACTION=reconfigure;;
-    -h|--help) sed -n '2,8p' "$0"; exit 0;;
+    -h|--help) sed -n '2,9p' "$0"; exit 0;;
     *) die "Неизвестный параметр: $1";;
   esac; shift
 done
@@ -101,8 +103,46 @@ choose_address() {   # VDS — внешний адрес; домашний ПК/
   return 0
 }
 
-port_busy() {   # занят ли порт чем-то кроме nginx и hls-proxy
-  ss -ltnpH "sport = :$1" 2>/dev/null | grep -v -e nginx -e hls-proxy | grep -q LISTEN
+port_busy() {   # занят ли порт чем-то кроме nginx и hls-proxy (наших программ)
+  ss -ltnpH "sport = :$1" 2>/dev/null | grep -vi -e nginx -e hls-proxy | grep -q LISTEN
+}
+who_port() { ss -ltnpH "sport = :$1" 2>/dev/null | grep -o 'users:(("[^"]*' | cut -d'"' -f2 | head -1; }
+free_port() {   # первый свободный порт начиная с $1, кроме $2
+  local p=$1
+  while [ "$p" -le 65000 ]; do
+    if [ "$p" != "${2:-}" ] && ! port_busy "$p"; then echo "$p"; return; fi
+    p=$((p + 1))
+  done
+}
+sfx() { case "$1" in 80|443) ;; *) echo ":$1";; esac; }   # «:порт» в адресе, если порт не стандартный
+
+# Порты 80/443 и 8080/8443 бывают заняты (например, WEB-прокси Telegram или другой сайт).
+# Тогда без домена работаем на свободных портах; домен (нужны 80 и 443) на таком сервере не подключить.
+resolve_ports() {
+  PORT_NOTE=""
+  if [ -n "$DOMAIN" ] && { port_busy 80 || port_busy 443; }; then
+    warn "Порты 80/443 заняты ($(who_port 80)$(port_busy 443 && echo ", $(who_port 443)")) — домен на этом сервере не подключить."
+    warn "Редактор будет работать по http на свободном порту."
+    DOMAIN=""; EMAIL=""
+  fi
+  if [ -z "$DOMAIN" ]; then
+    HTTP_PORT=${HTTP_PORT:-80}
+    if port_busy "$HTTP_PORT"; then
+      local o=$HTTP_PORT; HTTP_PORT=$(free_port 8090)
+      PORT_NOTE="${PORT_NOTE}порт $o занят ($(who_port "$o")) → плейлисты на $HTTP_PORT; "
+    fi
+  else
+    HTTP_PORT=443
+  fi
+  if [ "$MODE" = hls ]; then
+    ALT_PORT=${ALT_PORT:-$( [ -n "$DOMAIN" ] && echo 8443 || echo 8080 )}
+    if [ "$ALT_PORT" = "$HTTP_PORT" ] || port_busy "$ALT_PORT"; then
+      local o=$ALT_PORT; ALT_PORT=$(free_port $((HTTP_PORT == 80 || HTTP_PORT == 443 ? 8091 : HTTP_PORT + 1)) "$HTTP_PORT")
+      PORT_NOTE="${PORT_NOTE}порт $o занят ($(who_port "$o")) → редактор на $ALT_PORT; "
+    fi
+  fi
+  [ -n "$HTTP_PORT" ] && { [ "$MODE" != hls ] || [ -n "$ALT_PORT" ]; } || die "Не нашлось свободного порта"
+  return 0
 }
 
 valid_input() {   # всё, что подставляется в конфиги nginx/Python/certbot, — только безопасные символы
@@ -111,6 +151,7 @@ valid_input() {   # всё, что подставляется в конфиги 
   [ -z "$EMAIL" ] || [[ $EMAIL =~ ^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,63}$ ]] || die "Неверный e-mail: «$EMAIL»"
   [ -z "$ADDR" ] || [[ $ADDR =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]] || die "Неверный адрес --address: «$ADDR». Нужен IPv4, например 192.168.1.10"
   [ -z "$ALT_PORT" ] || { [[ $ALT_PORT =~ ^[0-9]{2,5}$ ]] && [ "$ALT_PORT" -le 65535 ]; } || die "Неверный порт --alt-port: «$ALT_PORT»"
+  [ -z "$HTTP_PORT" ] || { [[ $HTTP_PORT =~ ^[0-9]{2,5}$ ]] && [ "$HTTP_PORT" -le 65535 ]; } || die "Неверный порт --port: «$HTTP_PORT»"
   [ -z "$USERNAME" ] || [[ $USERNAME =~ ^[A-Za-z0-9._-]{1,32}$ ]] || die "Логин: только латиница, цифры и . _ - (до 32 символов)"
   return 0
 }
@@ -118,13 +159,16 @@ valid_input() {   # всё, что подставляется в конфиги 
 # ---------- вопросы ----------
 wizard() {
   echo
-  echo -e "${B}Как будут идти потоки?${N}"
-  echo -e "  ${B}1${N} — через HLS Proxy на этом сервере"
-  echo -e "      ${D}+ один вход провайдера на всю семью, резервные потоки, своя программа передач (EPG)${N}"
-  echo -e "      ${D}− весь трафик видео идёт через сервер; HLS Proxy скачивается с сайта автора${N}"
-  echo -e "  ${B}2${N} — без HLS Proxy ${D}(по умолчанию)${N}"
-  echo -e "      ${D}+ лёгкий сервер, видео идёт напрямую от провайдера к плееру${N}"
-  echo -e "      ${D}− в плейлистах прямые ссылки провайдера (с вашим логином у провайдера)${N}"
+  echo -e "${B}Шаг 1. Как смотреть каналы?${N}"
+  echo -e "  ${B}1${N} — через этот сервер ${B}(+ ставится HLS Proxy)${N}"
+  echo -e "      ${D}HLS Proxy — отдельная программа стороннего автора,${N}"
+  echo -e "      ${D}скачивается с его сайта hls-proxy.com.${N}"
+  echo -e "      ${D}+ один вход провайдера на всю семью${N}"
+  echo -e "      ${D}+ своя программа передач, резервные потоки${N}"
+  echo -e "      ${D}− весь видеотрафик идёт через сервер (лучше от 2 ГБ памяти)${N}"
+  echo -e "  ${B}2${N} — напрямую от провайдера ${D}(по умолчанию, проще)${N}"
+  echo -e "      ${D}ставится только редактор, сервер почти не нагружен${N}"
+  echo -e "      ${D}− в плейлистах прямые ссылки провайдера${N}"
   ask "Ваш выбор" "${MODE_DEF:-2}"
   case "$REPLY" in 1|hls) MODE=hls;; *) MODE=direct;; esac
   if [ "$MODE" = hls ] && [ "$(uname -m)" != x86_64 ]; then
@@ -133,9 +177,15 @@ wizard() {
   # лимит каналов не спрашиваем: в редакторе режим «Авто» сам берёт лимит провайдера по источникам
   # (вручную: --streams N при установке, e4tv streams N или в редакторе; 0 — без лимита)
 
-  if [ "${HOME_LAN:-0}" = 1 ]; then DOMAIN=""; else   # дома домен не нужен
+  if [ "${HOME_LAN:-0}" = 1 ]; then DOMAIN=""
+  elif port_busy 80 || port_busy 443; then   # 80/443 заняты другой программой — домен не подключить
+    echo; echo -e "${B}Шаг 2. Адрес${N}"
+    warn "Порты 80/443 заняты ($(who_port 80)$(port_busy 443 && echo ", $(who_port 443)")) — домен здесь не подключить."
+    echo -e "${D}Редактор будет работать по http://${IP}:<свободный порт> — порт подберётся сам.${N}"
+    DOMAIN=""
+  else   # дома домен не нужен
   echo
-  echo -e "${B}Домен${N} ${D}— нужен для HTTPS. Запись A домена должна указывать на ${EXT_IP}.${N}"
+  echo -e "${B}Шаг 2. Домен${N} ${D}— нужен для HTTPS. Запись A домена должна указывать на ${EXT_IP}.${N}"
   echo -e "${D}Нет домена — нажмите Enter: всё будет работать по http://${IP}${N}"
   ask "Домен" "${DOMAIN_DEF:-}"; DOMAIN=${REPLY,,}; DOMAIN=${DOMAIN#http*://}; DOMAIN=${DOMAIN%%/*}
   if [ -n "$DOMAIN" ]; then
@@ -144,7 +194,7 @@ wizard() {
 
   fi
   echo
-  echo -e "${B}Вход в редактор${N}"
+  echo -e "${B}Шаг 3. Вход в редактор${N}"
   echo -e "  ${B}1${N} — по логину и паролю из браузера ${D}(по умолчанию)${N}"
   echo -e "  ${B}2${N} — только через SSH-туннель ${D}(редактор вообще не виден из интернета)${N}"
   ask "Ваш выбор" "$( [ "${ACCESS_DEF:-login}" = tunnel ] && echo 2 || echo 1)"
@@ -166,8 +216,15 @@ wizard() {
 summary() {
   echo
   echo -e "${B}Будет установлено:${N}"
-  echo -e "  Режим:     $( [ "$MODE" = hls ] && echo "с HLS Proxy ${HLSP_VER}" || echo 'без HLS Proxy')"
-  echo -e "  Адрес:     ${DOMAIN:-$IP} $( [ -n "$DOMAIN" ] && echo '(HTTPS, Let’s Encrypt)' || echo '(http, без домена)')"
+  echo -e "  📺 Evgen4ik TV ${E4_VER}  — редактор плейлистов"
+  [ "$MODE" = hls ] && echo -e "  🎬 HLS Proxy ${HLSP_VER}   — видео через сервер ${D}(сторонняя программа, сайт hls-proxy.com)${N}"
+  echo -e "  🌐 nginx              — веб-сервер редактора"
+  [ -n "$DOMAIN" ] && echo -e "  🔒 certbot            — сертификат для домена"
+  echo
+  echo -e "  Режим:     $( [ "$MODE" = hls ] && echo "через сервер (HLS Proxy)" || echo 'напрямую от провайдера')"
+  echo -e "  Адрес:     $( [ -n "$DOMAIN" ] && echo "https://$DOMAIN (Let’s Encrypt)" || echo "http://${IP}$(sfx "$HTTP_PORT") (без домена)")"
+  echo -e "  Порты:     $( [ -n "$DOMAIN" ] && echo '80, 443' || echo "$HTTP_PORT")$( [ "$MODE" = hls ] && echo ", $ALT_PORT (редактор)")"
+  [ -n "${PORT_NOTE:-}" ] && echo -e "  ${Y}Внимание:  ${PORT_NOTE%; }${N}"
   echo -e "  Редактор:  $( [ "$ACCESS" = login ] && echo "логин ${USERNAME}" || echo 'только SSH-туннель')"
   if [ "$MODE" = hls ]; then
     if [ "${STREAMS:-}" = 0 ]; then echo -e "  Потоков:   без лимита (сторонний плейлист без ограничения устройств)"
@@ -270,13 +327,13 @@ install_hlsproxy() {
   # local.json: создаём или обновляем только адрес/порт/сертификат и плейлист Combined
   [[ ${STREAMS:-} =~ ^[0-9]+$ ]] && [ "$STREAMS" -ge 0 ] && [ "$STREAMS" -le 50 ] || { [ -n "${STREAMS:-}" ] && warn "Число потоков «$STREAMS» не подходит — ставлю 3"; [ -n "${STREAMS:-}" ] && STREAMS=3; }
   [ -f "$HLS/local.json" ] || STREAMS=${STREAMS:-3}
-  E4_STREAMS=${STREAMS:-} HLS_ADMIN_PW=$(rnd 16) HLS_CLIENT_PW=$(rnd 20) python3 - "$HLS/local.json" "${DOMAIN:-$IP}" "$( [ -n "$DOMAIN" ] && echo https || echo http)" "$EPG_DEFAULT" <<'P'
+  E4_STREAMS=${STREAMS:-} HLS_ADMIN_PW=$(rnd 16) HLS_CLIENT_PW=$(rnd 20) python3 - "$HLS/local.json" "${DOMAIN:-$IP}" "$( [ -n "$DOMAIN" ] && echo https || echo http)" "$EPG_DEFAULT" "${HTTP_PORT:-80}" <<'P'
 import json, os, sys
-path, addr, proto, epg = sys.argv[1:5]
+path, addr, proto, epg, hport = sys.argv[1:6]
 new = not os.path.exists(path)
 c = {} if new else json.load(open(path, encoding="utf-8"))
 S = c.setdefault("SERVER", {})
-S.update({"protocol": proto, "address": addr, "port": 443 if proto == "https" else 80})
+S.update({"protocol": proto, "address": addr, "port": 443 if proto == "https" else int(hport)})
 if proto == "https": S.update({"key": "./tls/privkey.pem", "cert": "./tls/fullchain.pem"})
 else: S.pop("key", None); S.pop("cert", None)
 S.setdefault("password", os.environ["HLS_ADMIN_PW"])
@@ -336,13 +393,14 @@ write_config() {
   EXT_IP=${EXT_IP:-$IP}; LAN=${LAN:-}
   local scheme=http host=${DOMAIN:-$IP} eport editor pb hlsurl= epg
   [ -n "$DOMAIN" ] && scheme=https
+  local hp; hp=$( [ "$scheme" = https ] && echo 443 || echo "${HTTP_PORT:-80}" )
   if [ "$MODE" = hls ]; then
     eport=$( [ "$scheme" = https ] && echo 8443 || echo 8080 )
-    [ -z "$DOMAIN" ] && [[ ${ALT_PORT:-} =~ ^[0-9]{2,5}$ ]] && eport=$ALT_PORT
-    editor="$scheme://$host:$eport/"; hlsurl="$scheme://$host/"; epg="${hlsurl}epg.xml.gz"
+    [[ ${ALT_PORT:-} =~ ^[0-9]{2,5}$ ]] && eport=$ALT_PORT
+    editor="$scheme://$host:$eport/"; hlsurl="$scheme://$host$(sfx "$hp")/"; epg="${hlsurl}epg.xml.gz"
   else
-    eport=$( [ "$scheme" = https ] && echo 443 || echo 80 )
-    editor="$scheme://$host/"; epg=$EPG_DEFAULT
+    eport=$hp
+    editor="$scheme://$host$(sfx "$eport")/"; epg=$EPG_DEFAULT
   fi
   pb="${editor}pl/"
   [ "$ACCESS" = tunnel ] && editor="http://localhost:8095/ (через SSH-туннель)"
@@ -351,7 +409,7 @@ write_config() {
 import json
 c = {"version": "$E4_VER", "mode": "$MODE", "domain": "$DOMAIN", "host": "$host", "scheme": "$scheme",
      "address": "$IP", "hosts": sorted({"$host", "$IP", "$EXT_IP", "${LAN:-}"} - {""}), "access": "$ACCESS", "editor_url": "$editor", "editor_port": $eport,
-     "public_base": "$pb", "main_token": "$tok", "hls_port": $( [ -n "$DOMAIN" ] && echo 443 || echo 80 ), "epg_url": "$EPG_DEFAULT", "player_epg": "$epg", "hls_url": "$hlsurl",
+     "public_base": "$pb", "main_token": "$tok", "hls_port": $hp, "http_port": $hp, "epg_url": "$EPG_DEFAULT", "player_epg": "$epg", "hls_url": "$hlsurl",
      "data": "$DATA", "pl_dir": "$PL", "hls_dir": "$HLS", "listen": "127.0.0.1", "port": 8095,
      "auth_file": "$ETC/auth.json", "editor_group": "e4tv"}
 json.dump(c, open("$ETC/config.json", "w"), ensure_ascii=False, indent=1)
@@ -630,9 +688,10 @@ EOF
 
 firewall() {
   command -v ufw >/dev/null && ufw status 2>/dev/null | grep -q "Status: active" || return 0
-  ufw allow 80/tcp >/dev/null; [ -n "$DOMAIN" ] && ufw allow 443/tcp >/dev/null
+  local hp=${HTTP_PORT:-80}; [ -n "$DOMAIN" ] && hp=80
+  ufw allow "$hp/tcp" >/dev/null; [ -n "$DOMAIN" ] && ufw allow 443/tcp >/dev/null
   [ "$MODE" = hls ] && ufw allow "$EPORT/tcp" >/dev/null
-  ok "Открыты порты в ufw: 80$( [ -n "$DOMAIN" ] && echo ', 443')$( [ "$MODE" = hls ] && echo ", $EPORT")"
+  ok "Открыты порты в ufw: $hp$( [ -n "$DOMAIN" ] && echo ', 443')$( [ "$MODE" = hls ] && echo ", $EPORT")"
 }
 
 first_build_and_check() {
@@ -706,7 +765,10 @@ main() {
     fi
     if [ "$ACTION" = update ]; then
       MODE=$(conf_get mode); DOMAIN=$DOMAIN_DEF; ACCESS=$ACCESS_DEF; YES=1
-      [ -z "$ALT_PORT" ] && [ "$MODE" = hls ] && [ -z "$DOMAIN" ] && ALT_PORT=$(conf_get editor_port)
+      [ -z "$ALT_PORT" ] && [ "$MODE" = hls ] && ALT_PORT=$(conf_get editor_port)
+      if [ -z "$HTTP_PORT" ] && [ -z "$DOMAIN" ]; then   # 2.8 и раньше: http_port нет — берём из hls_port / editor_port
+        HTTP_PORT=$(conf_get http_port); [ -n "$HTTP_PORT" ] || HTTP_PORT=$( [ "$MODE" = hls ] && conf_get hls_port || conf_get editor_port )
+      fi
     fi
   fi
   if [ -n "$ADDR" ]; then IP=$ADDR; HOME_LAN=1
@@ -715,9 +777,11 @@ main() {
   MODE=${MODE:-direct}; ACCESS=${ACCESS:-login}; [ "$MODE" = hls ] || MODE=direct
   case "$MODE" in direct|hls) ;; *) die "--mode: direct или hls";; esac
   valid_input
+  resolve_ports
   if [ "$ACTION" != update ]; then
-    for p in 80 443 8443 8080; do port_busy $p && warn "Порт $p уже занят другой программой: $(ss -ltnpH "sport = :$p" | grep -o 'users:(("[^"]*' | cut -d'"' -f2 | head -1)"; done
     summary
+  elif [ -n "$PORT_NOTE" ]; then
+    warn "Порты изменены: ${PORT_NOTE%; }"
   fi
   install_packages
   install_files
