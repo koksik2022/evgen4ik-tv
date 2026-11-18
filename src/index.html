@@ -61,7 +61,7 @@ button.icon{padding:3px 7px;border-color:transparent;background:transparent;colo
 button.icon:hover{background:var(--hover);color:var(--ink)}
 button.sm{padding:3px 9px;font-size:12.5px}
 :focus-visible{outline:2px solid var(--accent);outline-offset:1px}
-input[type=text],input[type=search],input[type=number],select,textarea{font:inherit;border:1px solid var(--ring);border-radius:8px;padding:6px 10px;background:var(--panel);color:var(--ink)}
+input[type=text],input[type=password],input[type=search],input[type=number],select,textarea{font:inherit;border:1px solid var(--ring);border-radius:8px;padding:6px 10px;background:var(--panel);color:var(--ink)}
 input[type=checkbox],input[type=radio]{accent-color:var(--accent)}
 textarea{font:12.5px/1.5 var(--mono);width:100%;resize:vertical}
 .dirty{color:var(--warn);font-weight:600;font-size:12.5px}
@@ -182,8 +182,13 @@ main.three{grid-template-columns:270px minmax(0,1fr) minmax(300px,380px)}
 .chk-res{font:12px var(--mono);display:flex;flex-direction:column;gap:2px}
 .log{font:12px var(--mono);white-space:pre-wrap;color:var(--muted);max-height:160px;overflow:auto;padding:8px 14px;border-top:1px solid var(--line)}
 .st-ok{color:var(--ok)} .st-run{color:var(--warn)} .st-bad{color:var(--bad)}
-.srow{display:grid;grid-template-columns:80px 150px minmax(120px,1fr) auto auto auto auto auto;gap:8px;align-items:center;padding:8px 0;border-bottom:1px solid var(--line)}
+.srow{display:grid;grid-template-columns:80px 150px minmax(120px,1fr) auto auto auto auto auto auto;gap:8px;align-items:center;padding:8px 0;border-bottom:1px solid var(--line)}
 .srow:last-child{border-bottom:0}
+.accbox{margin:0 0 10px 80px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--panel2)}
+.accrow{display:flex;flex-wrap:wrap;gap:6px;align-items:center;padding:4px 0}
+.accrow .aName,.accrow .aUser,.accrow .aPw{width:130px}.accrow .aSrv{width:170px}.accrow.acc0 .muted{flex:1;min-width:160px}
+.accrow input[type=number]{width:58px}.accrow label{white-space:nowrap;font-size:13px}
+.acchead,.accfoot{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:4px 0}
 .srow .st{color:var(--muted);font-size:12px}
 .srcfbar{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;padding:10px 14px;margin:0 28px 12px;border-radius:10px;background:var(--accent-soft);border:1px solid var(--accent);font-size:14px}
 .pvgrid{display:grid;grid-template-columns:230px 1fr;border:1px solid var(--line);border-radius:10px;overflow:hidden;height:min(52vh,460px)}
@@ -225,7 +230,7 @@ ol.steps{margin:6px 0 0 18px;padding:0;color:var(--muted);font-size:12.5px;line-
   .mine{border-left:0;border-top:1px solid var(--line);min-height:50vh}
   .groups{border-right:0;border-bottom:1px solid var(--line)}
   .c{grid-template-columns:22px 28px 1fr auto auto}.c .mv,.c .ren{display:none}.ued{padding-left:14px}
-  .srow{grid-template-columns:1fr 1fr}.srcfbar{margin:0 16px 12px}.pvgrid{grid-template-columns:1fr;height:auto}.pvgrid>div:first-child{max-height:150px}.ufields{grid-template-columns:1fr}
+  .srow{grid-template-columns:1fr 1fr}.accbox{margin-left:0}.accrow .aName,.accrow .aUser,.accrow .aPw,.accrow .aSrv{width:calc(50% - 20px)}.srcfbar{margin:0 16px 12px}.pvgrid{grid-template-columns:1fr;height:auto}.pvgrid>div:first-child{max-height:150px}.ufields{grid-template-columns:1fr}
 }
 </style>
 </head>
@@ -1361,8 +1366,24 @@ function xcUrl(){const srv=($("xSrv").value||"").trim().replace(/\/+$/,""), port
   const host=port&&!/:\d+$/.test(srv)?srv+":"+port:srv; return `${host}/get.php?username=${encodeURIComponent(u)}&password=${encodeURIComponent(p)}&type=m3u_plus&output=ts`}
 function galUrl(){const fr=FREE.find(f=>f.id===galSel); return fr?fr.url:galSel==="xc"?xcUrl():(($("gUrl")||{}).value||"").trim()}
 function provOf(x){return PROV.find(p=>p.id===x.prov)||PROV.find(p=>p.name===x.name)||null}
-function limRec(){const ls=R.sources.filter(x=>x.enabled!==false).map(provOf).filter(p=>p&&p.lim); if(!ls.length) return null;
-  const m=Math.min(...ls.map(p=>p.lim)); return {n:m,by:ls.filter(p=>p.lim===m).map(p=>p.name)}}
+/* ---------- аккаунты провайдера: pooler HLS Proxy (src/pool.py) ---------- */
+const CREDRX=/^[A-Za-z0-9._@!*+=~-]{1,64}$/, SRVRX=/^[A-Za-z0-9.-]{1,253}(:\d{1,5})?$/, accOpen=new Set();
+function xcOf(u){try{const p=new URL(u); if(!/^https?:$/.test(p.protocol)||!/\/(get|player_api)\.php$/.test(p.pathname)) return null;
+  const us=p.searchParams.get("username")||"", pw=p.searchParams.get("password")||""; return CREDRX.test(us)&&CREDRX.test(pw)?{host:p.host,user:us}:null}catch(e){return null}}
+function accOn(x){const a=x.accounts; return a&&a.list?a.list.filter(y=>y.on!==false&&CREDRX.test(y.user||"")&&CREDRX.test(y.pw||"")):[]}
+function srcLim(x){const p=provOf(x), b=p&&p.lim||null, ex=accOn(x);   // лимит источника; с аккаунтами — сумма подключений
+  if(CONF.mode==="hls"&&ex.length&&xcOf(x.url)&&x.accounts.max) return x.accounts.max+ex.reduce((s,y)=>s+(y.max||1),0); return b}
+function limRec(){const ls=R.sources.filter(x=>x.enabled!==false).map(x=>({x,l:srcLim(x)})).filter(o=>o.l); if(!ls.length) return null;
+  const m=Math.min(...ls.map(o=>o.l)); return {n:m,by:ls.filter(o=>o.l===m).map(o=>accOn(o.x).length?o.x.name+" ("+(accOn(o.x).length+1)+" акк.)":(provOf(o.x)||{}).name||o.x.name)}}
+function accBox(x,i){const xc=xcOf(x.url), a=x.accounts||{max:null,list:[]}, p=provOf(x), on=accOn(x), tot=srcLim(x);
+  if(!xc) return `<div class="accbox" data-ai="${i}"><p class="hint" style="margin:0">Несколько аккаунтов работают только с источником Xtream — ссылкой вида <code>http://сервер:порт/get.php?username=…&amp;password=…</code>. Добавьте его через «Xtream Codes» в «Добавить источник».</p></div>`;
+  return `<div class="accbox" data-ai="${i}">
+  <div class="acchead"><b>Аккаунты провайдера</b><span class="muted">HLS Proxy отдаёт каждый новый канал через аккаунт со свободным подключением. Применяется по «Сохранить и применить».</span></div>
+  <div class="accrow acc0"><span>⭐ <b>Основной</b></span><span class="muted">${esc(xc.user)} @ ${esc(xc.host)} — из ссылки источника</span><label>Лимит <input type="number" class="aMax" min="1" max="20" value="${a.max||""}" placeholder="${p&&p.lim||""}"></label><button class="aTest">Проверить</button></div>
+  ${(a.list||[]).map((y,j)=>`<div class="accrow" data-j="${j}"><input type="checkbox" class="aOn" title="Включён" ${y.on!==false?"checked":""}><input type="text" class="aName" value="${esc(y.name||"")}" placeholder="название" maxlength="40"><input type="text" class="aSrv" value="${esc(y.srv||"")}" placeholder="другой сервер" title="Только если у этого аккаунта другой сервер провайдера: адрес:порт, например s2.example.com:8080" spellcheck="false"><input type="text" class="aUser" value="${esc(y.user||"")}" placeholder="логин" spellcheck="false" autocomplete="off"><input type="password" class="aPw" value="${esc(y.pw||"")}" placeholder="пароль" autocomplete="new-password"><label>Лимит <input type="number" class="aLim" min="1" max="20" value="${y.max||1}"></label><label title="Меньше — используется раньше">Приоритет <input type="number" class="aPrio" min="0" max="99" value="${y.prio??1}"></label><button class="aTest">Проверить</button><button class="aDel danger">Удалить</button></div>`).join("")}
+  <div class="accfoot">${(a.list||[]).length<10?'<button class="aAdd">+ Добавить аккаунт</button>':""}<span class="muted">${on.length&&tot?`Всего: <b>${tot}</b> подключений (${a.max} + ${on.map(y=>y.max||1).join(" + ")})`:on.length?"⚠️ Укажите лимит основного аккаунта — без него аккаунты не включатся":"Добавьте второй аккаунт того же провайдера"}</span>${hlsStatus()?`<a href="${esc(hlsStatus())}" target="_blank" rel="noopener" title="Блок «Pool» на странице HLS Proxy — какие подключения заняты">Занятость в HLS Proxy →</a>`:""}</div>
+  <div class="chk-res accres"></div>
+  <p class="hint" style="margin:6px 0 0">⚠️ Аккаунты — одного провайдера и с одинаковым пакетом каналов. Лимит — как в кабинете. Когда заняты все подключения, HLS Proxy пускает канал через основной аккаунт сверх его лимита, поэтому в «Сколько каналов одновременно» оставьте «Авто» — он считает сумму. Пул допустим, только если провайдер разрешает несколько подписок.</p></div>`}
 function autoLim(){   // режим «Авто»: лимит по включённым источникам (0 — без лимита, null — источников нет)
   const src=R.sources.filter(x=>x.enabled!==false), bsOn=((ST&&ST.builtin_sources)||[]).filter(n=>!R.disabled_sources.includes(n));
   const rec=limRec(); if(rec) return {n:rec.n,why:"по лимиту "+rec.by.join(", ")};
@@ -1389,8 +1410,8 @@ function renderSettings(page){
       <input type="text" class="sName" value="${esc(x.name)}" maxlength="40"><input type="text" class="sUrl" value="${esc(x.url.startsWith("file:")?"загруженный файл .m3u":x.url)}" spellcheck="false" ${x.url.startsWith("file:")?"readonly":""}>
       <label><input type="radio" name="prim" value="${esc(x.name)}" ${prim===x.name?"checked":""}> основной</label>
       <label title="Каналы источника попадут только в объединённые плейлисты, где он отмечен"><input type="checkbox" class="sLO" ${R.lists_only_sources.includes(x.name)?"checked":""}> только для плейлистов</label>
-      <button class="sCh primary" title="${info[x.name]&&info[x.name].count?"Открыть каналы источника в «Группах и каналах»":"Посмотреть, что внутри (источник ещё не применён)"}">Каналы${info[x.name]&&info[x.name].count?" ("+info[x.name].count+")":""} ›</button><button class="sChk" title="Проверить, что ссылка отдаёт плейлист">Проверить</button><button class="sDel danger">Удалить</button>
-      <span class="st" style="grid-column:2/-1">${st(x.name)}${provOf(x)?` · лимит провайдера: ${provOf(x).lim?provOf(x).lim+" устр.":"неизвестен"}`:` · <label title="Сторонний (бесплатный) плейлист без ограничения устройств — режим «Авто» не будет ставить из-за него лимит"><input type="checkbox" class="sNL" ${x.nolim?"checked":""}> без лимита устройств</label>`}</span></div>`).join("");
+      <button class="sCh primary" title="${info[x.name]&&info[x.name].count?"Открыть каналы источника в «Группах и каналах»":"Посмотреть, что внутри (источник ещё не применён)"}">Каналы${info[x.name]&&info[x.name].count?" ("+info[x.name].count+")":""} ›</button>${CONF.mode==="hls"?`<button class="sAcc${accOpen.has(x.id)?" primary":""}" title="Несколько аккаунтов этого провайдера в одном плейлисте">Аккаунты${accOn(x).length?" ("+(accOn(x).length+1)+")":""}</button>`:"<span></span>"}<button class="sChk" title="Проверить, что ссылка отдаёт плейлист">Проверить</button><button class="sDel danger">Удалить</button>
+      <span class="st" style="grid-column:2/-1">${st(x.name)}${accOn(x).length&&srcLim(x)&&CONF.mode==="hls"?` · аккаунтов: ${accOn(x).length+1}, подключений: ${srcLim(x)}`:""}${provOf(x)?` · лимит провайдера: ${provOf(x).lim?provOf(x).lim+" устр.":"неизвестен"}`:` · <label title="Сторонний (бесплатный) плейлист без ограничения устройств — режим «Авто» не будет ставить из-за него лимит"><input type="checkbox" class="sNL" ${x.nolim?"checked":""}> без лимита устройств</label>`}</span></div>${CONF.mode==="hls"&&accOpen.has(x.id)?accBox(x,i):""}`).join("");
   const srcCard=`
   <div class="card"><h2>Источники каналов</h2>
     <p class="hint">Плейлисты, из которых собирается общий список. Подойдёт любая M3U-ссылка; для Xtream Codes — ссылка вида <code>http://сервер:порт/get.php?username=…&amp;password=…&amp;type=m3u_plus&amp;output=ts</code>. Каналы с одинаковым названием из разных источников склеиваются: «основной» источник идёт первым, остальные — резервом. Применяется по «Сохранить и применить».</p>
@@ -1459,7 +1480,9 @@ $("settings").addEventListener("click",e=>{const t=e.target, row=t.closest(".sro
     R.sources.push({id:Math.random().toString(36).slice(2,10).replace(/[^a-z0-9]/g,"")||"s"+Date.now(),name:n,url:u,enabled:true}); render(); toast("Источник добавлен — «Сохранить и применить», чтобы загрузить каналы"); return}
   if(t.id==="npAdd"){const v=clean($("npVal").value); if(!v) return; push(R.hidden_patterns,v); render(); return}
   if(t.classList.contains("pDel")){R.hidden_patterns.splice(+t.dataset.i,1); render(); return}
+  const ab=t.closest(".accbox"); if(ab){accClick(t,ab); return}
   if(!row) return;
+  if(t.classList.contains("sAcc")){const x=R.sources[+row.dataset.i]; if(accOpen.has(x.id)) accOpen.delete(x.id); else accOpen.add(x.id); render(); return}
   if(t.classList.contains("sDel")){const x=R.sources[+row.dataset.i]; if(!confirm("Удалить источник «"+x.name+"»? Его каналы пропадут после применения.")) return; R.sources.splice(+row.dataset.i,1); render(); return}
   if(t.classList.contains("sCh")){openSourceChannels(R.sources[+row.dataset.i]); return}
   if(t.classList.contains("sChB")){openSourceChannels({name:row.dataset.b}); return}
@@ -1467,6 +1490,7 @@ $("settings").addEventListener("click",e=>{const t=e.target, row=t.closest(".sro
 });
 $("settings").addEventListener("change",e=>{const t=e.target, row=t.closest(".srow");
   if(t.name==="prim"){R.primary_source=t.value; markDirty(); return}
+  const ab=t.closest(".accbox"); if(ab){accChange(t,ab); return}
   if(!row) return;
   if(t.classList.contains("sLO")){const n=row.dataset.b||(R.sources[+row.dataset.i]||{}).name; if(n){if(t.checked) push(R.lists_only_sources,n); else pull(R.lists_only_sources,n)} markDirty(); return}
   if(row.dataset.b&&t.classList.contains("sOn")){const n=row.dataset.b; if(t.checked) pull(R.disabled_sources,n); else push(R.disabled_sources,n); markDirty(); return}
@@ -1477,6 +1501,32 @@ $("settings").addEventListener("change",e=>{const t=e.target, row=t.closest(".sr
   if(t.classList.contains("sNL")){if(t.checked) x.nolim=true; else delete x.nolim}
   markDirty(); if(t.classList.contains("sNL")||t.classList.contains("sOn")) render();   // пересчитать «Авто»
 });
+function accClick(t,ab){const x=R.sources[+ab.dataset.ai]; if(!x) return; const ar=t.closest(".accrow"), j=ar&&ar.dataset.j!=null?+ar.dataset.j:null;
+  const lim=(provOf(x)||{}).lim||null;
+  if(t.classList.contains("aAdd")){x.accounts=x.accounts||{max:lim,list:[]}; x.accounts.list=x.accounts.list||[]; if(x.accounts.max==null) x.accounts.max=lim;
+    x.accounts.list.push({id:Math.random().toString(36).slice(2,10).replace(/[^a-z0-9]/g,"")||"a"+Date.now(),name:"Аккаунт "+(x.accounts.list.length+2),user:"",pw:"",srv:"",max:lim||1,prio:x.accounts.list.length+1,on:true});
+    markDirty(); render(); return}
+  if(t.classList.contains("aDel")&&j!=null){const y=x.accounts.list[j]; if(!confirm("Удалить аккаунт «"+(y.name||y.user)+"»?")) return; x.accounts.list.splice(j,1);
+    if(!x.accounts.list.length&&!x.accounts.max) delete x.accounts; markDirty(); render(); return}
+  if(t.classList.contains("aTest")){const y=j!=null?x.accounts.list[j]:null, box=ab.querySelector(".accres");
+    const body=y?{url:x.url,user:y.user,pw:y.pw,srv:y.srv}:{url:x.url}; box.textContent="Проверяю…"; t.disabled=true;
+    fetch("/api/xcinfo",{method:"POST",headers:{"Content-Type":"application/json","X-M3U-Editor":"1"},body:JSON.stringify(body)}).then(r=>r.json()).then(r=>{
+      box.innerHTML=`<span><span class="${r.ok?"st-ok":"st-bad"}">${r.ok?"✔":"✖"} ${esc(y?(y.name||y.user):"Основной")}</span> ${esc(r.msg||"")}</span>`;
+      if(r.ok&&r.max){if(y){if(y.max!==r.max){y.max=r.max; const i=ar.querySelector(".aLim"); if(i) i.value=r.max; markDirty()}}
+        else if(!x.accounts||!x.accounts.max){x.accounts=x.accounts||{max:null,list:[]}; x.accounts.max=r.max; const i=ab.querySelector(".aMax"); if(i) i.value=r.max; markDirty()}}
+    }).catch(e=>{box.textContent="Ошибка: "+e}).finally(()=>{t.disabled=false}); return}}
+function accChange(t,ab){const x=R.sources[+ab.dataset.ai]; if(!x) return; const ar=t.closest(".accrow"), j=ar&&ar.dataset.j!=null?+ar.dataset.j:null;
+  const num=(v,lo,hi)=>{const n=parseInt(v,10); return n>=lo&&n<=hi?n:null};
+  if(t.classList.contains("aMax")){x.accounts=x.accounts||{max:null,list:[]}; x.accounts.max=num(t.value,1,20); if(!x.accounts.max&&!(x.accounts.list||[]).length) delete x.accounts; markDirty(); render(); return}
+  const y=j!=null&&x.accounts?x.accounts.list[j]:null; if(!y) return;
+  if(t.classList.contains("aOn")) y.on=t.checked;
+  if(t.classList.contains("aName")) y.name=clean(t.value).slice(0,40);
+  if(t.classList.contains("aSrv")){const v=t.value.trim().toLowerCase().replace(/^https?:\/\//,"").replace(/\/+$/,""); if(!v||SRVRX.test(v)){y.srv=v; t.value=v} else {toast("Сервер: только адрес и порт, например s2.example.com:8080"); t.value=y.srv||""}}
+  if(t.classList.contains("aUser")||t.classList.contains("aPw")){const v=t.value.trim(), k=t.classList.contains("aUser")?"user":"pw";
+    if(!v||CREDRX.test(v)) y[k]=v; else {toast("Логин и пароль: латиница, цифры и . _ @ ! * + = ~ -"); t.value=y[k]||""}}
+  if(t.classList.contains("aLim")) y.max=num(t.value,1,20)||1;
+  if(t.classList.contains("aPrio")) y.prio=num(t.value,0,99)??1;
+  markDirty(); if(["aOn","aLim","aPrio"].some(c=>t.classList.contains(c))) render()}   // логин/пароль/сервер — без перерисовки, чтобы не сбить фокус
 async function save(apply){
   // пустые пользовательские группы без каналов не храним
   R.custom_groups=R.custom_groups.filter(g=>chansOf(g).length||g===sel);

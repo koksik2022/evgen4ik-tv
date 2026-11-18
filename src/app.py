@@ -11,6 +11,7 @@ import json, os, re, subprocess, time, glob, secrets, ssl, urllib.request, urlli
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from e4conf import C as E4
+import pool
 
 HOST, PORT = E4["listen"], int(E4["port"])
 DATA = E4["editor_dir"]
@@ -110,6 +111,46 @@ def lst(v):
     return v if isinstance(v, list) else []
 
 
+def accounts(a):
+    """Аккаунты провайдера у источника (pooler в HLS Proxy) — проверка в pool.clean_accounts."""
+    return pool.clean_accounts(a)
+
+
+def check_xc(body):
+    """Кнопка «Проверить» у аккаунта: player_api.php провайдера -> статус, срок, лимит подключений."""
+    xc = pool.parse_xc(body.get("url"))
+    if not xc: return {"ok": False, "msg": "у источника не ссылка Xtream (get.php?username=…&password=…)"}
+    scheme, host, port, u, p = xc
+    hp = f"{host}:{port}" if port else host
+    if body.get("user") is not None:   # дополнительный аккаунт
+        u, p, srv = str(body.get("user") or "").strip(), str(body.get("pw") or "").strip(), str(body.get("srv") or "").strip().lower()
+        if not (pool.CRED_RX.match(u) and pool.CRED_RX.match(p)): return {"ok": False, "msg": "логин и пароль: латиница, цифры и . _ @ ! * + = ~ -"}
+        if srv:
+            if not pool.SRV_RX.match(srv): return {"ok": False, "msg": "сервер: только адрес и порт, например s2.example.com:8080"}
+            hp = srv
+    try: socket.getaddrinfo(hp.split(":")[0], None)
+    except OSError: return {"ok": False, "msg": f"сервер {hp} не найден (DNS)"}
+    if private_host(hp.split(":")[0]): return {"ok": False, "msg": "адрес внутри сети запрещён"}
+    url = f"{scheme}://{hp}/player_api.php?" + urllib.parse.urlencode({"username": u, "password": p})
+    class NoRedirect(urllib.request.HTTPRedirectHandler):
+        def redirect_request(self, *a, **k): return None
+    op = urllib.request.build_opener(NoRedirect, urllib.request.HTTPSHandler(context=ssl.create_default_context()))
+    try:
+        with op.open(urllib.request.Request(url, headers={"User-Agent": "VLC/3.0.20 LibVLC/3.0.20"}), timeout=10) as r:
+            j = json.loads(r.read(262144).decode("utf-8", "replace"))
+    except urllib.error.HTTPError as e:
+        return {"ok": False, "msg": f"провайдер ответил {e.code}"}
+    except Exception as e:
+        return {"ok": False, "msg": "нет ответа: " + str(getattr(e, "reason", e))[:150]}
+    ui = j.get("user_info") if isinstance(j, dict) else None
+    if not isinstance(ui, dict) or str(ui.get("auth")) != "1": return {"ok": False, "msg": "логин или пароль не подошли"}
+    mx = int(ui["max_connections"]) if str(ui.get("max_connections") or "").isdigit() else None
+    exp = ui.get("exp_date")
+    exp = time.strftime("%d.%m.%Y", time.localtime(int(exp))) if str(exp or "").isdigit() else "бессрочно"
+    st = str(ui.get("status") or "?")
+    return {"ok": st == "Active", "max": mx, "msg": f"{st} · до {exp} · подключений: {ui.get('active_cons', '?')} из {mx if mx else '?'}"}
+
+
 def validate(r):
     if not isinstance(r, dict):
         raise ValueError("ожидается объект")
@@ -155,6 +196,8 @@ def validate(r):
         src = {"id": sid, "name": s(x["name"], 40), "url": x["url"].strip(), "enabled": x.get("enabled") is not False}
         if re.fullmatch(r"[a-z0-9]{1,16}", str(x.get("prov") or "")): src["prov"] = x["prov"]   # шаблон провайдера (для лимита)
         if x.get("nolim") is True: src["nolim"] = True   # сторонний плейлист без лимита устройств (режим лимита «Авто»)
+        acc = accounts(x.get("accounts"))   # дополнительные аккаунты того же провайдера (pooler в HLS Proxy)
+        if acc: src["accounts"] = acc
         out["sources"].append(src)
     out["disabled_sources"] = [s(x, 40) for x in (r.get("disabled_sources") or [])[:20] if s(x, 40)]
     out["primary_source"] = s(r.get("primary_source"), 40) or None
@@ -867,6 +910,8 @@ class H(BaseHTTPRequestHandler):
             if not os.path.exists(UTRIGGER): return self._send(400, {"error": "обновление по кнопке не настроено — обновите командой с сервера"})
             with open(UTRIGGER, "w") as f: f.write(str(time.time()))
             return self._send(200, {"ok": True})
+        if self.path == "/api/xcinfo":   # «Проверить» у аккаунта провайдера (player_api.php)
+            return self._send(200, check_xc(body if isinstance(body, dict) else {}))
         if self.path == "/api/check":
             return self._send(200, check_url(body.get("url")))
         if self.path == "/api/rules":
