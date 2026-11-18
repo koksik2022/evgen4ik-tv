@@ -46,6 +46,21 @@ def with_quality_aliases(fmap):
 SLUG = re.compile(r"^[a-z0-9][a-z0-9-]{2,31}$")
 PASS = re.compile(r"^[A-Za-z0-9_-]{4,64}$")
 ADULT_GROUPS = {"18+"}
+GT_RX = re.compile(r'group-title="([^"]*)"')
+
+def _gt(lines):
+    m = GT_RX.search(lines[0]) if lines else None
+    return m.group(1) if m else ""
+
+def regroup(seq, gf):
+    """Каждая группа — одним куском, на месте большей части своих каналов (медиана позиций); 18+ — в самый конец.
+    HLS Proxy склеивает тёзок («HUSTLER HD», «Hustler HD orig») и даёт каналу группу другой записи,
+    поэтому без этого 18+ попадает кусками внутрь «Разное», а одиночный канал «Разное» — внутрь кинозала.
+    Порядок каналов внутри группы не меняется."""
+    pos = {}
+    for i, x in enumerate(seq): pos.setdefault(gf(x), []).append(i)
+    med = {g: p[(len(p) - 1) // 2] for g, p in pos.items()}
+    return sorted(seq, key=lambda x: (gf(x) in ADULT_GROUPS or "18+" in gf(x), med[gf(x)]))
 
 
 def ssha(pw):   # формат {SSHA} для nginx auth_basic
@@ -725,6 +740,7 @@ def main():
         if items is not None and MAIN:   # основной плейлист: всё, что собрано
             fn = f"{OUTDIR}/{MAIN}.m3u8"; tmp = fn + ".tmp"
             mi = [it for it in items if not NM_RX.search(it["name"]) and not EX_RX.search(it["name"])]   # «не склеивать» и свои каналы — не сюда
+            mi = regroup(mi, lambda it: _gt(it["lines"]))
             with open(tmp, "w", encoding="utf-8") as f: f.write("\n".join([head] + [l for it in mi for l in it["lines"]]) + "\n")
             os.chown(tmp, 0, wgid); os.chmod(tmp, 0o640); os.replace(tmp, fn); keep.add(fn)
             st["main"] = {"channels": len(mi)}
@@ -767,6 +783,7 @@ def main():
                         if k in C or f"{fs['id']}:{it['g']}" in FG: sel_items.append((k, it))
                 ORD = {kk: i for i, kk in enumerate(L.get("order") or [])}
                 if ORD: sel_items.sort(key=lambda x: ORD.get(x[0], 10**6))   # свой порядок, остальные — как в основном
+                else: sel_items = regroup(sel_items, lambda x: _gt(x[1]["lines"]))
                 FE = rules.get("free_edits") if isinstance(rules.get("free_edits"), dict) else {}
                 for k, it in sel_items:
                     lines = unmark(list(it["lines"]))

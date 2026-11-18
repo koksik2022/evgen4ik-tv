@@ -234,6 +234,20 @@ class LinkMode(unittest.TestCase):
         finally: B.EXTRA_FILE = old
 
 
+class GroupOrder(unittest.TestCase):
+    def test_regroup_keeps_groups_whole_and_adult_last(self):
+        L = lambda g, n: {"n": n, "lines": [f'#EXTINF:-1 group-title="{g}",{n}', "http://x"]}
+        seq = [L("Эфирные", "A"), L("Разное", "B"), L("18+", "C"), L("Разное", "D"), L("Кинозал: BOX", "E"), L("Эфирные", "F")]
+        got = [x["n"] for x in lists.regroup(seq, lambda it: lists._gt(it["lines"]))]
+        self.assertEqual(got, ["A", "F", "B", "D", "E", "C"])
+
+    def test_shift_channels_sorted_by_hours(self):
+        import build
+        self.assertEqual(int(build.SHIFT_RX.search("Пятый канал (+4)").group(1)), 4)
+        self.assertEqual(int(build.SHIFT_RX.search("Пятый канал +2 (Уфа)").group(1)), 2)
+        self.assertIsNone(build.SHIFT_RX.search("Пятый Канал"))
+
+
 class Archive(unittest.TestCase):
     """Архив: передача utc/lutc в переадресации и Xtream, /timeshift/, метка архива у склеенных каналов."""
     @classmethod

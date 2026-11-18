@@ -98,6 +98,8 @@ def country(n):
     t = n.split()
     return t[-1] if t and t[-1] in COUNTRY else None
 
+SHIFT_RX = re.compile(r"\+(\d{1,2})\b")
+
 def base(n):
     s = re.sub(r"\(.*?\)", " ", n.lower().replace("ё", "е"))
     t = [x for x in s.split() if x not in {"hd","fhd","uhd","4k","hdr","orig","sd","50","60","fps","hevc","premium+","premium"} and not re.fullmatch(r"\+\d+", x)]
@@ -443,6 +445,9 @@ def main():
     def ckey(c):
         if c["new"].startswith("Эфирные"):
             bb = base(c["name"]); i = FED.index(bb) if bb in FED else 99
+            if c["new"] != "Эфирные":   # часовые пояса: рядом по каналу, внутри — +0, +2, +4, +7…
+                m = SHIFT_RX.search(c["name"])
+                return (i, bb, int(m.group(1)) if m else 0, c["src"] != prim)
             return (i, c["src"] != prim)
         return (0,)
     write_state(allc, sorted({c["new"] for c in allc}, key=gkey0), lambda c: (gkey0(c["new"]), ckey(c)))
@@ -489,12 +494,22 @@ def main():
     # Основным делаем PRIMARY_SRC: на занятые дублями позиции ставим его запись раньше остальных.
     pos = collections.defaultdict(list)
     for i, c in enumerate(allc): pos[c["name"].lower()].append(i)   # HLS Proxy сравнивает без учёта регистра
-    pairs = 0
+    pairs, lead = 0, {}
     for n, idx in pos.items():
         if len(idx) < 2: continue
-        grp = sorted((allc[i] for i in idx), key=lambda c: c["src"] != prim)
-        for i, c in zip(idx, grp): allc[i] = c
+        grp = sorted(idx, key=lambda i: allc[i]["src"] != prim)   # основной — первым, остальные по порядку
+        lead[grp[0]] = grp[1:]
         pairs += 1
+    # Основной остаётся на своём месте и в своей группе, резервы — сразу за ним и в той же группе:
+    # иначе склеенный канал всплывал в чужой группе и рвал её на куски (BOX посреди «Познавательных», 18+ внутри «Разное»).
+    skip = {j for f in lead.values() for j in f}
+    seq = []
+    for i, c in enumerate(allc):
+        if i in skip: continue
+        seq.append(c)
+        for j in lead.get(i, ()):
+            f = allc[j]; f["new"] = c["new"]; f["out"] = c.get("out", c["new"]); seq.append(f)
+    allc = seq
     log.append(f"Каналов с резервом (одинаковое имя): {pairs}, основной источник {prim}")
     out = [f'#EXTM3U url-tvg="{EPG_HDR}"']
     for c in allc:
