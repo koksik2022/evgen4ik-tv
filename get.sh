@@ -3,13 +3,13 @@
 #   curl -fsSL https://raw.githubusercontent.com/koksik2022/evgen4ik-tv/main/get.sh | sudo bash
 #   wget -qO- https://raw.githubusercontent.com/koksik2022/evgen4ik-tv/main/get.sh | sudo bash
 # Параметры установщика (без вопросов):  ... | sudo bash -s -- --mode direct --access login --yes
-# Скачивает установщик версии 2.9, сверяет SHA-256 и запускает его. Источники пробуются по очереди.
+# Скачивает установщик версии 3.0, сверяет SHA-256 и запускает его. Источники пробуются по очереди.
 main() {
   set -euo pipefail
-  local VER="2.9" SHA="6678ed39b6c61238a6bc84960642fe3cbfb160db72cf2f828692c7f208d390e0" NAME="evgen4ik-tv-install.sh"
+  local VER="3.0" SHA="c08b1e5fcd73f6b559b1d9f38bb55b32c67439921233381cd51ec5a0e74b357b" NAME="evgen4ik-tv-install.sh"
   local SOURCES=(
-    "https://raw.githubusercontent.com/koksik2022/evgen4ik-tv/b23451b9d2ade7a317fd2d12c99d133dbce3fb54/$NAME"
-    "https://github.com/koksik2022/evgen4ik-tv/releases/download/v2.9/$NAME"
+    "https://raw.githubusercontent.com/koksik2022/evgen4ik-tv/2249e09f0d4a15a106691cf23e4c53346545b909/$NAME"
+    "https://github.com/koksik2022/evgen4ik-tv/releases/download/v3.0/$NAME"
   )
   [ -n "${E4_SOURCE:-}" ] && SOURCES=("$E4_SOURCE")   # свой адрес: E4_SOURCE=https://.../evgen4ik-tv-install.sh
   if [ "$(id -u)" -ne 0 ]; then echo "Нужны права root: добавьте sudo перед bash" >&2; exit 1; fi
