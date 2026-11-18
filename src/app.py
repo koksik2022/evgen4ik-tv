@@ -283,6 +283,7 @@ def validate(r):
     out["link_mode"] = r["link_mode"] if r.get("link_mode") in LINK_MODES else ""
     out["logo_proxy"] = r.get("logo_proxy") is not False   # логотипы через сервер
     out["fallback"] = r.get("fallback") is not False       # своя ссылка не прошла через HLS Proxy — отдать «только в файле»
+    out["stream_format"] = r["stream_format"] if r.get("stream_format") in ("hls", "ts") else ""   # формат потока HLS Proxy для плееров; "" — как настроено в нём
     seen_slug = set()
     for L in out["lists"]:
         if L["slug"] in seen_slug: L["slug"] = ""
@@ -656,6 +657,14 @@ def prep_status():
     if E4["mode"] == "hls":   # для блока состояния в боковой панели
         try: d["hls"] = subprocess.run(["systemctl", "is-active", "hls-proxy"], capture_output=True, text=True, timeout=5).stdout.strip()
         except Exception: d["hls"] = "unknown"
+        try:   # когда HLS Proxy последний раз обновил телегид (для «Обзора»)
+            d["epg_at"] = time.strftime("%d.%m.%Y %H:%M", time.localtime(os.path.getmtime(os.path.join(E4.get("hls_dir") or "/opt/hls-proxy", "epg.xml.gz"))))
+        except OSError: d["epg_at"] = ""
+    try:   # следующая плановая сборка (таймер e4tv-build)
+        nx = subprocess.run(["systemctl", "show", "e4tv-build.timer", "-p", "NextElapseUSecRealtime"], capture_output=True, text=True, timeout=5).stdout
+        m = re.search(r"(\d{4})-(\d\d)-(\d\d) (\d\d):(\d\d)", nx)
+        d["next_build"] = f"{m.group(3)}.{m.group(2)}.{m.group(1)} {m.group(4)}:{m.group(5)}" if m else ""
+    except Exception: d["next_build"] = ""
     r = read_json(AC_RESULT, {}) or {}
     d["ac"] = {"at": r.get("at"), "total": r.get("total"), "ok": r.get("ok"), "bad": len(r.get("bad") or []), "error": r.get("error")} if r else {}
     d["lists"] = read_json(LSTATUS, {})
@@ -671,12 +680,59 @@ def hls_port():
     return int(E4.get("hls_port") or (443 if E4.get("scheme") == "https" else 80))
 
 
+VIEW_MIN = 8 * 1024   # Б/с в среднем за NOW_HOLD. Видео даже в SD — от 60 КБ/с; страница статуса HLS Proxy в браузере — около 1 КБ/с
+
+
+def scan_tcp(port):
+    """{(IP, порт клиента): сколько байт сервер уже отдал} по установленным соединениям — через ss (iproute2).
+    None, если ss нет или он не сработал."""
+    try:
+        r = subprocess.run(["ss", "-Htin", "state", "established", f"( sport = :{port} )"],
+                           capture_output=True, text=True, timeout=5)
+    except (OSError, subprocess.SubprocessError): return None
+    if r.returncode != 0: return None
+    out = r.stdout
+    res, cur = {}, None
+    for l in out.splitlines():
+        if not l[:1].isspace():   # строка соединения: Recv-Q Send-Q Локальный Удалённый
+            f, cur = l.split(), None
+            if len(f) < 4: continue
+            host, _, rp = f[3].rpartition(":")
+            try: a = ipaddress.ip_address(host.strip("[]").split("%")[0])
+            except ValueError: continue
+            a = getattr(a, "ipv4_mapped", None) or a
+            if a.is_loopback: continue
+            cur = (str(a), rp); res[cur] = 0
+        elif cur:   # строка подробностей (-i) под соединением
+            m = re.search(r"\bbytes_acked:(\d+)", l)
+            if m: res[cur] = int(m.group(1))
+    return res
+
+
+def watchers(cur, last, hist, t, first=False):
+    """Кто реально получает поток: IP -> подключений. Зритель — тот, кому за NOW_HOLD секунд отдали
+    в среднем не меньше VIEW_MIN байт/с. Открытая страница статуса HLS Proxy или редактора так не считается."""
+    ips, gain = {}, {}
+    for (ip, rp), b in cur.items():
+        ips[ip] = ips.get(ip, 0) + 1
+        if not first: gain[ip] = gain.get(ip, 0) + max(0, b - last.get((ip, rp), 0))
+    for ip, g in gain.items(): hist.setdefault(ip, []).append((t, g))
+    for ip in list(hist):
+        hist[ip] = [x for x in hist[ip] if t - x[0] <= NOW_HOLD]
+        if not hist[ip]: del hist[ip]
+    return {ip: n for ip, n in ips.items() if sum(g for _, g in hist.get(ip, [])) >= VIEW_MIN * NOW_HOLD}
+
+
 def now_sampler():
-    """Плеер HLS берёт куски видео короткими запросами, и между ними соединения может не быть.
-    Поэтому опрашиваем подключения раз в 2 секунды и помним IP ещё 30 секунд."""
+    """Опрашиваем соединения с HLS Proxy раз в 2 секунды и помним зрителя ещё 30 секунд.
+    Без ss — по-старому: зритель любой, у кого есть соединение (тогда считается и открытая страница статуса)."""
+    last, hist, first = {}, {}, True
     while True:
         try:
-            ips, t = scan_conns(hls_port()), time.time()
+            port, t = hls_port(), time.time()
+            cur = scan_tcp(port)
+            if cur is None: ips = scan_conns(port)
+            else: ips = watchers(cur, last, hist, t, first); last, first = cur, False
             with NOW_LOCK:
                 for ip, n in ips.items(): NOW_SEEN[ip] = (t, n)
                 for ip in [k for k, v in NOW_SEEN.items() if t - v[0] > NOW_HOLD]: del NOW_SEEN[ip]
@@ -864,7 +920,10 @@ class H(BaseHTTPRequestHandler):
             if ts_start is not None:   # архив: как плееры с M3U — ?utc=<начало>&lutc=<сейчас> (HLS Proxy передаёт это провайдеру)
                 if not chans[i].get("arch"): return self._send(404, "no archive", "text/plain")
                 u = chans[i]["url"]; return self._redirect(u + ("&" if "?" in u else "?") + f"utc={ts_start}&lutc={int(time.time())}")
-            return self._redirect(add_query(chans[i]["url"], self.path))
+            u = chans[i]["url"]
+            if path.endswith(".ts") and "/index.m3u8" in u:   # HLS Proxy отдаёт HLS, а плеер Xtream просил .ts — просим у него MPEG-TS
+                u += ("&" if "?" in u else "?") + "output=ts"
+            return self._redirect(add_query(u, self.path))
         if path == "/xmltv.php":
             return self._redirect(E4.get("player_epg") or E4["epg_url"])
         gm, cats = {}, []
@@ -1138,7 +1197,7 @@ class H(BaseHTTPRequestHandler):
             clean_uploads(rules)
             if body.get("apply"):   # полная пересборка; листы пересоберутся после неё сами
                 with open(TRIGGER, "w") as f: f.write(str(time.time()))
-            elif old.get("lists") != rules["lists"] or any(old.get(k) != rules[k] for k in ("link_mode", "logo_proxy", "fallback")) or old.get("lists_only_sources") != rules["lists_only_sources"] or old.get("free_sources") != rules["free_sources"] or (old.get("free_edits") or {}) != rules["free_edits"] or (old.get("clients") or []) != rules["clients"]:
+            elif old.get("lists") != rules["lists"] or any(old.get(k) != rules[k] for k in ("link_mode", "logo_proxy", "fallback", "stream_format")) or old.get("lists_only_sources") != rules["lists_only_sources"] or old.get("free_sources") != rules["free_sources"] or (old.get("free_edits") or {}) != rules["free_edits"] or (old.get("clients") or []) != rules["clients"]:
                 with open(LTRIGGER, "w") as f: f.write(str(time.time()))
             return self._send(200, {"ok": True, "applied": bool(body.get("apply")), "rules": rules})
         return self._send(404, {"error": "not found"})

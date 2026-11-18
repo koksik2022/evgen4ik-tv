@@ -248,6 +248,40 @@ class GroupOrder(unittest.TestCase):
         self.assertIsNone(build.SHIFT_RX.search("Пятый Канал"))
 
 
+class StreamFormat(unittest.TestCase):
+    def test_new_client_gets_hls_not_mpegts(self):
+        import tempfile, subprocess as sp
+        d = tempfile.mkdtemp(dir=TMP); p = os.path.join(d, "local.json")
+        json.dump({"clients": {"tv": {"name": "tv", "password": "x" * 20, "isHttp": True, "maxStreamCount": 2, "n": 0}}}, open(p, "w"))
+        old = (lists.CONF, lists.E4.get("mode"), lists.os.chown, sp.run, lists.time.sleep)
+        lists.CONF = p; lists.E4["mode"] = "hls"; lists.os.chown = lambda *a, **k: None; sp.run = lambda *a, **k: None; lists.time.sleep = lambda *a: None
+        try:
+            act = [{"id": "abc", "hls_pw": "p" * 20, "streams": 1}]
+            self.assertTrue(lists.sync_hls_clients(act, "hls"))
+            c = json.load(open(p))["clients"]
+            self.assertFalse(c["tv"]["isHttp"]); self.assertFalse(c[lists.HPFX + "abc"]["isHttp"])   # новый клиент — без галки MPEG-TS
+            self.assertFalse(lists.sync_hls_clients(act, "hls"))                                     # второй раз — ничего не меняется
+            self.assertTrue(lists.sync_hls_clients(act, "ts"))
+            self.assertTrue(json.load(open(p))["clients"][lists.HPFX + "abc"]["isHttp"])
+        finally:
+            lists.CONF, lists.E4["mode"], lists.os.chown, sp.run, lists.time.sleep = old
+
+
+class Watchers(unittest.TestCase):
+    def test_status_page_is_not_a_viewer_but_stream_is(self):
+        W = app.watchers
+        last, hist = {}, {}
+        tab, tv = ("10.0.0.5", "50000"), ("10.0.0.9", "41000")
+        cur = {tab: 150000}
+        self.assertEqual(W(cur, last, hist, 0, first=True), {})   # то, что отдано до запуска, не считаем
+        last = cur
+        for t in range(2, 32, 2):   # страница статуса: ~1 КБ/с
+            cur = {tab: last[tab] + 1800}
+            self.assertEqual(W(cur, last, hist, t), {}); last = cur
+        cur = dict(last); cur[tv] = 400000   # плеер: за 2 секунды ушло 400 КБ
+        self.assertEqual(W(cur, last, hist, 32), {"10.0.0.9": 1})
+
+
 class Archive(unittest.TestCase):
     """Архив: передача utc/lutc в переадресации и Xtream, /timeshift/, метка архива у склеенных каналов."""
     @classmethod

@@ -9,7 +9,7 @@
 # Повторный запуск обновляет программу и сохраняет настройки.
 set -uo pipefail
 
-E4_VER="3.1"
+E4_VER="3.2"
 HLSP_VER="8.4.8"
 HLSP_URL="https://www.hls-proxy.com/downloads/${HLSP_VER}/hls-proxy-${HLSP_VER}.linux-x64.zip"
 HLSP_SHA256="96a2faad73df375e2ce1b92466f21f4389e07b79a038435343659c984e16b587"   # SHA-256 архива 8.4.8 (сверено 16.11.2026); пусто — не сверяется
@@ -347,7 +347,7 @@ if not any(p.get("uri") == "./combined.m3u" for p in pls):
 c.setdefault("epg", {"tvGuideUrl": [epg], "historyDays": 3, "isKeepDbMatchedOnlyChannels": True})
 if not c.get("clients"):
     c["clients"] = {"tv": {"name": "tv", "password": os.environ["HLS_CLIENT_PW"], "isAdultAllowed": True,
-                           "isHttp": proto == "http", "maxStreamCount": 3, "n": 0}}
+                           "isHttp": False, "maxStreamCount": 3, "n": 0}}
 c.setdefault("maxSimultaneousStreamCountPerClientDefault", 3)
 n = os.environ.get("E4_STREAMS", "")
 if n.isdigit():   # лимит провайдера: на всех клиентов и по умолчанию; 0 = без лимита (в HLS Proxy пишем 999)

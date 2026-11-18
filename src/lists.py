@@ -300,9 +300,10 @@ def _hls_hash():
     return h.hexdigest()
 
 
-def sync_hls_clients(active):
+def sync_hls_clients(active, fmt=""):
     """Режим hls: у каждого клиента свой логин в HLS Proxy со своим лимитом потоков.
     Выключенные и просроченные клиенты из HLS Proxy убираются — их старые ссылки на потоки перестают работать.
+    fmt: "hls" / "ts" — формат потока для всех (галка «MPEG-TS» у клиента HLS Proxy = isHttp), "" — не трогать.
     Если что-то поменялось — перезапуск HLS Proxy. Возвращает True, если перезапускали."""
     if E4["mode"] != "hls": return False
     try: c = json.load(open(CONF, encoding="utf-8"))
@@ -311,6 +312,11 @@ def sync_hls_clients(active):
     if not isinstance(cls, dict): return False
     base = next((v for k, v in cls.items() if not k.startswith(HPFX) and isinstance(v, dict)), None)
     if base is None: return False
+    changed = False
+    if fmt in ("hls", "ts"):   # общий формат: базовым логинам (tv и др.) ставим галку как велено, личные возьмут её у базового
+        for k, v in cls.items():
+            if not k.startswith(HPFX) and isinstance(v, dict) and v.get("isHttp") != (fmt == "ts"):
+                v["isHttp"] = fmt == "ts"; changed = True
     F = ("name", "password", "maxStreamCount", "isAdultAllowed", "isHttp")
     want = {}
     for x in active:
@@ -321,7 +327,7 @@ def sync_hls_clients(active):
         if not re.fullmatch(r"[A-Za-z0-9_-]{16,64}", e["password"]): continue
         want[n] = e
     cur = {k: v for k, v in cls.items() if k.startswith(HPFX)}
-    if set(cur) == set(want) and all({f: cur[k].get(f) for f in F} == {f: want[k].get(f) for f in F} for k in want): return False
+    if not changed and set(cur) == set(want) and all({f: cur[k].get(f) for f in F} == {f: want[k].get(f) for f in F} for k in want): return False
     for k in cur: cls.pop(k)
     cls.update(want)
     st_ = os.stat(CONF); tmp = CONF + ".tmp"
@@ -726,7 +732,7 @@ def main():
             FCACHE[fs["id"]] = free_items(fs)
             ps = preset_stat(fs["url"][5:])
             if ps: st.setdefault("presets", {})[fs["url"][5:]] = ps
-    sync_hls_clients(active)   # свои логины клиентов в HLS Proxy (перезапускает его, если что-то поменялось)
+    sync_hls_clients(active, rules.get("stream_format") or "")   # свои логины клиентов в HLS Proxy (перезапускает его, если что-то поменялось)
     if lists or MAIN or active:
         t0 = time.time()
         while True:   # после перезапуска HLS Proxy плейлист появляется не сразу

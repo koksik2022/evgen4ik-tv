@@ -65,6 +65,60 @@ input[type=text],input[type=search],input[type=number],select,textarea{font:inhe
 input[type=checkbox],input[type=radio]{accent-color:var(--accent)}
 textarea{font:12.5px/1.5 var(--mono);width:100%;resize:vertical}
 .dirty{color:var(--warn);font-weight:600;font-size:12.5px}
+/* полоса сохранения: только когда есть несохранённое */
+.savebar{flex:none;display:flex;flex-wrap:wrap;align-items:center;gap:8px 10px;margin:0 28px 16px;padding:10px 12px 10px 16px;border-radius:12px;background:var(--panel2);border:1px solid var(--ring);box-shadow:0 8px 24px rgba(0,0,0,.35)}
+.savebar[hidden]{display:none}
+body:has(#savebar:not([hidden])) .toast{bottom:88px}
+.savebar .dot{width:9px;height:9px;border-radius:50%;background:var(--accent);flex:none}
+.savebar .sbtxt{font-size:13.5px}.savebar .sbtxt b{font-weight:600}
+.savebar button{min-height:36px}
+button.ghost{background:transparent;border-color:transparent;box-shadow:none}
+button.big{min-height:40px;padding:0 18px;font-size:14.5px}
+/* поиск в боковой панели */
+.sfind{display:flex;align-items:center;gap:8px;margin:0 12px 8px;width:calc(100% - 24px);box-sizing:border-box;min-height:38px;padding:0 10px;color:var(--muted);background:var(--panel);text-align:left;box-shadow:none}
+.sfind span{flex:1;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.sfind kbd{font:11px var(--f);border:1px solid var(--ring);border-radius:5px;padding:1px 5px}
+/* меню «⋯» в строках */
+.more{display:inline-block}
+.more .menu{position:fixed;z-index:60;min-width:230px;background:var(--panel2);border:1px solid var(--ring);border-radius:12px;padding:6px;box-shadow:0 12px 32px rgba(0,0,0,.45);display:flex;flex-direction:column}
+.more .menu[hidden]{display:none}
+.more .menu button{display:block;width:100%;text-align:left;border:0;background:transparent;box-shadow:none;border-radius:8px;padding:8px 12px;font-size:13.5px}
+.more .menu button:hover:not([disabled]){background:var(--hover)}
+.more .menu hr{border:0;border-top:1px solid var(--line);margin:4px 2px}
+.tbl .acts button.main{color:var(--accent);border-color:var(--accent-soft);background:var(--accent-soft);font-weight:600}
+/* плитки-фильтры */
+button.ktile{text-align:left;font:inherit;color:inherit;cursor:pointer;box-shadow:none;display:flex;flex-direction:column;gap:2px}
+button.ktile:hover{border-color:var(--ring);background:var(--panel2)}
+.ktile.on{border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent);background:var(--accent-soft)}
+/* «Обзор» */
+.hhero{flex:none;display:flex;flex-wrap:wrap;align-items:center;gap:14px 24px;padding:18px 22px;border-radius:14px;border:1px solid var(--line)}
+.hhero.ok{background:var(--ok-soft);border-color:color-mix(in srgb,var(--ok) 35%,transparent)}
+.hhero.warn{background:var(--accent-soft);border-color:color-mix(in srgb,var(--warn) 45%,transparent)}
+.hhero.bad{background:var(--bad-soft);border-color:color-mix(in srgb,var(--bad) 45%,transparent)}
+.hh-ic{width:42px;height:42px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:20px;font-weight:700;flex:none;background:var(--panel);color:var(--ok)}
+.hhero.warn .hh-ic{color:var(--warn)}.hhero.bad .hh-ic{color:var(--bad)}
+.hh-t{display:flex;flex-direction:column;gap:3px;min-width:220px;flex:1 1 300px}.hh-t b{font-size:18px}
+.hh-meta{display:flex;flex-wrap:wrap;gap:8px 26px}.hh-meta div{display:flex;flex-direction:column;gap:2px;font-size:13px}.hh-meta b{font-weight:600}
+.htiles{flex:none;display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px}
+button.htile{text-align:left;display:flex;flex-direction:column;gap:6px;padding:14px 16px;border-radius:12px;background:var(--panel);border:1px solid var(--line);box-shadow:none;font:inherit;color:inherit}
+button.htile:hover{background:var(--panel2);border-color:var(--ring)}
+.htile b{font-size:26px;font-weight:700;line-height:1.1;font-variant-numeric:tabular-nums}.htile .hsub{font-size:12px;color:var(--muted)}
+.htile.ok b{color:var(--ok)}.htile.warn{border-color:var(--warn)}.htile.warn b{color:var(--warn)}
+.hrow{flex:none;display:flex;flex-wrap:wrap;gap:16px}.hrow>.card{flex:1 1 300px;min-width:0}.hrow>.hwide{flex:2 1 440px}
+.hhead{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:10px}.hhead h2{margin:0}
+.hbars{display:flex;align-items:flex-end;gap:10px;height:150px}
+.hbar{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;gap:5px;height:100%}
+.hbar i{display:block;width:100%;border-radius:6px 6px 3px 3px;background:var(--accent)}.hbar i.z{background:var(--line);border-radius:3px}
+.hbar .hn{font-size:12px;font-weight:600}.hbar .hw{font-size:12px;color:var(--muted)}.hbar .hw.on{color:var(--ink);font-weight:600}
+.hempty{display:flex;flex-direction:column;align-items:center;gap:6px;padding:18px 0;text-align:center}
+.hfoot{border-top:1px solid var(--line);margin-top:12px;padding-top:10px;display:flex;flex-direction:column;gap:6px;font-size:13px}
+.hsrc{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,2fr) 60px;gap:10px 14px;align-items:center;font-size:13.5px}
+.hsrc>b{text-align:right;font-variant-numeric:tabular-nums}.hsrc .dot{display:inline-block;margin-right:7px;vertical-align:1px}
+.hbarh{height:8px;border-radius:4px;background:var(--panel2);overflow:hidden}.hbarh i{display:block;height:100%;border-radius:4px;background:var(--accent)}.hbarh i.w{background:var(--warn)}
+.hlinks{display:flex;flex-wrap:wrap;align-items:center;gap:10px 12px}.hlinks h2{margin:0 6px 0 0}
+button.linkbtn{border:0;background:none;box-shadow:none;padding:0;color:var(--accent);font:inherit;cursor:pointer}button.linkbtn:hover{text-decoration:underline;background:none}
+/* одна строка «Ссылки провайдера» */
+.lmline{flex:none;display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;padding:10px 14px;border:1px dashed var(--ring);border-radius:12px;font-size:13.5px;color:var(--muted)}
+.lmline b{color:var(--ink)}
 .muted{color:var(--muted);font-size:12.5px}
 /* карточки, формы */
 .content{flex:1;min-height:0;overflow:auto;padding:0 28px 28px;display:flex;flex-direction:column;gap:18px}
@@ -198,7 +252,7 @@ main.three{grid-template-columns:270px minmax(0,1fr) minmax(300px,380px)}
 .ufields label{color:var(--muted);font-size:12.5px}
 .chk-res{font:12px var(--mono);display:flex;flex-direction:column;gap:2px}
 .log{font:12px var(--mono);white-space:pre-wrap;color:var(--muted);max-height:160px;overflow:auto;padding:8px 14px;border-top:1px solid var(--line)}
-.st-ok{color:var(--ok)} .st-run{color:var(--warn)} .st-bad{color:var(--bad)}
+.st-ok{color:var(--ok)} .st-run{color:var(--warn)}.st-warn{color:var(--warn)} .st-bad{color:var(--bad)}
 .srow{display:grid;grid-template-columns:80px 150px minmax(120px,1fr) auto auto auto auto auto;gap:8px;align-items:center;padding:8px 0;border-bottom:1px solid var(--line)}
 .srow:last-child{border-bottom:0}
 .srow .st{color:var(--muted);font-size:12px}
@@ -241,6 +295,7 @@ ol.steps{margin:6px 0 0 18px;padding:0;color:var(--muted);font-size:12.5px;line-
 .sbst div{display:flex;gap:7px;align-items:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .dot{width:8px;height:8px;border-radius:50%;flex:none;background:var(--muted)}.dot.ok{background:var(--ok)}.dot.warn{background:var(--warn)}.dot.bad{background:var(--bad)}
 .sbq{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin:0 12px 2px}
+.sbq [hidden]{display:none}
 .sbq button{font-size:12px;padding:5px 6px;box-shadow:none;white-space:nowrap}
 .nav .cnt.warn{background:var(--accent-soft);color:var(--warn)}.nav .cnt.bad{background:var(--bad-soft);color:var(--bad)}.nav .cnt.ok{background:var(--ok-soft);color:var(--ok)}
 .nav .cnt:empty{display:none}
@@ -262,7 +317,7 @@ button.pulse{animation:e4pulse 1.8s infinite}
 .aitem span.t{flex:1;min-width:200px}
 pre.jlog{font:12px/1.55 var(--mono);white-space:pre-wrap;color:var(--muted);margin:0;max-height:340px;overflow:auto}
 @media (max-width:900px){
-  .sbst,.sbq{margin:0 10px 8px}.sbq{grid-template-columns:repeat(4,1fr)}.httpbar{margin:0 16px 12px}
+  .sbst,.sbq{margin:0 10px 8px}.sbq{grid-template-columns:repeat(2,1fr)}.sfind{margin:0 10px 8px;width:calc(100% - 20px)}.savebar{margin:0 12px 12px}.httpbar{margin:0 16px 12px}
   /* телефон: страница прокручивается целиком (раньше содержимое было в маленьком окошке под меню) */
   html,body{height:auto}.content{overflow:visible;flex:none}.page{overflow:visible}
   .sbst{display:flex;flex-wrap:wrap;gap:0 14px;line-height:1.6}.sbst div{flex:none}
@@ -284,11 +339,11 @@ pre.jlog{font:12px/1.55 var(--mono);white-space:pre-wrap;color:var(--muted);marg
 <aside class="sidebar">
   <div class="brand" title="Evgen4ik TV — редактор плейлистов"><span class="logo">E4</span><span>Evgen4ik<span class="tv"> TV</span></span></div>
   <div class="sbst" id="sbStatus" title="Подробнее — раздел «Обзор»"><div><span class="dot"></span>загрузка…</div></div>
+  <button id="qFind" class="sfind" title="Поиск каналов, групп, клиентов и плейлистов (Ctrl+K)"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg><span>Поиск</span><kbd>Ctrl K</kbd></button>
   <div class="sbq">
-    <button id="qRebuild" title="Пересобрать основной плейлист из источников (несохранённые правки не попадут)">⟳ Пересобрать</button>
-    <button id="qLink" title="Скопировать ссылку на основной плейлист">⧉ Ссылка M3U</button>
     <button id="qPlay" title="Найти канал и посмотреть его во встроенном плеере">▶ Плеер</button>
-    <button id="qFind" title="Поиск каналов, групп, клиентов и плейлистов (Ctrl+K)">⌕ Ctrl+K</button>
+    <button id="qLink" title="Скопировать ссылку на основной плейлист">⧉ Ссылка M3U</button>
+    <button id="qRebuild" hidden title="Пересобрать основной плейлист из источников (несохранённые правки не попадут)">⟳ Пересобрать</button>
   </div>
   <nav class="nav" id="nav">
     <h3>Главное</h3>
@@ -299,7 +354,8 @@ pre.jlog{font:12px/1.55 var(--mono);white-space:pre-wrap;color:var(--muted);marg
     <h3>Источники</h3>
     <button data-mode="sources"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M5.25 14.25h13.5m-13.5 0a3 3 0 0 1-3-3m3 3a3 3 0 1 0 0 6h13.5a3 3 0 1 0 0-6m-16.5-3a3 3 0 0 1 3-3h13.5a3 3 0 0 1 3 3m-19.5 0a4.5 4.5 0 0 1 .9-2.7L5.737 5.1a3.375 3.375 0 0 1 2.7-1.35h7.126c1.062 0 2.062.5 2.7 1.35l2.587 3.45a4.5 4.5 0 0 1 .9 2.7m0 0a3 3 0 0 1-3 3m0 3h.008v.008h-.008v-.008Zm0-6h.008v.008h-.008v-.008Zm-3 6h.008v.008h-.008v-.008Zm0-6h.008v.008h-.008v-.008Z"/></svg>Источники<span class="cnt" id="navSrc"></span></button>
     <button data-mode="check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 12h4l3-8 4 16 3-8h4"/></svg>Проверка потоков<span class="cnt" id="navCheck"></span></button>
-    <h3>Правила и сервис</h3>
+    <h3>Настройки</h3>
+    <button data-mode="links"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M16.5 10.5V6.75a4.5 4.5 0 1 0-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 0 0 2.25-2.25v-6.75a2.25 2.25 0 0 0-2.25-2.25H6.75a2.25 2.25 0 0 0-2.25 2.25v6.75a2.25 2.25 0 0 0 2.25 2.25Z"/></svg>Ссылки провайдера</button>
     <button data-mode="filters"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M12 3c2.755 0 5.455.232 8.083.678.533.09.917.556.917 1.096v1.044a2.25 2.25 0 0 1-.659 1.591l-5.432 5.432a2.25 2.25 0 0 0-.659 1.591v2.927a2.25 2.25 0 0 1-1.244 2.013L9.75 21v-6.568a2.25 2.25 0 0 0-.659-1.591L3.659 7.409A2.25 2.25 0 0 1 3 5.818V4.774c0-.54.384-1.006.917-1.096A48.32 48.32 0 0 1 12 3Z"/></svg>Автоскрытие групп</button>
     <button data-mode="rules"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.325.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 0 1 1.37.49l1.296 2.247a1.125 1.125 0 0 1-.26 1.431l-1.003.827c-.293.241-.438.613-.43.992a7.723 7.723 0 0 1 0 .255c-.008.378.137.75.43.991l1.004.827c.424.35.534.955.26 1.43l-1.298 2.247a1.125 1.125 0 0 1-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.47 6.47 0 0 1-.22.128c-.331.183-.581.495-.644.869l-.213 1.281c-.09.543-.56.94-1.11.94h-2.594c-.55 0-1.019-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 0 1-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 0 1-1.369-.49l-1.297-2.247a1.125 1.125 0 0 1 .26-1.431l1.004-.827c.292-.24.437-.613.43-.991a6.932 6.932 0 0 1 0-.255c.007-.38-.138-.751-.43-.992l-1.004-.827a1.125 1.125 0 0 1-.26-1.43l1.297-2.247a1.125 1.125 0 0 1 1.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.086.22-.128.332-.183.582-.495.644-.869l.214-1.28Z"/><path d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z"/></svg>Постоянные правила</button>
     <button data-mode="history"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"/></svg>История и копии</button>
@@ -312,13 +368,7 @@ pre.jlog{font:12px/1.55 var(--mono);white-space:pre-wrap;color:var(--muted);marg
   <div class="topbar">
     <div class="titles"><div class="crumbs" id="crumbs"></div><h1 id="ptitle">Редактор</h1><div class="stats" id="stats">загрузка…</div></div>
     <div class="sp"></div>
-    <div class="actions">
-      <span class="dirty" id="dirty" hidden>● есть несохранённые изменения</span>
-      <button id="btnUndo" title="Отменить последнее действие (Ctrl+Z)" disabled>↶ Шаг назад</button>
-      <button id="btnReset" title="Отменить все несохранённые изменения">Отменить всё</button>
-      <button id="btnSave" title="Сохранить. Объединённые плейлисты обновятся сразу, основной плейлист — при утренней сборке или по «Применить»">Сохранить</button>
-      <button id="btnApply" class="primary" title="Сохранить и пересобрать плейлист (с HLS Proxy просмотр прервётся на несколько секунд)">Сохранить и применить</button>
-    </div>
+    <div class="actions" id="pageAct"></div>
   </div>
   <div class="httpbar" id="httpbar" hidden></div>
   <div class="warnbar" id="warnbar" hidden></div>
@@ -345,6 +395,14 @@ pre.jlog{font:12px/1.55 var(--mono);white-space:pre-wrap;color:var(--muted);marg
     <div class="clist" id="mlist"></div>
   </section>
 </main>
+  <div class="savebar" id="savebar" hidden>
+    <span class="dot"></span><span class="sbtxt"><b id="dirty">Есть несохранённые изменения</b><span class="muted" id="dirtyWhat"></span></span>
+    <span class="sp"></span>
+    <button id="btnUndo" class="ghost" title="Отменить последнее действие (Ctrl+Z)" disabled>↶ Шаг назад</button>
+    <button id="btnReset" title="Отменить все несохранённые изменения">Отменить всё</button>
+    <button id="btnSave" title="Сохранить. Объединённые плейлисты обновятся сразу, основной плейлист — при утренней сборке или по «Применить»">Сохранить</button>
+    <button id="btnApply" class="primary" title="Сохранить и пересобрать плейлист (с HLS Proxy просмотр прервётся на несколько секунд)">Сохранить и применить</button>
+  </div>
 </div>
 <div class="toast" id="toast"></div>
 <div class="modal" id="modal" hidden><div class="mbox"><div id="mbody"></div><div style="text-align:right;margin-top:12px"><button id="mClose">Закрыть</button></div></div></div>
@@ -362,10 +420,10 @@ const clean=s=>String(s||"").replace(/[\x00-\x1f\x7f"]/g," ").trim().slice(0,100
 const URLRX=/^(https?|rtmp|rtsp|udp|rtp):\/\/[^\s"]{1,2000}$/i;
 let EPG_URL="", CONF={}, booted=false;
 let STATUS=null;   // последний ответ /api/status (сборка, HLS Proxy, автопроверка) — для боковой панели, «Обзора» и «Журнала»
-const PAGES={home:"Обзор",check:"Проверка потоков",journal:"Журнал",clients:"Клиенты",client:"Клиент",plist:"Объединённые плейлисты",lists:"Объединённые плейлисты",main:"Группы и каналы",sources:"Источники",filters:"Автоскрытие групп",history:"История и резервные копии",rules:"Постоянные правила",help:"Справка"};
+const PAGES={home:"Обзор",check:"Проверка потоков",journal:"Журнал",clients:"Клиенты",client:"Клиент",plist:"Объединённые плейлисты",lists:"Объединённые плейлисты",main:"Группы и каналы",sources:"Источники",filters:"Автоскрытие групп",history:"История и резервные копии",rules:"Постоянные правила",help:"Справка",links:"Ссылки провайдера"};
 // ---------- версия и обновление по кнопке ----------
 let VER={}, verPoll=null, verShown=false;
-async function checkVersion(force){try{VER=await (await fetch("/api/version"+(force?"?force=1":""))).json()}catch(e){return} showVer();
+async function checkVersion(force){try{VER=await (await fetch("/api/version"+(force?"?force=1":""))).json()}catch(e){return} showVer(); if(mode==="home"&&R) renderHome();
   if(VER.newer&&!verShown){verShown=true; toast("Доступна новая версия "+VER.latest+" — кнопка «Обновить» внизу слева")}}
 const PLAIN_HTTP=location.protocol==="http:"&&!/^(localhost|127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|\[?::1)/.test(location.hostname);
 function showVer(){const el=$("verbox"); if(!el) return;
@@ -390,11 +448,18 @@ function toast(t){const e=$("toast");e.textContent=t;e.classList.add("on");clear
 function norm(r){r=r||{};return{version:1,hidden_patterns:r.hidden_patterns||(ST&&ST.default_hidden)||[],groups:r.groups||{},channels:r.channels||{},
   group_order:r.group_order||[],custom_groups:r.custom_groups||[],custom_channels:r.custom_channels||[],lists:r.lists||[],
   sources:r.sources||[],disabled_sources:r.disabled_sources||[],primary_source:r.primary_source||null,stream_limit:r.stream_limit??null,stream_limit_mode:r.stream_limit_mode==="auto"?"auto":"manual",
-  lists_only_sources:r.lists_only_sources||[],channel_order:r.channel_order||{},auto_rules:r.auto_rules||[],free_sources:r.free_sources||[],free_edits:r.free_edits||{},clients:r.clients||[],client_msg:r.client_msg||""}}
+  lists_only_sources:r.lists_only_sources||[],channel_order:r.channel_order||{},auto_rules:r.auto_rules||[],free_sources:r.free_sources||[],free_edits:r.free_edits||{},clients:r.clients||[],client_msg:r.client_msg||"",
+  link_mode:r.link_mode||"",logo_proxy:r.logo_proxy!==false,fallback:r.fallback!==false,stream_format:r.stream_format||""}}
 function isDirty(){return JSON.stringify(R)!==saved}
-function markDirty(){const d=isDirty(); $("dirty").hidden=!d;
-  // без правок «Сохранить и применить» — обычная кнопка (ей можно просто пересобрать); с правками — яркая и пульсирует
-  $("btnApply").classList.toggle("primary",d); $("btnApply").classList.toggle("pulse",d)}
+const DIRTY_NAMES={channels:"каналы",groups:"группы",group_order:"порядок групп",channel_order:"порядок каналов",hidden_patterns:"скрытие",custom_groups:"свои группы",custom_channels:"свои каналы",
+  lists:"плейлисты",clients:"клиенты",client_msg:"сообщение клиентам",sources:"источники",disabled_sources:"источники",primary_source:"основной источник",lists_only_sources:"источники",
+  auto_rules:"правила",free_sources:"бесплатная подборка",free_edits:"бесплатная подборка",stream_limit:"лимит потоков",stream_limit_mode:"лимит потоков",link_mode:"ссылки провайдера",logo_proxy:"ссылки провайдера",fallback:"ссылки провайдера",stream_format:"формат потока"};
+function dirtyWhat(){let s={}; try{s=JSON.parse(saved)||{}}catch(e){} const w=new Set();
+  for(const k of new Set([...Object.keys(R),...Object.keys(s)])) if(JSON.stringify(R[k])!==JSON.stringify(s[k])) w.add(DIRTY_NAMES[k]||"настройки");
+  return [...w]}
+// полоса сохранения видна, только когда есть что сохранить; пересобрать без правок — «Обзор» → «Пересобрать»
+function markDirty(){const d=isDirty(); $("savebar").hidden=!d; if(!d) return; const w=dirtyWhat();
+  $("dirty").textContent="Не сохранено"; $("dirtyWhat").textContent=w.length?" · "+w.join(", "):""}
 
 async function load(){
   const r=await fetch("/api/state");const j=await r.json();
@@ -497,7 +562,13 @@ function lmGlobalCard(){const exc=[...R.lists.filter(L=>!L.owner&&L.link_mode&&L
     ${exc.length?`<div class="muted" style="margin-top:10px">Иначе: ${exc.join("; ")}</div>`:""}
     <button class="sm" id="gLmAdv" style="margin-top:10px">${lmAdv?"▾":"▸"} Дополнительно</button>
     ${lmAdv?`<div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:10px"><label class="switch" title="В плейлисте вместо адресов чужих сайтов — адрес вашего сервера. Картинку сервер отдаёт сам; если сайт её серверу не отдаёт — плеер берёт её с того сайта"><input type="checkbox" id="gLogo" ${R.logo_proxy!==false?"checked":""}><i></i>Логотипы через сервер</label>
-      ${CONF.mode==="hls"?`<label class="switch" title="Свою ссылку не удалось пустить через HLS Proxy (например, udp или rtmp) — отдать её через сервер-переадресацию, а не убрать из плейлиста"><input type="checkbox" id="gFb" ${R.fallback!==false?"checked":""}><i></i>Не вышло через сервер — отдать «только в файле»</label>`:""}</div>`:""}</div>`}
+      ${CONF.mode==="hls"?`<label class="switch" title="Свою ссылку не удалось пустить через HLS Proxy (например, udp или rtmp) — отдать её через сервер-переадресацию, а не убрать из плейлиста"><input type="checkbox" id="gFb" ${R.fallback!==false?"checked":""}><i></i>Не вышло через сервер — отдать «только в файле»</label>`:""}</div>
+      ${CONF.mode==="hls"?`<div class="cf" style="margin-top:12px;max-width:520px"><label for="gFmt">Формат потока для плееров (через HLS Proxy)</label>
+        <select id="gFmt"><option value="" ${!R.stream_format?"selected":""}>Как настроено в HLS Proxy</option><option value="hls" ${R.stream_format==="hls"?"selected":""}>HLS (.m3u8) — плеер сам качает куски, стандарт</option><option value="ts" ${R.stream_format==="ts"?"selected":""}>MPEG-TS (.mpeg) — один сплошной поток, для старых Smart TV</option></select>
+        <div class="muted" style="margin-top:4px">Меняет галку «MPEG-TS» у всех логинов HLS Proxy. После «Сохранить» HLS Proxy перезапустится — просмотр прервётся на несколько секунд. Плеерам Xtream формат подстроится сам.</div></div>`:""}`:""}</div>`}
+// одна строка вместо карточки: сама настройка — в «Настройки → Ссылки провайдера»
+function lmLine(){const m=lmAll(); return `<div class="lmline"><span>Ссылки провайдера: <b>${m?LMN[m]:"по-разному"}</b></span>${m?lmRoute(m):""}<span class="sp"></span><button class="sm" data-go-page="links">Изменить</button></div>`}
+function renderLinks(){$("settings").innerHTML=lmGlobalCard()}
 // «Сделать иначе» в карточке плейлиста (k="l") и клиента (k="c")
 function lmOwn(k,obj,inh,inhTxt){const own=obj.link_mode&&LMK[obj.link_mode], eff=own?lmFix(obj.link_mode):inh;
   return `<div>Ссылки провайдера: <b>${eff?LMN[eff]:"по-разному"}</b> <span class="muted">— ${own?"особая настройка":inhTxt}</span></div>
@@ -518,6 +589,17 @@ function newList(){const lid=Math.random().toString(36).slice(2,10).replace(/[^a
   R.lists.push({id:lid,name:"Новый плейлист "+(R.lists.length+1),token:"",groups:[],channels:[],exclude:[],enabled:true,sources:[],chno:null,all:false,xgroups:[],order:[]});
   curL=lid; go("lists"); toast("Отметьте группы слева и каналы справа, затем «Сохранить» — появится ссылка")}
 function go(m){if(m!=="lists"&&m!=="client") cBack=null; if((m==="clients"||m==="client")&&m!==mode) setTimeout(pollNow,50); mode=m; try{localStorage.setItem("m3uePage",m==="lists"?"plist":m==="client"?"clients":m)}catch(e){} checked.clear(); openU=null; addOpen=false; render(); const c=$("settings"); if(c) c.scrollTop=0}
+function moreMenu(items){return `<div class="more"><button class="sm" data-more aria-haspopup="menu" aria-expanded="false" aria-label="Ещё действия" title="Ещё действия">⋯</button><div class="menu" role="menu" hidden>${items.filter(Boolean).join("")}</div></div>`}
+function closeMenus(){document.querySelectorAll(".more .menu:not([hidden])").forEach(m=>{m.hidden=true; const b=m.previousElementSibling; if(b) b.setAttribute("aria-expanded","false")})}
+document.addEventListener("click",e=>{const b=e.target.closest("[data-more]");
+  if(!b){closeMenus(); return}
+  e.stopPropagation(); const m=b.nextElementSibling, open=m.hidden; closeMenus(); if(!open) return;
+  m.hidden=false; b.setAttribute("aria-expanded","true");
+  const r=b.getBoundingClientRect(), w=m.offsetWidth, h=m.offsetHeight;
+  m.style.left=Math.max(8,Math.min(r.right-w,innerWidth-w-8))+"px"; m.style.top=(r.bottom+6+h>innerHeight?r.top-6-h:r.bottom+6)+"px";
+  const f=m.querySelector("button:not([disabled])"); if(f) f.focus()},true);
+addEventListener("keydown",e=>{if(e.key==="Escape") closeMenus()});
+addEventListener("scroll",closeMenus,true); addEventListener("resize",closeMenus);
 /* ---------- отрисовка ---------- */
 function snapUndo(){const cur=JSON.stringify(R); if(lastSnap!==null&&cur!==lastSnap){undoStack.push(lastSnap); if(undoStack.length>60) undoStack.shift()} lastSnap=cur; const b=$("btnUndo"); if(b) b.disabled=!undoStack.length}
 function undo(){if(!undoStack.length) return; R=JSON.parse(undoStack.pop()); lastSnap=JSON.stringify(R); checked.clear(); openU=null; mergeOpen=false; render(); toast("Отменено")}
@@ -535,16 +617,19 @@ function render(){buildAll(); snapUndo();
   if(mode!=="lists") lsrc="main";
   const L=LL();
   $("ptitle").textContent=mode==="lists"&&L?L.name:mode==="client"&&CC()?CC().name:PAGES[mode]||"Редактор";
-  $("crumbs").innerHTML=mode==="lists"?((()=>{const bc=R.clients.find(x=>x.id===(cBack||(L&&L.owner)))||null; return bc?`<button data-go="client" data-cid="${esc(bc.id)}">← Клиент «${esc(bc.name)}»</button> · `:""})())+`<button data-go="plist">Объединённые плейлисты</button> › Изменить`:mode==="client"?`<button data-go="clients">Клиенты</button> › Изменить`:mode==="clients"?"Главное":mode==="main"?"Основной плейлист":mode==="plist"?"Главное":mode==="home"?"Главное":mode==="sources"||mode==="check"?"Источники":"Правила и сервис";
+  $("crumbs").innerHTML=mode==="lists"?((()=>{const bc=R.clients.find(x=>x.id===(cBack||(L&&L.owner)))||null; return bc?`<button data-go="client" data-cid="${esc(bc.id)}">← Клиент «${esc(bc.name)}»</button> · `:""})())+`<button data-go="plist">Объединённые плейлисты</button> › Изменить`:mode==="client"?`<button data-go="clients">Клиенты</button> › Изменить`:mode==="clients"?"Главное":mode==="main"?"Основной плейлист":mode==="plist"?"Главное":mode==="home"?"Главное":mode==="sources"||mode==="check"?"Источники":"Настройки";
+  renderPageAct();
   renderStats();renderLbar();
   const fb=$("srcFBar"); if(mode==="main"&&srcF){const ch=ALL.filter(c=>!c.alias&&inSrcF(c)), gN=new Set(ch.map(effGroup)).size;
     fb.innerHTML=`<span style="font-size:16px">🔎</span><b>Источник: ${esc(srcF)}</b><span class="muted">${ch.length} каналов в ${gN} группах — прячьте, переименовывайте, переносите и смотрите ▶ прямо здесь</span><span style="flex:1"></span><button id="srcFClear">✕ Показать все источники</button>`;
     fb.hidden=false} else fb.hidden=true;
-  if(mode==="home") renderHome(); else if(mode==="check") renderCheck(); else if(mode==="journal") renderJournal(); else if(mode==="help") renderHelp();
+  if(mode==="home") renderHome(); else if(mode==="check") renderCheck(); else if(mode==="journal") renderJournal(); else if(mode==="help") renderHelp(); else if(mode==="links") renderLinks();
   else if(mode==="clients") renderClients(); else if(mode==="client") renderClient(); else if(mode==="plist") renderPlist(); else if(mode==="history") renderHistory(); else if(mode==="rules") renderRules(); else if(mode==="sources"||mode==="filters") renderSettings(mode);
   else if(mode==="lists"&&lsrc!=="main"){renderSrcbar();renderGroupsExt();renderPaneExt();renderMine()}
   else {if(mode==="lists"){renderSrcbar();renderMine()} renderGroups();renderPane()}
   renderSide(); markDirty()}
+const PAGE_ACT={home:["cNewTop","+ Новый клиент"],clients:["cNewTop","+ Новый клиент"],plist:["pNewTop","+ Новый плейлист"]};
+function renderPageAct(){const a=PAGE_ACT[mode]; $("pageAct").innerHTML=a?`<button class="primary big" id="${a[0]}">${a[1]}</button>`:""}
 function renderWarn(){const w=(ST&&ST.warnings)||[]; const b=$("warnbar"); b.hidden=!w.length; if(!w.length) return;
   b.innerHTML=`<b>Источник «похудел»:</b> ${w.map(esc).join("; ")}. Плейлист собран из прошлой рабочей копии этого источника. <span class="sp"></span><button id="wForce" title="Если вы сами уменьшили источник — принять новые данные">Принять новые данные</button>`}
 $("warnbar").addEventListener("click",async e=>{if(e.target.id!=="wForce") return; if(!confirm("Собрать плейлист из новых данных источника, даже если каналов стало намного меньше? HLS Proxy перезапустится.")) return;
@@ -742,6 +827,8 @@ $("mlist").addEventListener("drop",e=>{const r=e.target.closest("[data-mk]"), L=
   const ks=mineItems(L).map(x=>x.k).filter(k=>k!==dragM); ks.splice(ks.indexOf(r.dataset.mk),0,dragM); L.order=ks; dragM=null; render()});
 $("mlist").addEventListener("dragend",()=>{dragM=null;document.querySelectorAll(".m.dragover").forEach(x=>x.classList.remove("dragover"))});
 $("nav").addEventListener("click",e=>{const b=e.target.closest("button[data-mode]"); if(b) go(b.dataset.mode)});
+$("pageAct").addEventListener("click",e=>{if(e.target.id==="cNewTop") newClient(); else if(e.target.id==="pNewTop") newList()});
+$("settings").addEventListener("click",e=>{const b=e.target.closest("[data-go-page]"); if(b) go(b.dataset.goPage)});
 $("crumbs").addEventListener("click",e=>{const b=e.target.closest("[data-go]"); if(!b) return; if(b.dataset.go==="client") curC=b.dataset.cid||cBack||curC; go(b.dataset.go)});
 $("lbar").addEventListener("click",e=>{const id=e.target.id, L=LL(); if(!L) return;
   if(id==="lCopy"){copyText($("lLink").value,"Ссылка на плейлист скопирована");return}
@@ -1151,10 +1238,13 @@ function renderClients(){if(CONF.mode&&Date.now()-nowT>15000) setTimeout(pollNow
   const cs=R.clients, hls=CONF.mode==="hls", act=cs.filter(cActive), soon=act.filter(c=>{const d=daysLeft(c);return d!==null&&d<=7}),
     off=cs.filter(c=>!cActive(c)), seenT=cs.filter(c=>cAct(c).last.slice(0,10)===todayISO()).length, watching=CONF.mode==="hls"?cs.filter(c=>nowConns(c)).length:0,
     known=new Set(cs.map(c=>cAct(c).ip).filter(Boolean)), strangers=Object.keys(NOW.ips||{}).filter(ip=>!known.has(ip)).length;
-  const F={all:cs,active:act,soon,off}, q=cQ.toLowerCase(), lname=id=>(R.lists.find(x=>x.id===id)||{}).name;
+  const F={all:cs,active:act,soon,off,now:cs.filter(c=>nowConns(c)),today:cs.filter(c=>cAct(c).last.slice(0,10)===todayISO())}, q=cQ.toLowerCase(), lname=id=>(R.lists.find(x=>x.id===id)||{}).name;
   const list=(F[cFilt]||cs).filter(c=>!q||(c.name+" "+c.contact+" "+c.note).toLowerCase().includes(q));
   const rows=list.map(c=>{const [bc,bt]=cState(c), sv=cSaved(c), d=daysLeft(c), [seen,ua]=seenText(c), en=c.enabled!==false;
-    const tail=(d!==null&&d<=7)?`<button class="sm" data-act="ext">+1 месяц</button>`:`<button class="sm" data-act="tog">${en?"Выключить":"Включить"}</button>`;
+    const soonX=d!==null&&d<=7&&en;
+    const menu=moreMenu([`<button role="menuitem" data-act="edit">Изменить</button>`,`<button role="menuitem" data-act="msg">Скопировать сообщение с инструкцией</button>`,
+      soonX?"":`<button role="menuitem" data-act="ext">Продлить на месяц</button>`,en?"":`<button role="menuitem" data-act="tog">Включить</button>`,
+      en?`<hr><button role="menuitem" class="danger" data-act="tog">Выключить…</button>`:""]);
     const lb=lmBadge(lmClient(c),!!(c.link_mode&&LMK[c.link_mode]));
     return `<tr data-cid="${esc(c.id)}"><td><button class="name" data-act="edit">${esc(c.name)}</button>${c.no_adult?' <span class="badge">без 18+</span>':""}${lb?" "+lb:""}<div class="muted">${esc([c.contact,c.note].filter(Boolean).join(" · "))}</div></td>
       <td>${c.lists.filter(lname).map(id=>`<button class="badge blink" data-act="openl" data-lid="${esc(id)}" title="Открыть плейлист для редактирования">${(R.lists.find(x=>x.id===id)||{}).owner?"личный: ":""}${esc(lname(id))} ›</button>`).join(" ")||`<div class="pills" style="gap:6px;flex-wrap:nowrap">${(c.extra||[]).length?`<span class="badge ok" title="Свои каналы клиента (из файла или по ссылке)">свои: ${c.extra.length}</span>`:""}<select class="cPick" aria-label="Выбрать плейлист для ${esc(c.name)}" style="max-width:190px"><option value="">+ выбрать плейлист…</option>${shared().filter(L=>!L.no_clients).map(L=>`<option value="${esc(L.id)}">${esc(L.name)}</option>`).join("")}<option value="__new">＋ новый личный (пустой)</option></select><button class="sm" data-act="file" title="Каналы из файла .m3u с компьютера">Из файла…</button></div>`}</td>
@@ -1162,19 +1252,19 @@ function renderClients(){if(CONF.mode&&Date.now()-nowT>15000) setTimeout(pollNow
       <td class="nw">${c.expires?`<span style="${d<0?"color:var(--bad)":d<=7?"color:var(--warn);font-weight:600":""}">${ruDate(c.expires)}</span>`:'<span class="muted">бессрочно</span>'}</td>
       <td class="nw">${esc(seen)}<div class="muted">${esc(ua)}</div></td>
       <td><span class="badge ${bc}">${esc(bt)}</span>${bt.startsWith("пустой")?` <button class="sm whyBtn" data-why="c" data-id="${esc(c.id)}">Почему?</button>`:""}${nowConns(c)?' <span class="badge ok" title="Сейчас подключён к HLS Proxy">▶ смотрит</span>':""}</td>
-      <td><div class="acts"><button class="sm" data-act="copy" ${sv&&cActive(c)?"":"disabled"} title="Скопировать личную ссылку">Ссылка</button><button class="sm" data-act="qr" ${sv&&cActive(c)?"":"disabled"}>QR</button><button class="sm" data-act="msg" title="Скопировать готовое сообщение с инструкцией">Сообщение</button>${tail}</div></td></tr>`}).join("");
-  const pill=(id,t,n)=>`<button class="pill${cFilt===id?" on":""}" data-cf="${id}">${t} · ${n}</button>`;
+      <td><div class="acts">${soonX?`<button class="sm" data-act="ext" title="Срок скоро кончится">+1 месяц</button>`:""}<button class="sm main" data-act="copy" ${sv&&cActive(c)?"":"disabled"} title="Скопировать личную ссылку">⧉ Ссылка</button><button class="sm" data-act="qr" ${sv&&cActive(c)?"":"disabled"}>QR</button>${menu}</div></td></tr>`}).join("");
+  const tile=(id,cls,t,n,sub,tip)=>`<button class="ktile${cls?" "+cls:""}${cFilt===id?" on":""}" data-cf="${id}" aria-pressed="${cFilt===id}" title="${esc(tip||"Нажмите — покажу только их")}"><span class="muted">${t}</span><b>${n}</b>${sub||""}</button>`;
   $("settings").innerHTML=`<div class="ktiles">
     <input type="file" id="cRowFile" accept=".m3u,.m3u8,.txt,audio/x-mpegurl,application/vnd.apple.mpegurl" hidden>
-    <div class="ktile"><span class="muted">Активны</span><b>${act.length}</b></div>
-    ${CONF.mode==="hls"?`<div class="ktile ok" title="Подключены к HLS Proxy прямо сейчас (по IP клиента). Обновляется раз в 20 секунд"><span class="muted">Смотрят сейчас</span><b>${watching}${strangers?` <span style="font-size:13px;color:var(--muted);font-weight:500">+ ${plural(strangers,"неизвестный IP","неизвестных IP","неизвестных IP")}</span>`:""}</b>${hlsStatus()?`<a href="${esc(hlsStatus())}" target="_blank" rel="noopener" style="font-size:13px" title="Страница HLS Proxy: какой логин какой канал смотрит, IP, скорость. Вход — логин admin и пароль панели">Кто что смотрит →</a>`:""}</div>`:""}
-    <div class="ktile ok"><span class="muted">Заходили сегодня</span><b>${seenT}</b></div>
-    <div class="ktile${soon.length?" warn":""}"><span class="muted">Срок кончается за 7 дней</span><b>${soon.length}</b></div>
-    <div class="ktile"><span class="muted">Выключены и истекли</span><b>${off.length}</b></div></div>
-  ${lmGlobalCard()}
+    ${tile("all","","Все клиенты",cs.length,`<span class="muted">активны: ${act.length}</span>`)}
+    ${CONF.mode==="hls"?tile("now","ok","Смотрят сейчас",watching,strangers?`<span class="muted">+ ${plural(strangers,"неизвестный IP","неизвестных IP","неизвестных IP")}</span>`:"","Подключены к HLS Proxy и получают видео прямо сейчас. Нажмите — покажу только их"):""}
+    ${tile("today","ok","Заходили сегодня",seenT)}
+    ${tile("soon",soon.length?"warn":"","Срок кончается за 7 дней",soon.length)}
+    ${tile("off","","Выключены и истекли",off.length)}</div>
+  ${lmLine()}
   <div class="card tcard"><div class="thead"><div><b>Клиенты</b>${hq("clients")}<div class="muted">У каждого своя ссылка, срок${hls?" и лимит каналов":""}. Выключили или истёк срок — ссылка перестаёт работать.</div></div><span style="flex:1"></span>
-    <button id="cCsv" ${cs.length?"":"disabled"}>Скачать список (.csv)</button><button class="primary" id="cNew">+ Новый клиент</button></div>
-    ${cs.length?`<div class="pills" style="padding:12px 16px 0"><input type="search" id="cQ" placeholder="Поиск: имя, связь, заметка" aria-label="Поиск клиента" value="${esc(cQ)}" style="flex:1 1 240px">${pill("all","Все",cs.length)}${pill("active","Активные",act.length)}${pill("soon","Скоро истекают",soon.length)}${pill("off","Выключены",off.length)}</div>
+    </div>
+    ${cs.length?`<div class="pills" style="padding:12px 16px 0"><input type="search" id="cQ" placeholder="Поиск: имя, связь, заметка" aria-label="Поиск клиента" value="${esc(cQ)}" style="flex:1 1 240px">${CONF.mode==="hls"&&hlsStatus()?`<a href="${esc(hlsStatus())}" target="_blank" rel="noopener" style="font-size:13px" title="Страница HLS Proxy: какой логин какой канал смотрит, IP, скорость. Вход — логин admin и пароль панели">Кто что смотрит →</a>`:""}<button class="sm" id="cCsv">Скачать .csv</button></div>
     <div class="twrap" style="margin-top:8px"><table class="tbl"><thead><tr><th>Клиент</th><th>Плейлисты</th>${hls?"<th>Каналов одновр.</th>":""}<th>Действует до</th><th>Последний заход</th><th>Статус</th><th></th></tr></thead><tbody>${rows||`<tr><td colspan="7" class="muted">Никого не найдено</td></tr>`}</tbody></table></div>`
     :`<div class="empty">Пока нет клиентов. Клиент — это человек или телевизор: ему собирается личная ссылка из выбранных плейлистов, со сроком${hls?" и своим лимитом каналов":""}.<br><br><button class="primary" id="cNew2">+ Добавить первого</button></div>`}</div>
   <p class="muted" style="margin:0">«Последний заход» — когда плеер последний раз скачивал плейлист (журнал nginx, обновляется раз в минуту). Какие каналы смотрели — не записывается.${hls?" Лимит каналов работает через HLS Proxy: у каждого клиента там свой логин; общий лимит провайдера он всё равно не превысит.":""}</p>`}
@@ -1242,6 +1332,7 @@ $("settings").addEventListener("click",e=>{if(mode!=="clients") return; const t=
   if(act==="copy"){copyText(cLink(c),"Ссылка «"+c.name+"» скопирована");return}
   if(act==="qr"){showQr(cLink(c),c.name);return}
   if(act==="msg"){copyText(cMsg(c),"Сообщение для «"+c.name+"» скопировано");return}
+  if(act==="tog"&&c.enabled!==false&&!confirm("Выключить «"+c.name+"»? После сохранения его ссылка перестанет работать. Включить обратно можно в любой момент.")) return;
   if(act==="tog"){c.enabled=c.enabled===false; render(); toast("«"+c.name+"» "+(c.enabled?"включён":"выключен")+" — нажмите «Сохранить»");return}
   if(act==="ext"){addMonths(c,1); c.enabled=true; render(); toast("«"+c.name+"»: до "+ruDate(c.expires)+" — нажмите «Сохранить»");return}});
 $("settings").addEventListener("change",e=>{if(mode!=="clients") return; const t=e.target;
@@ -1258,9 +1349,9 @@ $("settings").addEventListener("input",e=>{const t=e.target;
   else if(t.id==="cTplText"){R.client_msg=t.value.slice(0,2000); const m=document.querySelector(".cmsg"); if(m) m.textContent=cMsg(c)}
   else return; markDirty()});
 // общая настройка «Скрывать ссылки провайдера» (на страницах «Клиенты» и «Объединённые плейлисты»)
-$("settings").addEventListener("change",e=>{const t=e.target; if(mode!=="clients"&&mode!=="plist") return;
-  if(t.name==="gLm") R.link_mode=t.value; else if(t.id==="gLogo") R.logo_proxy=t.checked; else if(t.id==="gFb") R.fallback=t.checked; else return; render()});
-$("settings").addEventListener("click",e=>{if((mode==="clients"||mode==="plist")&&e.target.id==="gLmAdv"){lmAdv=!lmAdv; render()}});
+$("settings").addEventListener("change",e=>{const t=e.target; if(mode!=="links") return;
+  if(t.name==="gLm") R.link_mode=t.value; else if(t.id==="gLogo") R.logo_proxy=t.checked; else if(t.id==="gFb") R.fallback=t.checked; else if(t.id==="gFmt") R.stream_format=t.value; else return; render()});
+$("settings").addEventListener("click",e=>{if(mode==="links"&&e.target.id==="gLmAdv"){lmAdv=!lmAdv; render()}});
 $("settings").addEventListener("change",e=>{if(mode!=="client") return; const c=CC(), t=e.target; if(!c) return;
   if(t.id==="cEn") c.enabled=t.checked;
   else if(t.id==="cExp") c.expires=/^\d{4}-\d{2}-\d{2}$/.test(t.value)?t.value:"";
@@ -1405,10 +1496,10 @@ function renderPlist(){
       <td>${badge}</td>
       <td class="muted nw">${st&&en?esc(LST.at||""):"—"}</td>
       <td><label class="switch" title="Включён"><input type="checkbox" class="pEn" ${en?"checked":""}><i></i></label></td>
-      <td><div class="acts"><button class="sm" data-act="copy" ${sv&&L.token&&en?"":"disabled"} title="Скопировать ссылку M3U">M3U</button><button class="sm" data-act="qr" ${sv&&L.token&&en?"":"disabled"} title="QR-код ссылки">QR</button><button class="sm" data-act="epg" title="Скопировать ссылку на программу передач">EPG</button>
-        <button class="sm" data-act="dl" ${sv&&L.token&&en?"":"disabled"}>Скачать</button><button class="sm" data-act="edit">Изменить</button><button class="sm danger" data-act="del">Удалить</button></div></td></tr>`}).join("");
-  $("settings").innerHTML=`${lmGlobalCard()}<div class="card tcard">
-    <div class="thead"><div><b>Плейлисты для плееров</b>${hq("plist")}<div class="muted">Каждый — своя подборка групп и каналов из основного плейлиста со своей ссылкой. Ссылки провайдера: ${LMN[lmAll()]} (настройка выше).</div></div><span class="sp"></span><button class="primary" id="pNew">+ Новый плейлист</button></div>
+      <td><div class="acts"><button class="sm main" data-act="copy" ${sv&&L.token&&en?"":"disabled"} title="Скопировать ссылку M3U">⧉ M3U</button><button class="sm" data-act="qr" ${sv&&L.token&&en?"":"disabled"} title="QR-код ссылки">QR</button>
+        ${moreMenu([`<button role="menuitem" data-act="edit">Изменить</button>`,`<button role="menuitem" data-act="epg">Скопировать ссылку EPG</button>`,`<button role="menuitem" data-act="dl" ${sv&&L.token&&en?"":"disabled"}>Скачать файл .m3u8</button>`,`<hr><button role="menuitem" class="danger" data-act="del">Удалить…</button>`])}</div></td></tr>`}).join("");
+  $("settings").innerHTML=`${lmLine()}<div class="card tcard">
+    <div class="thead"><div><b>Плейлисты для плееров</b>${hq("plist")}<div class="muted">Каждый — своя подборка групп и каналов из основного плейлиста со своей ссылкой.</div></div></div>
     ${shared().length?`<div class="twrap"><table class="tbl"><thead><tr><th>Название</th><th>Источники</th><th>Группы</th><th>Каналы</th><th>Нумерация</th><th>Статус</th><th>Обновлён</th><th>Вкл.</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`
       :`<div class="empty">Пока нет ни одного плейлиста.<br><br><button class="primary" id="pNew2">+ Создать первый</button></div>`}
   </div>
@@ -1739,29 +1830,59 @@ function homeAlerts(){if(!R) return []; const a=[], s=STATUS||{};
   if(PLAIN_HTTP&&CONF.login) a.push(["bad","Вход по http — пароль идёт открытым текстом","",""]);
   if(isDirty()) a.push(["warn","Есть несохранённые изменения","",""]);
   return a}
-function renderHome(){if(!R) return; const s=STATUS||{}, vis=ST?ALL.filter(visMain).length:0, act=R.clients.filter(cActive).length, so=srcOnCount(), nb=acBadCount();
-  const al=homeAlerts(), seen=R.clients.map(c=>[c,cAct(c).last]).filter(x=>x[1]).sort((a,b)=>b[1].localeCompare(a[1])).slice(0,6);
-  $("settings").innerHTML=`<div class="ktiles">
-      <div class="ktile${vis?"":" warn"}">Каналов в основном<b>${vis}</b></div>
-      <div class="ktile${so?"":" warn"}">Источников включено<b>${so}</b></div>
-      <div class="ktile">Клиентов активно<b>${act}</b></div>
-      ${CONF.mode==="hls"?`<div class="ktile${nowTotal()?" ok":""}">Смотрят сейчас<b>${nowTotal()}</b></div>`:""}
-      <div class="ktile${nb?" warn":nb===0?" ok":""}">Не отвечают<b>${nb==null?"—":nb}</b></div></div>
-    <div class="card"><h2>Что требует внимания</h2>${al.length?`<div class="alist">${al.map(([c,t,goTo,btn])=>`<div class="aitem"><span class="dot ${c}"></span><span class="t">${esc(t)}</span>${goTo?`<button class="sm" data-hgo="${esc(goTo)}">${esc(btn)} ›</button>`:""}</div>`).join("")}</div>`:'<p class="hint" style="margin:0">Всё в порядке.</p>'}</div>
-    <div class="fgrid">
-      <div class="card"><h2>Сборка</h2><p class="hint" style="margin:0 0 8px">${s.ActiveState==="activating"?"⏳ Идёт сборка…":"Последняя: "+esc((ST&&ST.built_at)||"—")+(s.Result&&s.Result!=="success"?' · <span class="st-bad">с ошибкой</span>':"")}</p>
-        <div style="display:flex;gap:8px;flex-wrap:wrap"><button data-hgo="journal">Журнал ›</button><button id="hRebuild">⟳ Пересобрать</button></div></div>
-      <div class="card"><h2>Последние заходы клиентов</h2>${seen.length?`<div class="alist">${seen.map(([c])=>{const [t,ua]=seenText(c); return `<div class="aitem"><span class="t"><b>${esc(c.name)}</b> <span class="muted">${esc(ua)}</span></span><span class="muted">${esc(t)}</span></div>`}).join("")}</div>`:'<p class="hint" style="margin:0">Пока никто не заходил.</p>'}</div>
+// «сегодня, 19:40» / «завтра, 05:42» / «17.11, 23:03» из «18.11.2026 19:40[:40]»
+function relDT(x){const m=String(x||"").match(/(\d\d)\.(\d\d)\.(\d{4})\s+(\d\d:\d\d)/); if(!m) return esc(x||"—");
+  const d=Math.round((new Date(`${m[3]}-${m[2]}-${m[1]}T00:00:00`)-new Date(todayISO()+"T00:00:00"))/864e5);
+  return (d===0?"сегодня":d===-1?"вчера":d===1?"завтра":`${m[1]}.${m[2]}`)+", "+m[4]}
+function renderHome(){if(!R) return; const s=STATUS||{}, hls=CONF.mode==="hls", vis=ST?ALL.filter(visMain).length:0, act=R.clients.filter(cActive), so=srcOnCount(), nb=acBadCount();
+  const al=homeAlerts(), bad=al.filter(a=>a[0]==="bad"), warn=al.filter(a=>a[0]==="warn"), probs=[...bad,...warn];
+  const gs=ST?new Set(ALL.filter(visMain).map(effGroup)).size:0, nextExp=act.map(c=>c.expires).filter(Boolean).sort()[0];
+  const lists=shared(), lReady=lists.filter(L=>(((LST.lists||{})[L.id])||{}).channels>0).length;
+  const srcs=(s.sources||[]).slice().sort((a,b)=>(b.count||0)-(a.count||0)), smx=Math.max(1,...srcs.map(x=>x.count||0)), sw=(ST&&ST.warnings)||[];
+  const days=[]; for(let i=6;i>=0;i--){const iso=isoLocal(Date.now()-i*864e5); let n=0; for(const v of [...Object.values(ACTV||{}),...Object.values(XCA||{})]) n+=((v&&v.days)||{})[iso]||0;   // все заходы: плейлисты, клиенты, Xtream
+    days.push({n,w:i===0?"сегодня":["вс","пн","вт","ср","чт","пт","сб"][new Date(iso+"T00:00:00").getDay()]})}
+  const dmx=Math.max(1,...days.map(d=>d.n)), dsum=days.reduce((a,d)=>a+d.n,0);
+  const watching=hls?R.clients.filter(c=>nowConns(c)):[], seen=R.clients.map(c=>[c,cAct(c).last]).filter(x=>x[1]).sort((a,b)=>b[1].localeCompare(a[1])).slice(0,3);
+  const soon=act.filter(c=>{const d=daysLeft(c); return d!==null&&d<=7});
+  const meta=(k,v)=>`<div><span class="muted">${k}</span><b>${v}</b></div>`;
+  const tile=(go,k,v,sub,cls)=>`<button class="htile${cls?" "+cls:""}" data-hgo="${go}"><span class="muted">${k}</span><b>${v}</b><span class="hsub">${sub} ›</span></button>`;
+  const hero=`<div class="hhero ${bad.length?"bad":warn.length?"warn":"ok"}"><span class="hh-ic" aria-hidden="true">${probs.length?"!":"✓"}</span>
+      <div class="hh-t"><b>${bad.length?"Есть проблемы":warn.length?"Нужно внимание":"Всё работает"}</b><span class="muted">${probs.length?esc(probs[0][1])+(probs.length>1?" · и ещё "+(probs.length-1):"")
+        :plural(so,"источник загружен","источника загружены","источников загружены")+(hls?" · HLS Proxy на связи":"")+" · ошибок в сборке нет"}</span></div>
+      <div class="hh-meta">${meta("Сборка",s.ActiveState==="activating"?"идёт сейчас…":relDT(ST&&ST.built_at))}${s.next_build?meta("Следующая",relDT(s.next_build)):""}${hls&&s.epg_at?meta("Телегид",relDT(s.epg_at)):""}${VER&&VER.current?meta("Версия",esc(VER.current)+(VER.newer?" · есть "+esc(VER.latest):VER.latest?" · последняя":"")):""}</div></div>`;
+  $("settings").innerHTML=`${hero}
+    <div class="htiles">
+      ${tile("main","Каналов в основном",vis,plural(gs,"группа","группы","групп"),vis?"":"warn")}
+      ${tile("clients","Клиентов активно",act.length,nextExp?"ближайший срок "+ruDate(nextExp).slice(0,5):act.length?"без срока":"добавить клиента")}
+      ${hls?tile("clients","Смотрят сейчас",watching.length,ST&&ST.stream_limit?"лимит потоков "+ST.stream_limit:"по HLS Proxy",watching.length?"ok":""):""}
+      ${tile("plist","Плейлистов для плееров",lists.length,lists.length?(lReady===lists.length?(lists.length>1?"все готовы":"готов"):"готовы "+lReady+" из "+lists.length):"создать плейлист")}
+      ${tile("check","Не отвечают",nb==null?"—":nb,nb==null?"проверить потоки":"по последней проверке",nb?"warn":nb===0?"ok":"")}
     </div>
-    <div class="card"><h2>Ссылки</h2>
-      ${CONF.main_url?`<div class="linkrow"><span class="badge">M3U</span><input type="text" readonly value="${esc(CONF.main_url)}"><button id="hCopy">Копировать</button></div>`:'<p class="hint">Ссылка на основной плейлист появится после первой сборки.</p>'}
-      ${EPG_URL?`<div class="linkrow" style="margin-top:8px"><span class="badge">EPG</span><input type="text" readonly value="${esc(EPG_URL)}"><button id="hEpg">Копировать</button></div>`:""}
-      ${CONF.hls_url?`<p class="hint" style="margin:10px 0 0">Панель HLS Proxy: <a href="${esc(CONF.hls_url)}" target="_blank" rel="noopener">${esc(CONF.hls_url)}</a></p>`:""}</div>`}
+    <div class="hrow">
+      <div class="card hwide"><div class="hhead"><h2>Заходы за неделю</h2><span class="muted">всего ${dsum}</span></div>
+        <div class="hbars" role="img" aria-label="Заходы по дням: ${days.map(d=>d.w+" "+d.n).join(", ")}">${days.map(d=>`<div class="hbar"><span class="hn">${d.n||""}</span><i style="height:${d.n?Math.max(6,Math.round(d.n/dmx*110)):3}px"${d.n?"":' class="z"'}></i><span class="${d.w==="сегодня"?"hw on":"hw"}">${d.w}</span></div>`).join("")}</div></div>
+      <div class="card"><h2>Смотрят сейчас</h2>${!hls?'<p class="hint" style="margin:6px 0 0">Видно только при работе через HLS Proxy.</p>':watching.length?`<div class="alist">${watching.map(c=>`<div class="aitem"><span class="dot ok"></span><span class="t"><b>${esc(c.name)}</b></span><span class="muted">${plural(nowConns(c),"поток","потока","потоков")}</span></div>`).join("")}</div>`
+        :`<div class="hempty">Сейчас никто не смотрит<span class="muted">Когда включат канал, здесь появится имя клиента</span></div>`}
+        ${seen.length?`<div class="hfoot"><span class="muted">Последние заходы</span>${seen.map(([c])=>{const [tx,ua]=seenText(c); return `<div class="aitem"><span class="t"><b>${esc(c.name)}</b> <span class="muted">${esc(ua)}</span></span><span class="muted">${esc(tx)}</span></div>`}).join("")}</div>`:""}</div>
+    </div>
+    <div class="hrow">
+      <div class="card hwide"><div class="hhead"><h2>Источники</h2><button class="sm" data-hgo="sources">Все источники ›</button></div>
+        ${srcs.length?`<div class="hsrc">${srcs.map(x=>{const w=x.status!=="загружен"||sw.some(v=>String(v).includes(x.name)); return `<span class="${w?"st-warn":""}"><span class="dot ${w?"warn":"ok"}"></span>${esc(x.name)}${w?` <span class="muted">· ${esc(x.status||"")}</span>`:""}</span><span class="hbarh"><i style="width:${Math.max(2,Math.round((x.count||0)/smx*100))}%"${w?' class="w"':""}></i></span><b>${x.count||0}</b>`}).join("")}</div>
+          <p class="hint" style="margin:10px 0 0">Каналов в каждом источнике до склейки дублей. Если источник «похудеет» или не загрузится — строка станет жёлтой.</p>`:'<p class="hint" style="margin:0">Источников ещё нет.</p>'}</div>
+      <div class="card"><h2>Что требует внимания</h2>${al.length?`<div class="alist">${al.map(([c,tx,goTo,btn])=>`<div class="aitem"><span class="dot ${c}"></span><span class="t">${esc(tx)}</span>${goTo?`<button class="sm" data-hgo="${esc(goTo)}">${esc(btn)} ›</button>`:""}</div>`).join("")}</div>`:'<p class="hint" style="margin:0">Всё в порядке.</p>'}
+        <div class="hfoot"><span class="muted">Сроки клиентов</span>${soon.length?soon.map(c=>`<div class="aitem"><span class="t"><b>${esc(c.name)}</b></span><span class="muted">до ${ruDate(c.expires)}</span></div>`).join(""):"<span>Ни у кого не кончается в ближайшие 7 дней</span>"}</div></div>
+    </div>
+    <div class="card hlinks"><h2>Ссылки</h2>
+      ${CONF.main_url?`<button id="hCopy">⧉ Основной плейлист M3U</button><button id="hQr">QR основного</button>`:'<span class="muted">Ссылка на основной плейлист появится после первой сборки.</span>'}
+      ${EPG_URL?`<button id="hEpg">⧉ Телегид EPG</button>`:""}
+      <span class="sp"></span>
+      <span class="muted">${CONF.hls_url?`Панель HLS Proxy · <a href="${esc(CONF.hls_url)}" target="_blank" rel="noopener">открыть</a> · `:""}<button class="linkbtn" id="hRebuild">⟳ Пересобрать</button></span></div>`}
 $("settings").addEventListener("click",e=>{if(mode!=="home") return; const t=e.target;
   if(t.id==="hCopy"){copyText(CONF.main_url,"Ссылка на основной плейлист скопирована"); return}
   if(t.id==="hEpg"){copyText(EPG_URL,"Ссылка на EPG скопирована"); return}
   if(t.id==="hRebuild"){$("qRebuild").click(); return}
-  const g=t.dataset&&t.dataset.hgo; if(!g) return;
+  if(t.id==="hQr"){showQr(CONF.main_url,"Основной плейлист"); return}
+  const gb=t.closest("[data-hgo]"), g=gb&&gb.dataset.hgo; if(!g) return;
   if(g.startsWith("why:")){const [,k,id]=g.split(":"); showWhy(k,id); return}
   go(g)});
 /* ---------- «Журнал» ---------- */
@@ -1782,12 +1903,12 @@ const HELP_TERMS=[
 const HELP_HOW=[
   ["Добавить провайдера",["«Источники» → плитка провайдера или «Любая M3U-ссылка».","Вставьте ссылку из кабинета провайдера → «Проверить». Редактор подскажет провайдера и лимит устройств.","«Добавить источник» → «Сохранить и применить». Через минуту каналы появятся в «Группах и каналах»."]],
   ["Собрать плейлист для телевизора",["«Объединённые плейлисты» → «+ Новый плейлист».","Слева отметьте группы, справа — отдельные каналы. В карточке «Источники» можно оставить только нужных провайдеров.","«Сохранить» → кнопка «M3U» или «QR». Ссылку вставьте в плеер (TiviMate, OTT Navigator и др.)."]],
-  ["Добавить клиента и отправить ему ссылку",["«Клиенты» → «+ Новый клиент»: имя, срок, «Каналов одновременно».","В «Что смотрит» отметьте плейлист → «Сохранить».","Кнопка «Сообщение» — готовый текст со ссылкой и инструкцией, перешлите его клиенту."]],
+  ["Добавить клиента и отправить ему ссылку",["«Клиенты» → «+ Новый клиент»: имя, срок, «Каналов одновременно».","В «Что смотрит» отметьте плейлист → «Сохранить».","В строке клиента «⋯» → «Скопировать сообщение с инструкцией» — готовый текст со ссылкой, перешлите его клиенту."]],
   ["Свой набор каналов для одного клиента",["В карточке клиента у общего плейлиста нажмите «Сделать личным».","Правьте личный плейлист — изменения коснутся только этого клиента."]],
-  ["Скрыть ссылки провайдера",["«Клиенты» или «Объединённые плейлисты» → карточка «Скрывать ссылки провайдера» → выберите вариант → «Сохранить».","Для одного клиента или плейлиста иначе — в его карточке «Сделать иначе»."]],
+  ["Скрыть ссылки провайдера",["Меню слева «Настройки» → «Ссылки провайдера» → выберите вариант → «Сохранить».","Для одного клиента или плейлиста иначе — в его карточке «Сделать иначе»."]],
   ["Архив передач",["Ничего настраивать не нужно: если архив есть у провайдера, он появится у клиента сам.","В плеере откройте программу передач и выберите прошедшую. Через Xtream архив тоже работает.","Не открывается — у главного провайдера этого канала может не быть архива."]],
   ["Канал не показывает",["«Проверка потоков» → «Проверить сейчас».","▶ — посмотреть канал, «Найти» — открыть его в «Группах и каналах». «Скрыть неработающие» прячет их в основном плейлисте (сработает после «Сохранить и применить»).","Не отвечает весь источник — проверьте кабинет провайдера: оплату, устройства, блокировку."]],
-  ["Вернуть как было",["До сохранения — «↶ Шаг назад» или «Отменить всё» вверху.","После сохранения — «История и копии» → «Восстановить»."]]];
+  ["Вернуть как было",["До сохранения — «↶ Шаг назад» или «Отменить всё» в полосе внизу (она появляется, когда есть несохранённое).","После сохранения — «История и копии» → «Восстановить»."]]];
 function renderHelp(){
   $("settings").innerHTML=`<div class="card"><h2>С чего начать — 3 шага</h2><div class="pills" style="gap:8px">
       <button data-hgo="sources">1. Добавьте провайдера в «Источниках» ›</button><button data-hgo="plist">2. Соберите плейлист ›</button><button data-hgo="clients">3. Добавьте клиента и отправьте ссылку ›</button></div></div>
