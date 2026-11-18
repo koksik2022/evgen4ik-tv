@@ -2,7 +2,7 @@
 """Автотесты Evgen4ik TV (только стандартная библиотека Python). Запуск: python3 tests/run_tests.py
 Проверяют то, что ломалось или легко сломать: проверку правил, сборку ссылок клиентов, Xtream, журнал активности,
 правила IP для nginx, синтаксис установщика и страницы, согласованность get.sh и установщика."""
-import base64, hashlib, io, json, os, random, re, shutil, subprocess, sys, tarfile, tempfile, threading, time, unittest, urllib.request, urllib.error
+import base64, hashlib, io, json, os, random, re, shutil, subprocess, sys, tarfile, tempfile, threading, time, unittest, urllib.request, urllib.error, urllib.parse
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SRC = os.path.join(ROOT, "src")
@@ -20,7 +20,7 @@ open(f"{TMP}/data/combined.m3u", "w", encoding="utf-8").write(
 json.dump({"кино 1": ["кино 1", "Кино"], "взрослый": ["взрослый", "18+"], "мульт": ["мульт", "Детские"], "новости 24": ["новости 24", "Новости"]},
           open(f"{TMP}/data/editor/final.json", "w"), ensure_ascii=False)
 
-import app, lists   # noqa: E402  (после настройки окружения)
+import app, lists, pool   # noqa: E402  (после настройки окружения)
 lists.write_acl = lambda clients: None   # nginx в тестах не трогаем (генерацию проверяет отдельный тест)
 lists.os.chown = lambda *a, **k: None    # тесты могут идти не от root
 
@@ -210,6 +210,90 @@ class Misc(unittest.TestCase):
         for m in tf.getmembers():
             if m.isfile():
                 self.assertEqual(tf.extractfile(m).read(), open(os.path.join(ROOT, m.name), "rb").read(), f"в установщике старый {m.name} — запустите make-bundle.sh")
+
+
+class Pool(unittest.TestCase):
+    """Аккаунты провайдера -> pooler HLS Proxy (src/pool.py). Поведение pooler проверено вручную на HLS Proxy 8.4.8."""
+    URL = "http://prov.example:8080/get.php?username=user1&password=pass1&type=m3u_plus&output=ts"
+
+    def src(self, **acc):
+        a = {"max": 2, "list": [{"id": "a1", "name": "Второй", "user": "user2", "pw": "pass2", "max": 2, "prio": 2},
+                                {"id": "a2", "name": "Третий", "user": "user3", "pw": "pass3", "srv": "s2.prov.example:8080", "max": 1, "prio": 1}]}
+        a.update(acc)
+        return {"id": "s1", "name": "Prov", "url": self.URL, "enabled": True, "accounts": a}
+
+    def test_parse_xc(self):
+        self.assertEqual(pool.parse_xc(self.URL), ("http", "prov.example", 8080, "user1", "pass1"))
+        self.assertIsNone(pool.parse_xc("http://prov.example/playlist.m3u8?token=x"))
+        self.assertIsNone(pool.parse_xc("http://prov.example/get.php?username=a b&password=c"))
+        self.assertIsNone(pool.parse_xc("http://prov.example/get.php?username=a/b&password=c"))
+
+    def test_validate_keeps_and_cleans(self):
+        r = app.validate({"sources": [dict(self.src(), accounts={"max": 2, "list": [
+            {"user": "ok_user", "pw": "ok.pw", "srv": "S2.Prov.Example:8080", "max": 99, "prio": "x"},
+            {"user": "bad user", "pw": "x"}, {"user": "u", "pw": "a/b"}, {"user": "u2", "pw": "p2", "srv": "http://evil/\"x"}, "junk"]})]})
+        acc = r["sources"][0]["accounts"]
+        self.assertEqual(len(acc["list"]), 2)
+        self.assertEqual(acc["list"][0]["srv"], "s2.prov.example:8080")
+        self.assertEqual((acc["list"][0]["max"], acc["list"][0]["prio"]), (1, 1))   # вне диапазона -> по умолчанию
+        self.assertEqual(acc["list"][1]["srv"], "")
+        self.assertNotIn("accounts", app.validate({"sources": [dict(self.src(), accounts={"list": []})]})["sources"][0])
+        rnd, bad = random.Random(2), [None, 1, "x", [], {}, True, -5, "a" * 300, [None], {"list": "x"}, {"list": [{"user": 1}]}]
+        for _ in range(500):
+            app.validate({"sources": [dict(self.src(), accounts=rnd.choice(bad + [{"max": rnd.choice(bad), "list": [{k: rnd.choice(bad) for k in ("id", "user", "pw", "srv", "max", "prio", "on", "name")}]}]))]})
+
+    def test_entries(self):
+        e, notes, totals = pool.entries({"sources": [self.src()]})
+        self.assertEqual(notes, [])
+        self.assertEqual(totals, {"s1": 5})
+        self.assertEqual(e[0]["name"], "e4tv-s1")
+        self.assertEqual(e[0]["pool"], ["$$ $$", "$$ $$", "s2.prov.example:8080 user3/pass3", "$$ user2/pass2", "$$ user2/pass2"])   # приоритет 1 раньше 2
+        rx = re.compile(e[0]["regex"])
+        self.assertEqual(rx.match("http://prov.example:8080/live/user1/pass1/15.m3u8").groups(), ("prov.example:8080", "user1/pass1"))
+        self.assertTrue(rx.match("http://prov.example:8080/user1/pass1/15"))
+        self.assertIsNone(rx.match("http://prov.example:8080/live/user9/pass9/15.m3u8"))   # чужой аккаунт не трогаем
+        self.assertIsNone(rx.match("http://other.example/live/user1/pass1/15.m3u8"))
+        off = self.src(); off["accounts"]["list"][0]["on"] = False; off["accounts"]["list"][1]["on"] = False
+        self.assertEqual(pool.entries({"sources": [off]})[0], [])
+        self.assertEqual(pool.entries({"sources": [dict(self.src(), enabled=False)]})[0], [])
+        e, notes, _ = pool.entries({"sources": [self.src(max=None)]})
+        self.assertEqual(e, []); self.assertIn("лимит основного", notes[0])
+        e, notes, _ = pool.entries({"sources": [dict(self.src(), url="http://prov.example/pl.m3u8?token=1")]})
+        self.assertEqual(e, []); self.assertIn("Xtream", notes[0])
+
+    def test_jsonc_and_merge(self):
+        d = pool.load_jsonc('{\n // комментарий\n "a": "http://x.y/z", /* блок */ "pooler": [\n {"name": "cbilling", "pool": ["$$"]}, // шаблон\n ],\n}')
+        self.assertEqual(d["a"], "http://x.y/z")
+        defaults = d["pooler"]
+        ours, _, _ = pool.entries({"sources": [self.src()]})
+        m = pool.merge({}, defaults, ours)
+        self.assertEqual([x["name"] for x in m], ["cbilling", "e4tv-s1"])   # шаблон cbilling не теряем
+        self.assertIsNone(pool.merge({"pooler": m}, defaults, []))      # аккаунты убрали -> ключ pooler не нужен
+        mine = [{"name": "my-own", "pool": ["$$"]}] + m
+        self.assertEqual([x["name"] for x in pool.merge({"pooler": mine}, defaults, [])], ["my-own", "cbilling"])   # чужое сохраняем
+
+    def test_check_xc(self):
+        self.assertIn("внутри сети", app.check_xc({"url": "http://127.0.0.1:1/get.php?username=u&password=p"})["msg"])
+        self.assertFalse(app.check_xc({"url": "http://x/pl.m3u"})["ok"])
+        self.assertIn("латиница", app.check_xc({"url": self.URL, "user": "a b", "pw": "p"})["msg"])
+
+        import http.server
+        class H(http.server.BaseHTTPRequestHandler):
+            def log_message(self, *a): pass
+            def do_GET(self):
+                q = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
+                ok = q.get("username") == ["user2"] and q.get("password") == ["pass2"]
+                b = json.dumps({"user_info": {"auth": 1 if ok else 0, "status": "Active", "exp_date": "1893456000", "active_cons": "0", "max_connections": "2"}}).encode()
+                self.send_response(200); self.send_header("Content-Length", str(len(b))); self.end_headers(); self.wfile.write(b)
+        srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), H); threading.Thread(target=srv.serve_forever, daemon=True).start()
+        old = app.private_host; app.private_host = lambda h: False
+        try:
+            u = f"http://127.0.0.1:{srv.server_port}/get.php?username=user1&password=pass1"
+            r = app.check_xc({"url": u, "user": "user2", "pw": "pass2"})
+            self.assertTrue(r["ok"]); self.assertEqual(r["max"], 2); self.assertIn("Active", r["msg"])
+            self.assertIn("не подошли", app.check_xc({"url": u})["msg"])   # основной user1 этот сервер не пускает
+        finally:
+            app.private_host = old; srv.shutdown()
 
 
 if __name__ == "__main__":

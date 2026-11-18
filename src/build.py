@@ -166,7 +166,11 @@ def load_rules(log):
             nm = _clean(nm, 40)
             if nm in names or nm == "Свой": continue
             names.add(nm)
-            out["sources"].append({"id": sid, "name": nm, "url": u.strip(), "enabled": x.get("enabled") is not False})
+            src = {"id": sid, "name": nm, "url": u.strip(), "enabled": x.get("enabled") is not False}
+            import pool
+            acc = pool.clean_accounts(x.get("accounts"))   # аккаунты провайдера -> pooler HLS Proxy (apply_pool)
+            if acc: src["accounts"] = acc
+            out["sources"].append(src)
         out["disabled_sources"] = [_clean(x, 40) for x in (r.get("disabled_sources") or [])[:20] if isinstance(x, str)]
         ps = r.get("primary_source")
         out["primary_source"] = _clean(ps, 40) if isinstance(ps, str) and ps.strip() else None
@@ -304,6 +308,28 @@ def apply_stream_limit(R, log):
     except Exception as e:
         log.append(f"Лимит каналов не записан: {e}")
 
+def apply_pool(R, log):
+    """Режим hls: аккаунты провайдера из редактора -> pooler в local.json HLS Proxy (pool.py). Перезапуск — после сборки."""
+    if CONF["mode"] != "hls" or DRY: return
+    import pool
+    p = CONF["hls_dir"] + "/local.json"
+    try: c = json.load(open(p, encoding="utf-8"))
+    except Exception: return
+    ours, notes, totals = pool.entries(R or {})
+    log += notes
+    new = pool.merge(c, pool.default_pooler(CONF["hls_dir"] + "/default.json"), ours)
+    if new == c.get("pooler") or (new is None and "pooler" not in c): return
+    if new is None: c.pop("pooler", None)
+    else: c["pooler"] = new
+    try:
+        st = os.stat(p); tmp = p + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f: json.dump(c, f, ensure_ascii=False, indent=1)
+        os.chown(tmp, st.st_uid, st.st_gid); os.chmod(tmp, 0o600); os.replace(tmp, p)
+        names = {x["id"]: x["name"] for x in (R or {}).get("sources", [])}
+        log.append("HLS Proxy: аккаунты провайдера — " + (", ".join(f"{names.get(k, k)}: {n} подключений" for k, n in totals.items()) or "выключены"))
+    except Exception as e:
+        log.append(f"Аккаунты провайдера не записаны: {e}")
+
 def write_epg(ids):
     """Список каналов программы it999 для выбора EPG в редакторе: [[id, название], ...]."""
     if len(ids) < 500: return
@@ -322,6 +348,7 @@ def main():
     allc = []
     RULES = load_rules(log)
     apply_stream_limit(RULES, log)
+    apply_pool(RULES, log)
     R0 = RULES or {}
     prim = R0.get("primary_source") or PRIMARY_SRC
     srcs = [(n, u, n, True) for n, u in SRC if n not in R0.get("disabled_sources", [])]
