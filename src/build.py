@@ -10,6 +10,18 @@ EPG_HDR = CONF["epg_url"]
 DIR = CONF["build_dir"]
 OUT = sys.argv[sys.argv.index("--out")+1] if "--out" in sys.argv else CONF["combined"]
 DRY = "--dry" in sys.argv
+
+
+def stream_domains(urls, top=3):
+    """Самые частые домены потоков источника (только «имя.зона», без ссылок и токенов) — по ним редактор узнаёт провайдера."""
+    cnt = collections.Counter()
+    for u in urls:
+        m = re.match(r"^[a-z][a-z0-9+.-]*://(?:[^@/\s]*@)?([^/:\s?#]+)", u or "", re.I)
+        if not m: continue
+        h = m.group(1).lower()
+        cnt[h if re.fullmatch(r"[\d.]+", h) else ".".join(h.split(".")[-2:])] += 1
+    return [d for d, _ in cnt.most_common(top)]
+
 # Группы, которые не попадают в итоговый лист (точное имя или префикс с "*")
 PRIMARY_SRC = ""   # основной источник у дублей выбирается в редакторе
 EXCLUDE_GROUPS = []
@@ -166,7 +178,8 @@ def load_rules(log):
             nm = _clean(nm, 40)
             if nm in names or nm == "Свой": continue
             names.add(nm)
-            out["sources"].append({"id": sid, "name": nm, "url": u.strip(), "enabled": x.get("enabled") is not False})
+            out["sources"].append({"id": sid, "name": nm, "url": u.strip(), "enabled": x.get("enabled") is not False,
+                                   "nomerge": x.get("nomerge") is True})
         out["disabled_sources"] = [_clean(x, 40) for x in (r.get("disabled_sources") or [])[:20] if isinstance(x, str)]
         ps = r.get("primary_source")
         out["primary_source"] = _clean(ps, 40) if isinstance(ps, str) and ps.strip() else None
@@ -279,6 +292,23 @@ def finish_state(log, final_groups, allc, final=True):
     except Exception as e:
         print(f"state.json не записан: {e}")
 
+EXTRA_FILE = f"{DIR}/extra.m3u"   # «Ссылки на каналы → через сервер» для ссылок мимо источников; пишет lists.py
+EX_LINE = re.compile(r'^#EXTINF:-1 group-title="E4 extra",.{1,200} \[=[0-9a-f]{10}\]$')
+
+
+def extra_lines(log):
+    """Каналы из extra.m3u (только строгого вида: #EXTINF с меткой [=код] + http(s)-ссылка) — в конец общего списка для HLS Proxy.
+    В final.json и state.json не попадают: редактор их не показывает, в основной плейлист и плейлисты они не идут."""
+    try: L = open(EXTRA_FILE, encoding="utf-8").read().splitlines()
+    except OSError: return []
+    out = []
+    for a, b in zip(L[0::2], L[1::2]):
+        if EX_LINE.match(a) and re.match(r'^https?://[^\s"]{1,2000}$', b): out += [a, b]
+    if out: log.append(f"Через сервер (свои ссылки и отдельные плейлисты): {len(out) // 2} каналов")
+    return out[:2 * 5000]
+
+
+NM_MARK = " [~{}]"   # метка «не склеивать» в конце имени канала; убирает lists.py (NM_RX)
 NO_LIMIT = 999   # «без лимита» в local.json HLS Proxy (как он понимает 0 — не проверено, поэтому большое число)
 
 def apply_stream_limit(R, log):
@@ -350,13 +380,17 @@ def main():
             log.append(f"{name}: ОШИБКА загрузки ({e}) — источник пропущен")
             sinfo.append({"name": name, "count": 0, "status": f"ошибка: {e}"[:200]}); continue
         log.append(f"{name}: {len(items)} каналов ({st})")
-        sinfo.append({"name": name, "count": len(items), "status": st[:200]})
-    if not srcs:   # первый запуск: источников ещё нет — пустой снимок, чтобы редактор открылся
-        log.append("Источников пока нет. Откройте «Источники» в редакторе и добавьте ссылку на плейлист провайдера.")
+        sinfo.append({"name": name, "count": len(items), "status": st[:200], "hosts": stream_domains(c["url"] for c in items)})
+    if not srcs:   # включённых источников нет (или ещё не добавлены) — пустой снимок, чтобы редактор открылся
+        log.append("Включённых источников нет — общий плейлист пуст. Откройте «Источники» в редакторе: включите или добавьте ссылку на плейлист провайдера."
+                   if R0.get("sources") else "Источников пока нет. Откройте «Источники» в редакторе и добавьте ссылку на плейлист провайдера.")
         SNAP.update({"channels": [], "auto_order": [], "default_hidden": EXCLUDE_GROUPS, "warnings": [], "sources": sinfo,
                      "builtin_sources": [], "primary_source": prim})
-        if not os.path.exists(OUT):
-            with open(OUT, "w", encoding="utf-8") as f: f.write("#EXTM3U\n")
+        # Очищаем общий плейлист, а не оставляем прошлый: иначе HLS Proxy, плейлисты клиентов (lists.py) и автопроверка
+        # продолжают видеть каналы выключенных источников, а редактор показывает 0 (решение 17.11.2026)
+        if not DRY or not os.path.exists(OUT):
+            with open(OUT + ".tmp", "w", encoding="utf-8") as f: f.write("#EXTM3U\n")
+            os.replace(OUT + ".tmp", OUT)
         finish_state(log, [], []); print("\n".join(log)); return
     if not allc:   # все источники с ошибкой: показать ошибку в редакторе, старый плейлист не трогать
         SNAP.update({"channels": [], "auto_order": [], "default_hidden": EXCLUDE_GROUPS, "warnings": [], "sources": sinfo,
@@ -437,6 +471,14 @@ def main():
         seen_urls.add(c["url"]); uniq.append(c)
     if len(uniq) != len(allc): log.append(f"Убрано дублей по ссылке: {len(allc) - len(uniq)}")
     allc = uniq
+    # «Не склеивать с другими»: HLS Proxy склеивает каналы по имени, поэтому каналам такого источника дописываем
+    # служебную метку « [~<id>]». lists.py убирает её из названия при выдаче клиенту (решение 17.11.2026)
+    NM = {x["name"]: x["id"] for x in R0.get("sources", []) if x.get("enabled") and x.get("nomerge")}
+    nmc = 0
+    for c in allc:
+        if c["src"] in NM:
+            c.setdefault("k", c["name"].lower()); c["name"] = f'{c["name"]}{NM_MARK.format(NM[c["src"]])}'; nmc += 1
+    if NM: log.append(f"Не склеиваются с другими источниками: {nmc} каналов ({', '.join(NM)})")
     CORD = (RULES or {}).get("channel_order") or {}
     def okey(c):   # свой порядок каналов в группе (из редактора), остальные — после, по-старому
         o = CORD.get(c["new"])
@@ -459,6 +501,7 @@ def main():
         a = "".join(f' {k}="{v}"' for k, v in c["attrs"].items())
         out.append(f'#EXTINF:{c["dur"]}{a} group-title="{c.get("out", c["new"])}",{c["name"]}')
         out += c["extra"]; out.append(c["url"])
+    out += extra_lines(log)   # свои ссылки клиентов и отдельные плейлисты «через сервер» (их выбирает lists.py)
     tmp = OUT + ".tmp"; open(tmp, "w", encoding="utf-8").write("\n".join(out) + "\n"); os.chmod(tmp, 0o640); os.replace(tmp, OUT)
     fin = collections.Counter(c.get("out", c["new"]) for c in allc)
     log.append(f"Итого: {len(allc)} каналов, {len(fin)} групп -> {OUT}")

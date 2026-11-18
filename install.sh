@@ -9,7 +9,7 @@
 # Повторный запуск обновляет программу и сохраняет настройки.
 set -uo pipefail
 
-E4_VER="2.9"
+E4_VER="3.0"
 HLSP_VER="8.4.8"
 HLSP_URL="https://www.hls-proxy.com/downloads/${HLSP_VER}/hls-proxy-${HLSP_VER}.linux-x64.zip"
 HLSP_SHA256="96a2faad73df375e2ce1b92466f21f4389e07b79a038435343659c984e16b587"   # SHA-256 архива 8.4.8 (сверено 16.11.2026); пусто — не сверяется
@@ -254,10 +254,10 @@ install_files() {
   install -d -m 750 -o e4tv -g e4tv "$DATA/editor" "$DATA/editor/uploads"
   install -d -m 700 "$DATA/build" "$DATA/free"
   install -d -m 750 -o root -g www-data "$PL" "$PL/auth"
-  for f in app.py build.py lists.py e4conf.py index.html login.html; do install -m 644 "$SRC/$f" "$APP/$f"; done
+  for f in app.py build.py lists.py autocheck.py e4conf.py index.html login.html; do install -m 644 "$SRC/$f" "$APP/$f"; done
   install -d -m 755 "$APP/lib"; install -m 644 "$SRC"/lib/* "$APP/lib/"   # плееры hls.js и mpegts.js (Apache-2.0)
   install -m 755 "$SRC/e4tv" /usr/local/bin/e4tv
-  for t in apply.trigger lists.trigger update.trigger; do [ -f "$DATA/editor/$t" ] || install -m 640 -o e4tv -g e4tv /dev/null "$DATA/editor/$t"; done
+  for t in apply.trigger lists.trigger update.trigger check.trigger; do [ -f "$DATA/editor/$t" ] || install -m 640 -o e4tv -g e4tv /dev/null "$DATA/editor/$t"; done
   if [ ! -f "$DATA/editor/rules.json" ]; then   # новая установка: лимит каналов «Авто», если не задан --streams
     if [[ ${STREAMS:-} =~ ^[0-9]+$ ]] && [ "$STREAMS" -le 50 ]; then echo "{\"stream_limit_mode\": \"manual\", \"stream_limit\": $((10#$STREAMS))}"
     else echo '{"stream_limit_mode": "auto"}'; fi > "$DATA/editor/rules.json"
@@ -445,13 +445,19 @@ pl_locations() {
         access_log /var/log/nginx/e4tv-pl.log e4tv_pl;   # кто открывал ссылку (раздел «Клиенты» → активность)
     }
     # Xtream Codes: плеер входит по серверу, логину и паролю клиента (без входа в редактор)
-    location ~ "^/(player_api|get|xmltv|panel_api)\\.php\$" {
+    location ~ "^/(player_api|get|xmltv|panel_api|streaming/timeshift)\\.php\$" {
         proxy_pass http://127.0.0.1:8095;
         proxy_set_header Host \$host;
         proxy_set_header X-Real-IP \$remote_addr;
         access_log off;   # в адресе пароль клиента — в журнал не пишем
     }
     location ^~ /live/ {
+        proxy_pass http://127.0.0.1:8095;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        access_log off;
+    }
+    location ^~ /timeshift/ {   # архив через Xtream Codes
         proxy_pass http://127.0.0.1:8095;
         proxy_set_header Host \$host;
         proxy_set_header X-Real-IP \$remote_addr;
@@ -658,6 +664,47 @@ Unit=e4tv-update.service
 [Install]
 WantedBy=multi-user.target
 EOF
+  # по таймеру — только если автопроверка включена в редакторе; по кнопке — всегда (файл-триггер не перезаписываем, иначе петля)
+  local cu n a d
+  for cu in "check|--scheduled|автопроверка потоков по расписанию" "check-now|--now|проверка потоков по кнопке"; do
+    IFS='|' read -r n a d <<<"$cu"
+    cat > $U/e4tv-$n.service <<EOF
+[Unit]
+Description=Evgen4ik TV — $d
+Wants=network-online.target
+After=network-online.target e4tv-build.service
+
+[Service]
+Type=oneshot
+# ~2 с на канал у провайдера: 1000 каналов в 2 потока — около 17 минут
+TimeoutStartSec=3600
+Nice=10
+ExecStart=/usr/bin/python3 $APP/autocheck.py $a
+EOF
+  done
+  cat > $U/e4tv-check.path <<EOF
+[Unit]
+Description=Evgen4ik TV — кнопка «Проверить сейчас» в редакторе
+
+[Path]
+PathModified=$DATA/editor/check.trigger
+Unit=e4tv-check-now.service
+
+[Install]
+WantedBy=multi-user.target
+EOF
+  cat > $U/e4tv-check.timer <<EOF
+[Unit]
+Description=Evgen4ik TV — автопроверка потоков раз в сутки (после утренней сборки)
+
+[Timer]
+OnCalendar=*-*-* 06:30:00
+RandomizedDelaySec=900
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+EOF
   cat > $U/e4tv-activity.service <<EOF
 [Unit]
 Description=Evgen4ik TV — кто открывал плейлисты (журнал nginx)
@@ -681,7 +728,7 @@ EOF
   systemctl daemon-reload
   if [ "$MODE" = hls ]; then systemctl enable -q --now hls-proxy; systemctl restart hls-proxy
   elif [ -f "$HLS/.installed-by-e4tv" ]; then systemctl disable -q --now hls-proxy 2>/dev/null; warn "HLS Proxy остановлен (выбран режим без него). Файлы остались в $HLS."; fi
-  systemctl enable -q --now e4tv-editor.service e4tv-build.path e4tv-build.timer e4tv-lists.path e4tv-lists.timer e4tv-activity.timer e4tv-update.path
+  systemctl enable -q --now e4tv-editor.service e4tv-build.path e4tv-build.timer e4tv-lists.path e4tv-lists.timer e4tv-activity.timer e4tv-update.path e4tv-check.path e4tv-check.timer
   systemctl restart e4tv-editor.service
   ok "Службы запущены"
 }
@@ -708,11 +755,17 @@ first_build_and_check() {
 final_report() {
   local user; user=$(python3 -c 'import json;print(json.load(open("'"$ETC"'/auth.json"))["user"])' 2>/dev/null || echo admin)
   local main; main="$(conf_get public_base)$(conf_get main_token).m3u8"
+  # при обновлении пароль не меняется — сохраняем строку с ним из прошлого файла (до 2.9.1 она терялась)
+  local oldpw=""; [ -f "$CREDS" ] && oldpw=$(grep -m1 '^Пароль: ' "$CREDS" || true)
   {
     echo "Evgen4ik TV — доступ ($(date '+%d.%m.%Y %H:%M'))"
     echo "Редактор:          $(conf_get editor_url)"
     [ "$ACCESS" = login ] && echo "Логин:             $user"
-    [ "$ACCESS" = login ] && [ "${GENPW:-0}" = 1 ] && echo "Пароль:            $PASSWORD"
+    if [ "$ACCESS" = login ]; then
+      if [ "${GENPW:-0}" = 1 ]; then echo "Пароль:            $PASSWORD"
+      elif [ -n "$oldpw" ] && [ -z "$PASSWORD" ]; then echo "$oldpw"
+      elif [ -z "$PASSWORD" ]; then echo "Пароль:            (прежний; забыли — смените: e4tv passwd)"; fi
+    fi
     [ "$ACCESS" = tunnel ] && echo "Туннель с ПК:      ssh -N -L 8095:127.0.0.1:8095 root@$IP"
     echo "Основной плейлист: $main"
     echo "Программа (EPG):   $(conf_get player_epg)"

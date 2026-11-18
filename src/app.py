@@ -7,7 +7,7 @@
 (утренний таймер или кнопка «Применить» -> файл apply.trigger -> e4tv-build.path).
 Только стандартная библиотека Python.
 """
-import json, os, re, subprocess, time, glob, secrets, ssl, urllib.request, urllib.parse, urllib.error, hmac, hashlib, threading, sys, socket, ipaddress
+import json, os, re, subprocess, time, glob, secrets, ssl, urllib.request, urllib.parse, urllib.error, hmac, hashlib, threading, sys, socket, ipaddress, collections
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from e4conf import C as E4
@@ -23,7 +23,11 @@ ACTIVITY = f"{DATA}/activity.json"
 XC_FILE = f"{DATA}/xc.json"          # каналы клиентов для входа через Xtream Codes (собирает lists.py)
 XC_ACT = f"{DATA}/xc-activity.json"  # кто входил через Xtream и какой канал включал (пишет сам редактор)
 EPG = f"{DATA}/epg.json"
+AC_RESULT = f"{DATA}/autocheck.json"     # итог автопроверки потоков (пишет autocheck.py от root)
+AC_CONF = f"{DATA}/autocheck-conf.json"  # автопроверка: по расписанию или нет, сколько проверок одновременно
+CTRIGGER = f"{DATA}/check.trigger"       # кнопка «Проверить сейчас» -> e4tv-check.path
 PUBLIC_BASE = E4["public_base"]
+LINK_MODES = ("hls", "redirect", "direct")   # «Ссылки на каналы» у плейлиста/клиента (lists.py)
 URL_RX = re.compile(r"^(https?|rtmp|rtsp|udp|rtp)://[^\s\"]{1,2000}$", re.I)
 UPLOADS = E4["uploads"]
 FILE_RX = re.compile(r"^file://" + re.escape(UPLOADS) + r"/([a-z0-9]{4,16})\.m3u$")
@@ -155,6 +159,10 @@ def validate(r):
         src = {"id": sid, "name": s(x["name"], 40), "url": x["url"].strip(), "enabled": x.get("enabled") is not False}
         if re.fullmatch(r"[a-z0-9]{1,16}", str(x.get("prov") or "")): src["prov"] = x["prov"]   # шаблон провайдера (для лимита)
         if x.get("nolim") is True: src["nolim"] = True   # сторонний плейлист без лимита устройств (режим лимита «Авто»)
+        if x.get("nomerge") is True: src["nomerge"] = True   # не склеивать одноимённые каналы с другими источниками (HLS Proxy)
+        if x.get("pa") is True and "prov" in src: src["pa"] = True   # провайдер определён автоматически (по ссылке/потокам)
+        lim = x.get("lim")   # своё число устройств по тарифу (важнее шаблона провайдера)
+        if isinstance(lim, int) and not isinstance(lim, bool) and 1 <= lim <= 20: src["lim"] = lim
         out["sources"].append(src)
     out["disabled_sources"] = [s(x, 40) for x in (r.get("disabled_sources") or [])[:20] if s(x, 40)]
     out["primary_source"] = s(r.get("primary_source"), 40) or None
@@ -216,7 +224,9 @@ def validate(r):
                              "no_clients": L.get("no_clients") is True,   # общий плейлист, который нельзя давать клиентам
                              "xgroups": [s(g) for g in (L.get("xgroups") or [])[:3000] if s(g)],
                              "sources": [s(x, 40) for x in (L.get("sources") or [])[:20] if s(x, 40)],
-                             "chno": L["chno"] if isinstance(L.get("chno"), int) and not isinstance(L.get("chno"), bool) and 1 <= L["chno"] <= 99999 else None})
+                             "chno": L["chno"] if isinstance(L.get("chno"), int) and not isinstance(L.get("chno"), bool) and 1 <= L["chno"] <= 99999 else None,
+                             # ссылки провайдера: hls — полностью (через HLS Proxy), redirect — только в файле, direct — не скрывать; "" — как у всех
+                             "link_mode": L["link_mode"] if L.get("link_mode") in LINK_MODES else ""})
     # клиенты: люди со своей личной ссылкой, сроком и лимитом; файл плейлиста собирает lists.py
     lids = {L["id"] for L in out["lists"]}
     out["clients"], cids, ctoks = [], set(), {L["token"] for L in out["lists"]}
@@ -235,6 +245,7 @@ def validate(r):
                                "lists": [x for x in dict.fromkeys(str(x) for x in lst(c.get("lists"))[:50]) if x in lids],
                                "streams": st if isinstance(st, int) and not isinstance(st, bool) and 0 <= st <= 50 else 1,
                                "no_adult": c.get("no_adult") is True, "token": tok, "hls_pw": hp,
+                               "link_mode": c["link_mode"] if c.get("link_mode") in LINK_MODES else "",   # "" — как у плейлиста
                                # свой список поверх плейлистов: выключенные каналы, добавленные из основного, свои ссылки и свои каналы
                                "off": keys(c.get("off"), 5000), "add": keys(c.get("add"), 3000),
                                "urls": {k.lower()[:200]: u.strip() for k, u in list((c.get("urls") or {}).items())[:3000]
@@ -268,6 +279,10 @@ def validate(r):
         c["order"] = keys(src.get("order"), 8000)
     msg = r.get("client_msg")
     out["client_msg"] = re.sub(r"[\x00-\x09\x0b-\x1f\x7f]", " ", msg)[:2000] if isinstance(msg, str) else ""
+    # «Скрывать ссылки провайдера»: общая настройка (у плейлиста и клиента link_mode "" = как у всех)
+    out["link_mode"] = r["link_mode"] if r.get("link_mode") in LINK_MODES else ""
+    out["logo_proxy"] = r.get("logo_proxy") is not False   # логотипы через сервер
+    out["fallback"] = r.get("fallback") is not False       # своя ссылка не прошла через HLS Proxy — отдать «только в файле»
     seen_slug = set()
     for L in out["lists"]:
         if L["slug"] in seen_slug: L["slug"] = ""
@@ -420,6 +435,160 @@ def clean_uploads(rules):
             except OSError: pass
 
 
+def stream_domains(urls, top=3):
+    """Самые частые домены потоков («имя.зона», без ссылок и токенов) — как build.stream_domains."""
+    cnt = collections.Counter()
+    for u in urls:
+        m = re.match(r"^[a-z][a-z0-9+.-]*://(?:[^@/\s]*@)?([^/:\s?#]+)", u or "", re.I)
+        if not m: continue
+        h = m.group(1).lower()
+        cnt[h if re.fullmatch(r"[\d.]+", h) else ".".join(h.split(".")[-2:])] += 1
+    return [d for d, _ in cnt.most_common(top)]
+
+
+# ---------- значки провайдеров: favicon с официального сайта, скачивается сервером один раз ----------
+# Только подтверждённые сайты (18.11.2026). В установщик и на GitHub файлы значков не кладём — берём у провайдера.
+# Нет в списке / не скачалось — в редакторе остаются буквы. Адрес берётся только отсюда, не из запроса.
+PROV_SITES = {"sharavoz": "sharavoz.tv", "antifriz": "antifriz.tv", "ottclub": "ottclub.app",
+              "bittv": "bittv.ltd", "iptvonline": "iptv.online", "rutv": "rutv.vip"}
+# Telegram провайдера: ссылка с его официального сайта (Sharavoz, BitTV) или канал, сам ссылающийся на сайт (RUTV.VIP).
+# Если на сайте значка нет — берём аватар канала (og:image с t.me, картинка только с серверов Telegram)
+PROV_TG = {"sharavoz": "+UYr6eQahIFFiYTYy", "bittv": "BitTV_Forum", "rutv": "rutv_vip"}
+TG_IMG_RX = re.compile(r"^https://cdn\d*\.telesco\.pe/file/[A-Za-z0-9_\-]+\.(?:jpg|jpeg|png|webp)$|^https://cdn\d*\.telesco\.pe/file/[A-Za-z0-9_\-]+$")
+ICON_DIR = f"{DATA}/provicons"
+ICON_MAX = 200 * 1024
+ICON_LOCK = threading.Lock()
+
+
+def icon_type(b):
+    """Тип картинки по первым байтам; SVG не принимаем (в нём может быть скрипт)."""
+    if b[:8] == b"\x89PNG\r\n\x1a\n": return "image/png"
+    if b[:4] == b"\x00\x00\x01\x00": return "image/x-icon"
+    if b[:6] in (b"GIF87a", b"GIF89a"): return "image/gif"
+    if b[:3] == b"\xff\xd8\xff": return "image/jpeg"
+    if b[:4] == b"RIFF" and b[8:12] == b"WEBP": return "image/webp"
+    return None
+
+
+def _get(url, limit):
+    rq = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (Evgen4ik TV editor)"})
+    with urllib.request.urlopen(rq, timeout=8, context=ssl.create_default_context()) as r:
+        return r.read(limit + 1)
+
+
+def prov_icon(pid):
+    """(байты, тип) значка провайдера или None. Кэш 30 дней, неудача запоминается на сутки."""
+    site, tg = PROV_SITES.get(pid), PROV_TG.get(pid)
+    if not site and not tg: return None
+    p = f"{ICON_DIR}/{pid}"
+    with ICON_LOCK:
+        try:
+            if time.time() - os.path.getmtime(p) < 30 * 86400:
+                b = open(p, "rb").read(); t = icon_type(b)
+                if t: return b, t
+        except OSError: pass
+        try:
+            if time.time() - os.path.getmtime(p + ".fail") < 86400: return None
+        except OSError: pass
+        cands = []
+        if site:
+            try:   # <link rel="icon" | "shortcut icon" | "apple-touch-icon" href="…"> на главной
+                html = _get(f"https://{site}/", 262144).decode("utf-8", "replace")
+                for tag in re.findall(r"<link\b[^>]*>", html, re.I):
+                    if re.search(r'rel=["\'][^"\']*icon[^"\']*["\']', tag, re.I):
+                        m = re.search(r'href=["\']([^"\']+)["\']', tag, re.I)
+                        if m and not m.group(1).lower().split("?")[0].endswith(".svg"):
+                            cands.append(urllib.parse.urljoin(f"https://{site}/", m.group(1)))
+            except Exception: pass
+            cands.append(f"https://{site}/favicon.ico")
+        cands = cands[:6]
+        if tg:   # запасной вариант — аватар Telegram-канала
+            try:
+                html = _get(f"https://t.me/{tg}", 262144).decode("utf-8", "replace")
+                m = re.search(r'<meta property="og:image" content="([^"]+)"', html)
+                if m and TG_IMG_RX.match(m.group(1)): cands.append(m.group(1))
+            except Exception: pass
+        for u in cands:
+            if not u.startswith("https://"): continue
+            try:
+                b = _get(u, ICON_MAX)
+                if len(b) <= ICON_MAX and icon_type(b):
+                    os.makedirs(ICON_DIR, exist_ok=True)
+                    with open(p + ".tmp", "wb") as f: f.write(b)
+                    os.replace(p + ".tmp", p)
+                    try: os.remove(p + ".fail")
+                    except OSError: pass
+                    return b, icon_type(b)
+            except Exception: continue
+        try:
+            os.makedirs(ICON_DIR, exist_ok=True); open(p + ".fail", "w").close()
+        except OSError: pass
+        return None
+
+
+# ---------- «Ссылки на каналы»: перенаправление и логотипы через сервер (карту пишет lists.py в links.json) ----------
+# /live/_r/<ключ плейлиста>/<код> -> 302 на исходную ссылку; /live/_logo/<код> -> копия логотипа. Коды — HMAC от ссылки, не угадать.
+# Адреса под /live/ nginx уже пускает в редактор без входа (как Xtream), правка nginx не нужна.
+def add_query(u, raw_path):
+    """Дописать к ссылке то, что плеер добавил к нашей (архив: utc, lutc и т. п.). Только безопасные знаки и не длиннее 300."""
+    qs = raw_path.split("?", 1)[1] if "?" in raw_path else ""
+    if not qs or not re.fullmatch(r"[A-Za-z0-9_.:%=&+-]{1,300}", qs): return u
+    return u + ("&" if "?" in u else "?") + qs
+
+
+def local_tz():
+    """Часовой пояс сервера по-человечески (Europe/Moscow), для Xtream: плееры шлют время архива по нему."""
+    try:
+        p = os.path.realpath("/etc/localtime")
+        if "/zoneinfo/" in p: return p.split("/zoneinfo/", 1)[1]
+    except OSError: pass
+    return time.strftime("%Z") or "UTC"
+
+
+LINKS_FILE = f"{DATA}/links.json"
+LOGO_DIR = f"{DATA}/logos"
+LOGO_MAX = 512 * 1024
+_LINKS = {"m": None, "d": {}}
+
+
+def links():
+    try: m = os.path.getmtime(LINKS_FILE)
+    except OSError: return {}
+    if m != _LINKS["m"]:
+        d = read_json(LINKS_FILE, {}) or {}
+        d["t"] = {k: set(v) for k, v in (d.get("t") or {}).items() if isinstance(v, list)}
+        _LINKS.update(m=m, d=d)
+    return _LINKS["d"]
+
+
+def logo_get(h):
+    """(байты, тип) копии логотипа или None. Кэш 7 дней, неудача — сутки. Только картинки (не SVG)."""
+    u = (links().get("l") or {}).get(h)
+    if not isinstance(u, str) or not re.match(r"^https?://", u): return None
+    p = f"{LOGO_DIR}/{h}"
+    try:
+        if time.time() - os.path.getmtime(p) < 7 * 86400:
+            b = open(p, "rb").read(); t = icon_type(b)
+            if t: return b, t
+    except OSError: pass
+    try:
+        if time.time() - os.path.getmtime(p + ".fail") < 86400: return None
+    except OSError: pass
+    try:
+        rq = urllib.request.Request(u, headers={"User-Agent": "Mozilla/5.0 (Evgen4ik TV)"})
+        with urllib.request.urlopen(rq, timeout=8, context=ssl.create_default_context()) as r: b = r.read(LOGO_MAX + 1)
+        if len(b) <= LOGO_MAX and icon_type(b):
+            os.makedirs(LOGO_DIR, exist_ok=True)
+            with open(p + ".tmp", "wb") as f: f.write(b)
+            os.replace(p + ".tmp", p)
+            return b, icon_type(b)
+    except Exception: pass
+    try:
+        os.makedirs(LOGO_DIR, exist_ok=True); open(p + ".fail", "w").close()
+    except OSError: pass
+    return None
+
+
 def check_url(u):
     """Проверка потока: ответ сервера, тип, для m3u8 — сколько качеств/сегментов. Читаем не больше 256 КБ."""
     if isinstance(u, str) and FILE_RX.match(u.strip()):
@@ -441,11 +610,34 @@ def check_url(u):
             kind = f"поток HLS: {v} качеств" if v else f"поток HLS: {seg} сегментов"
         elif "#EXTM3U" in txt:
             kind = f"плейлист каналов: {txt.count('#EXTINF')}+ записей"
+            hosts = stream_domains(l.strip() for l in b.decode("utf-8", "replace").splitlines() if l.strip() and not l.startswith("#"))
+            return {"ok": code < 400, "msg": f"{code} · {kind} · {ms} мс", "hosts": hosts}   # домены потоков — узнать провайдера
         elif b[:1] == b"\x47" or "mp2t" in ct or "video" in ct: kind = "видеопоток"
         else: kind = f"не похоже на поток ({ct or 'без типа'}, {len(b)} байт)"; media = False
         return {"ok": code < 400 and media, "msg": f"{code} · {kind} · {ms} мс"}
     except Exception as e:
         return {"ok": False, "msg": str(getattr(e, "reason", e))[:200]}
+
+
+# ---------- автопроверка потоков (autocheck.py, служба e4tv-check) ----------
+def ac_conf():
+    n = read_json(AC_CONF, {}) or {}
+    n = n if isinstance(n, dict) else {}
+    try: w = max(1, min(6, int(n.get("workers", 2))))
+    except Exception: w = 2
+    return {"auto": bool(n.get("auto")), "workers": w}
+
+
+def autocheck_info():
+    return {"result": read_json(AC_RESULT, {}) or {}, "trigger_ready": os.path.exists(CTRIGGER), "conf": ac_conf()}
+
+
+def save_ac_conf(body):
+    if not isinstance(body, dict): raise ValueError("bad body")
+    try: w = max(1, min(6, int(body.get("workers", 2))))
+    except Exception: w = 2
+    write_json_atomic(AC_CONF, {"auto": bool(body.get("auto")), "workers": w})
+    return autocheck_info()
 
 
 def prep_status():
@@ -459,6 +651,13 @@ def prep_status():
     st = read_json(STATE, {}) or {}
     d["built_at"] = st.get("built_at")
     d["log"] = st.get("log", [])
+    d["warnings"] = st.get("warnings", [])
+    d["sources"] = [{k: x.get(k) for k in ("name", "count", "status", "hosts")} for x in (st.get("sources") or []) if isinstance(x, dict)]   # без ссылок
+    if E4["mode"] == "hls":   # для блока состояния в боковой панели
+        try: d["hls"] = subprocess.run(["systemctl", "is-active", "hls-proxy"], capture_output=True, text=True, timeout=5).stdout.strip()
+        except Exception: d["hls"] = "unknown"
+    r = read_json(AC_RESULT, {}) or {}
+    d["ac"] = {"at": r.get("at"), "total": r.get("total"), "ok": r.get("ok"), "bad": len(r.get("bad") or []), "error": r.get("error")} if r else {}
     d["lists"] = read_json(LSTATUS, {})
     d["activity"] = read_json(ACTIVITY, {})   # кто и когда открывал плейлисты (по журналу nginx, собирает lists.py --activity)
     with XC_ACT_LOCK: d["xc"] = dict(XC_ACT_MEM) if XC_ACT_MEM is not None else (read_json(XC_ACT, {}) or {})
@@ -550,7 +749,7 @@ def version_info(force=False):
 
 
 # ---------- Xtream Codes: вход в плеере по серверу, логину и паролю (TiviMate, IPTV Smarters, OTT Navigator…) ----------
-XC_PATHS = ("/player_api.php", "/get.php", "/xmltv.php", "/panel_api.php")
+XC_PATHS = ("/player_api.php", "/get.php", "/xmltv.php", "/panel_api.php", "/streaming/timeshift.php")
 XC_ACT_MEM, XC_ACT_LOCK, XC_ACT_T = None, threading.Lock(), [0.0]
 
 
@@ -635,25 +834,37 @@ class H(BaseHTTPRequestHandler):
         ip = self._ip(); ua = (self.headers.get("User-Agent") or "")[:200]
         if locked_for(ip): return self._send(429, {"user_info": {"auth": 0}})
         q = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
+        stream = path.startswith(("/live/", "/timeshift/")) or path == "/streaming/timeshift.php"   # ответ — переадресация на поток
+        ts_start = None   # архив: время начала (секунды UTC)
         if path.startswith("/live/"):   # /live/<логин>/<пароль>/<номер>.<ts|m3u8> -> ссылка на поток
             m = re.fullmatch(r"/live/([^/]{1,32})/([^/]{1,64})/(\d{1,6})(?:\.(?:ts|m3u8|m3u))?", path)
             if not m: return self._send(404, "not found", "text/plain")
-            q = {"username": [urllib.parse.unquote(m.group(1))], "password": [urllib.parse.unquote(m.group(2))]}
+            q = {"username": [urllib.parse.unquote(m.group(1))], "password": [urllib.parse.unquote(m.group(2))]}; sid = m.group(3)
+        elif stream:   # архив Xtream: /timeshift/<логин>/<пароль>/<минут>/<ГГГГ-ММ-ДД:ЧЧ-ММ>/<номер>.ts или /streaming/timeshift.php?…
+            m = re.fullmatch(r"/timeshift/([^/]{1,32})/([^/]{1,64})/(\d{1,5})/(\d{4}-\d{2}-\d{2}:\d{2}-\d{2})/(\d{1,6})(?:\.(?:ts|m3u8|m3u))?", path)
+            if m: q, start, sid = {"username": [urllib.parse.unquote(m.group(1))], "password": [urllib.parse.unquote(m.group(2))]}, m.group(4), m.group(5)
+            else: start, sid = (q.get("start") or [""])[0], (q.get("stream") or [""])[0].split(".")[0]
+            try: ts_start = int(time.mktime(time.strptime(start, "%Y-%m-%d:%H-%M")))   # время — в поясе сервера (server_info.timezone)
+            except (ValueError, OverflowError): return self._send(404, "not found", "text/plain")
+            if not sid.isdigit() or not 0 < time.time() - ts_start < 60 * 86400: return self._send(404, "not found", "text/plain")
         c, why = xc_user(q, ip)
         if not c:
             if why == "auth": add_fail(ip)
-            return self._send(403 if path.startswith("/live/") or why == "ip" else 200,
-                              {"user_info": {"auth": 0, "status": "Forbidden" if why == "ip" else ""}} if not path.startswith("/live/") else "forbidden",
-                              "application/json; charset=utf-8" if not path.startswith("/live/") else "text/plain")
+            return self._send(403 if stream or why == "ip" else 200,
+                              {"user_info": {"auth": 0, "status": "Forbidden" if why == "ip" else ""}} if not stream else "forbidden",
+                              "application/json; charset=utf-8" if not stream else "text/plain")
         st = xc_status(c); chans = c.get("channels") if st == "Active" else []
         host = self.headers.get("Host") or E4.get("host") or "localhost"
         proto = "https" if E4.get("scheme") == "https" else "http"
         base = f"{proto}://{host}"
-        if path.startswith("/live/"):
-            i = int(m.group(3)) - 1
+        if stream:
+            i = int(sid) - 1
             if st != "Active" or not (0 <= i < len(chans)): return self._send(404, "not found", "text/plain")
             xc_note(c["user"], ip, ua, chans[i]["name"])
-            return self._redirect(chans[i]["url"])
+            if ts_start is not None:   # архив: как плееры с M3U — ?utc=<начало>&lutc=<сейчас> (HLS Proxy передаёт это провайдеру)
+                if not chans[i].get("arch"): return self._send(404, "no archive", "text/plain")
+                u = chans[i]["url"]; return self._redirect(u + ("&" if "?" in u else "?") + f"utc={ts_start}&lutc={int(time.time())}")
+            return self._redirect(add_query(chans[i]["url"], self.path))
         if path == "/xmltv.php":
             return self._redirect(E4.get("player_epg") or E4["epg_url"])
         gm, cats = {}, []
@@ -666,6 +877,8 @@ class H(BaseHTTPRequestHandler):
             out = ["#EXTM3U"]
             for i, ch in enumerate(chans, 1):
                 a = (f' tvg-id="{ch["tvg_id"]}"' if ch.get("tvg_id") else "") + (f' tvg-logo="{ch["logo"]}"' if ch.get("logo") else "")
+                if ch.get("arch"):   # архив: плеер допишет ?utc=…&lutc=… к /live/…, редактор передаст дальше
+                    a += f' tvg-rec="{int(ch["arch"])}" catchup="append" catchup-days="{int(ch["arch"])}" catchup-source="?utc={{utc}}&lutc={{lutc}}"'
                 out += [f'#EXTINF:-1{a} group-title="{ch["group"]}",{ch["name"]}', f"{base}/live/{u}/{pw}/{i}.{ext}"]
             return self._send(200, "\n".join(out) + "\n", "audio/x-mpegurl; charset=utf-8")
         act = (q.get("action") or [""])[0]
@@ -678,17 +891,37 @@ class H(BaseHTTPRequestHandler):
                                                   "allowed_output_formats": ["m3u8", "ts"]},
                                     "server_info": {"url": host.rsplit(":", 1)[0] if ":" in host.split("]")[-1] else host, "port": port,
                                                     "https_port": "443", "server_protocol": proto, "rtmp_port": "0",
-                                                    "timezone": time.strftime("%Z") or "UTC", "timestamp_now": int(time.time()),
+                                                    "timezone": local_tz(), "timestamp_now": int(time.time()),
                                                     "time_now": time.strftime("%Y-%m-%d %H:%M:%S")}})
         if act == "get_live_categories": return self._send(200, cats)
         if act == "get_live_streams":
             want = (q.get("category_id") or [""])[0]
             return self._send(200, [{"num": i, "name": ch["name"], "stream_type": "live", "stream_id": i, "stream_icon": ch.get("logo") or "",
                                      "epg_channel_id": ch.get("tvg_id") or None, "added": "0", "is_adult": "0", "category_id": gm[ch["group"]],
-                                     "category_ids": [int(gm[ch["group"]])], "custom_sid": "", "tv_archive": 0, "direct_source": "", "tv_archive_duration": 0}
+                                     "category_ids": [int(gm[ch["group"]])], "custom_sid": "", "tv_archive": 1 if ch.get("arch") else 0, "direct_source": "",
+                                     "tv_archive_duration": int(ch.get("arch") or 0)}
                                     for i, ch in enumerate(chans, 1) if not want or gm[ch["group"]] == want])
         if act in ("get_short_epg", "get_simple_data_table"): return self._send(200, {"epg_listings": []})
         return self._send(200, [])   # фильмы и сериалы не поддерживаются
+
+    def _link(self, path):
+        m = re.fullmatch(r"/live/_r/([A-Za-z0-9_-]{3,64})/([0-9a-f]{16})", path)
+        if m:   # перенаправление: код должен быть в карте именно этого плейлиста (выключенный клиент — ссылки перестают работать)
+            d = links(); u = (d.get("u") or {}).get(m.group(2))
+            if not u or m.group(2) not in d.get("t", {}).get(m.group(1), ()): return self._send(404, "not found", "text/plain")
+            return self._redirect(add_query(u, self.path))   # архив: плеер дописывает ?utc=…&lutc=… — передаём провайдеру
+        m = re.fullmatch(r"/live/_logo/([0-9a-f]{16})", path)
+        r = logo_get(m.group(1)) if m else None
+        if not r:   # сайт картинки не отдал её серверу (бывает 403) — пусть плеер возьмёт сам, лишь бы логотип был
+            u = (links().get("l") or {}).get(m.group(1)) if m else None
+            if isinstance(u, str) and re.match(r"^https?://[^\s\"<>]{1,2000}$", u): return self._redirect(u)
+            return self._send(404, "not found", "text/plain")
+        b, t = r
+        self.send_response(200)
+        for k, v in (("Content-Type", t), ("Content-Length", str(len(b))), ("Cache-Control", "public, max-age=86400"),
+                     ("X-Content-Type-Options", "nosniff"), ("Content-Security-Policy", "default-src 'none'")):
+            self.send_header(k, v)
+        self.end_headers(); self.wfile.write(b)
 
     def _play(self, u):
         """Пересылка потока в браузер (у потоков обычно нет CORS). Плейлисты HLS переписываются на /api/play."""
@@ -792,7 +1025,9 @@ class H(BaseHTTPRequestHandler):
                 return self._send(200, f.read(), "text/html; charset=utf-8")
         if path == "/logout":
             return self._redirect("/login" if LOGIN_ON else "/", self._cookie("", 0))
-        if path in XC_PATHS or path.startswith("/live/"):   # Xtream Codes — без входа в редактор, по логину клиента
+        if path.startswith(("/live/_r/", "/live/_logo/")):   # «Ссылки на каналы»: перенаправление / логотип (без входа, как Xtream)
+            return self._link(path)
+        if path in XC_PATHS or path.startswith(("/live/", "/timeshift/")):   # Xtream Codes — без входа в редактор, по логину клиента
             return self._xc(path)
         if not self._session():
             return self._redirect("/login") if not path.startswith("/api/") else self._send(401, {"error": "нужен вход"})
@@ -821,6 +1056,17 @@ class H(BaseHTTPRequestHandler):
             return self._send(200, now_watching())
         if self.path == "/api/status":
             return self._send(200, prep_status())
+        if self.path == "/api/autocheck":
+            return self._send(200, autocheck_info())
+        if path.startswith("/api/provicon/") and re.fullmatch(r"[a-z0-9]{1,16}", path[14:]):   # значок провайдера (картинка)
+            r = prov_icon(path[14:])
+            if not r: return self._send(404, {"error": "нет значка"})
+            b, t = r
+            self.send_response(200)
+            for k, v in (("Content-Type", t), ("Content-Length", str(len(b))), ("Cache-Control", "private, max-age=86400"),
+                         ("X-Content-Type-Options", "nosniff"), ("Content-Security-Policy", "default-src 'none'"), ("Referrer-Policy", "no-referrer")):
+                self.send_header(k, v)
+            self.end_headers(); self.wfile.write(b); return
         return self._send(404, {"error": "not found"})
 
     def do_POST(self):
@@ -869,6 +1115,18 @@ class H(BaseHTTPRequestHandler):
             return self._send(200, {"ok": True})
         if self.path == "/api/check":
             return self._send(200, check_url(body.get("url")))
+        if self.path == "/api/rebuild":   # кнопка «Пересобрать» в боковой панели: сборка без сохранения правил
+            with open(TRIGGER, "w") as f: f.write(str(time.time()))
+            return self._send(200, {"ok": True})
+        if self.path == "/api/autocheck-conf":
+            try:
+                return self._send(200, save_ac_conf(body))
+            except ValueError as e:
+                return self._send(400, {"error": str(e)})
+        if self.path == "/api/autocheck-run":   # служба e4tv-check-now (root) проверит потоки
+            if not os.path.exists(CTRIGGER): return self._send(400, {"error": "автопроверка не настроена на сервере — обновите Evgen4ik TV"})
+            with open(CTRIGGER, "w") as f: f.write(str(time.time()))
+            return self._send(200, {"ok": True})
         if self.path == "/api/rules":
             try:
                 rules = validate(body.get("rules"))
@@ -880,7 +1138,7 @@ class H(BaseHTTPRequestHandler):
             clean_uploads(rules)
             if body.get("apply"):   # полная пересборка; листы пересоберутся после неё сами
                 with open(TRIGGER, "w") as f: f.write(str(time.time()))
-            elif old.get("lists") != rules["lists"] or old.get("lists_only_sources") != rules["lists_only_sources"] or old.get("free_sources") != rules["free_sources"] or (old.get("free_edits") or {}) != rules["free_edits"] or (old.get("clients") or []) != rules["clients"]:
+            elif old.get("lists") != rules["lists"] or any(old.get(k) != rules[k] for k in ("link_mode", "logo_proxy", "fallback")) or old.get("lists_only_sources") != rules["lists_only_sources"] or old.get("free_sources") != rules["free_sources"] or (old.get("free_edits") or {}) != rules["free_edits"] or (old.get("clients") or []) != rules["clients"]:
                 with open(LTRIGGER, "w") as f: f.write(str(time.time()))
             return self._send(200, {"ok": True, "applied": bool(body.get("apply")), "rules": rules})
         return self._send(404, {"error": "not found"})

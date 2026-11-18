@@ -3,7 +3,7 @@
 set -u
 CONF=${E4TV_CONF:-/etc/evgen4ik-tv/config.json}
 APP=/opt/evgen4ik-tv
-UNITS="e4tv-editor.service e4tv-build.path e4tv-build.timer e4tv-lists.path e4tv-lists.timer e4tv-activity.timer e4tv-update.path"
+UNITS="e4tv-editor.service e4tv-build.path e4tv-build.timer e4tv-lists.path e4tv-lists.timer e4tv-activity.timer e4tv-update.path e4tv-check.path e4tv-check.timer"
 
 c() { python3 -c 'import json,sys; c=json.load(open(sys.argv[1])); v=c
 for k in sys.argv[2].split("."): v=v.get(k,"") if isinstance(v,dict) else ""
@@ -129,13 +129,16 @@ P
     exec bash "$T" --update --yes ;;   # exec: установщик перезапишет этот файл; get.sh сам сверяет SHA-256 установщика
   rebuild)
     need_root "$@"; date +%s > "$(c data)/editor/apply.trigger"; echo "Пересборка запущена. Ход: e4tv logs" ;;
-  logs) journalctl -u e4tv-build -u e4tv-lists -u e4tv-editor -n "${2:-80}" --no-pager ;;
+  check)   # проверить потоки сейчас; итог — в редакторе («Источники» → «Автопроверка потоков»)
+    need_root "$@"
+    echo "Проверяю потоки (может занять несколько минут)…"; python3 "$APP/autocheck.py" ;;
+  logs) journalctl -u e4tv-build -u e4tv-lists -u e4tv-editor -u e4tv-check -u e4tv-check-now -n "${2:-80}" --no-pager ;;
   uninstall)
     need_root "$@"
     echo "Будут удалены службы e4tv-*, программа $APP, сайт nginx evgen4ik-tv и команда e4tv."
     [ "${2:-}" = --purge ] && echo "А также ВСЕ данные: правила, плейлисты, настройки и HLS Proxy (если ставился этим установщиком)."
     read -r -p "Для подтверждения введите УДАЛИТЬ: " a; [ "$a" = "УДАЛИТЬ" ] || { echo "Отменено"; exit 1; }
-    systemctl disable --now $UNITS e4tv-build.service e4tv-lists.service 2>/dev/null
+    systemctl disable --now $UNITS e4tv-build.service e4tv-lists.service e4tv-check.service e4tv-check-now.service 2>/dev/null
     rm -f /etc/systemd/system/e4tv-*.service /etc/systemd/system/e4tv-*.path /etc/systemd/system/e4tv-*.timer
     rm -f /etc/nginx/sites-enabled/evgen4ik-tv /etc/nginx/sites-available/evgen4ik-tv /etc/letsencrypt/renewal-hooks/deploy/e4tv.sh /etc/nginx/e4tv-acl.conf
     systemctl reload nginx 2>/dev/null
@@ -152,6 +155,7 @@ e4tv passwd     — сменить логин/пароль редактора
 e4tv token      — новая ссылка основного плейлиста (старая перестанет работать)
 e4tv update     — обновить до последней версии с GitHub
 e4tv rebuild    — пересобрать плейлист сейчас
+e4tv check      — проверить потоки сейчас
 e4tv streams N  — сколько каналов одновременно (лимит провайдера, режим с HLS Proxy); 0 — без лимита
 e4tv logs [N]   — последние строки журнала
 e4tv uninstall [--purge] — удалить (с --purge — вместе с данными)

@@ -6,7 +6,7 @@
 Оставляет каналы, выбранные в плейлисте (rules.json -> lists), и пишет <pl_dir>/<token>.m3u8; nginx отдаёт их по /pl/.
 Запуск: после пересборки (e4tv-build) и при сохранении плейлистов (e4tv-lists.path), а также раз в час.
 """
-import json, os, re, ssl, sys, time, urllib.request, urllib.parse, glob, grp, hashlib, base64, datetime
+import json, os, re, ssl, sys, time, urllib.request, urllib.parse, glob, grp, hashlib, hmac, base64, datetime
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from e4conf import C as E4
 
@@ -17,6 +17,32 @@ OUTDIR = E4["pl_dir"]
 CONF = E4["hls_dir"] + "/local.json"
 MAIN = E4["main_token"] if re.fullmatch(r"[A-Za-z0-9_-]{16,64}", str(E4.get("main_token") or "")) else None
 TOK = re.compile(r"^[A-Za-z0-9_-]{16,64}$")
+NM_RX = re.compile(r" \[~[a-z0-9]{1,16}\]$")   # метка «не склеивать» (build.py NM_MARK) в конце имени канала
+EX_RX = re.compile(r" \[=([0-9a-f]{10})\]$")   # метка своего канала «через сервер» (extra.m3u -> build.py -> HLS Proxy)
+MARK_RX = re.compile(r" \[(?:~[a-z0-9]{1,16}|=[0-9a-f]{10})\]$")
+
+
+def unmark(lines):
+    """Убрать служебные метки («не склеивать», «свой канал через сервер») из названия канала: клиент видит обычное имя."""
+    if lines and lines[0].startswith("#EXTINF") and MARK_RX.search(lines[0].rstrip()):
+        lines = list(lines); lines[0] = MARK_RX.sub("", lines[0].rstrip())
+    return lines
+
+
+QUAL_RX = re.compile(r"\s+(?:hd|fhd|uhd|4k)$", re.I)   # HLS Proxy отрезает это слово в конце названия
+
+
+def with_quality_aliases(fmap):
+    """HLS Proxy убирает из названия последнее слово HD/FHD/UHD/4K («Кино HD» -> «Кино»), а final.json хранит полные имена.
+    Добавляем короткие имена как запасные ключи, чтобы такие каналы не терялись (проверено на стенде 18.11.2026:
+    462 из 462 расхождений — именно эти приписки). Точное имя всегда важнее: существующие ключи не трогаем."""
+    out = dict(fmap)
+    for k, v in fmap.items():
+        a = QUAL_RX.sub("", k)
+        if a != k and a and a not in out: out[a] = v
+    return out
+
+
 SLUG = re.compile(r"^[a-z0-9][a-z0-9-]{2,31}$")
 PASS = re.compile(r"^[A-Za-z0-9_-]{4,64}$")
 ADULT_GROUPS = {"18+"}
@@ -304,6 +330,166 @@ def _url_idx(lines):
     return None
 
 
+# ---------- «Ссылки на каналы»: через сервер / перенаправление / напрямую (у плейлиста и у клиента) ----------
+LINK_MODES = ("hls", "redirect", "direct")
+DEF_MODE = "hls" if E4["mode"] == "hls" else "redirect"
+GMODE, GFB, GLP = "", True, True   # общая настройка из rules.json (main() задаёт)
+LINKS_FILE = E4["editor_dir"] + "/links.json"      # карта перенаправлений и логотипов для app.py (/live/_r/…, /live/_logo/…)
+SALT_FILE = E4["editor_dir"] + "/links.salt"
+EXTRA_FILE = E4["build_dir"] + "/extra.m3u"        # свои каналы «через сервер» для HLS Proxy (читает build.py)
+EXTRA_MAX = 5000
+
+
+def _base():
+    """Адрес редактора для ссылок /live/… (nginx пускает /live/ в редактор без входа): public_base без /pl/."""
+    b = str(E4.get("public_base") or "").rstrip("/")
+    return re.sub(r"/pl$", "", b) if re.match(r"^https?://", b) else ""
+
+
+ARCH_RX = re.compile(r'\s+(?:tvg-rec|timeshift|catchup|catchup-days|catchup-type|catchup-source|catchup-correction)="[^"]*"')
+
+
+def arch_days(l0):
+    """Сколько дней архива у канала по строке #EXTINF (tvg-rec, catchup-days, timeshift; catchup без дней — 1). 0 — нет архива."""
+    a = dict(re.findall(r'([\w-]+)="([^"]*)"', l0))
+    n = 0
+    for k in ("tvg-rec", "catchup-days", "timeshift"):
+        v = a.get(k, "")
+        if v.isdigit(): n = max(n, min(int(v), 60))
+    if not n and a.get("catchup") and a["catchup"] not in ("0", "none", "disabled"): n = 1
+    return n
+
+
+def x10(url):
+    return hashlib.sha1(url.encode()).hexdigest()[:10]
+
+
+class Links:
+    """Выбирает ссылку канала по режиму и собирает карту перенаправлений/логотипов для links.json."""
+    def __init__(self, items):
+        self.base = _base()
+        try: self.salt = open(SALT_FILE, "rb").read()
+        except OSError: self.salt = b""
+        if len(self.salt) < 16:
+            self.salt = os.urandom(32)
+            try:
+                with open(SALT_FILE, "wb") as f: f.write(self.salt)
+                os.chmod(SALT_FILE, 0o600)
+            except OSError: pass
+        self.u, self.t, self.l, self.need = {}, {}, {}, {}
+        self.own = {urllib.parse.urlsplit(x).hostname for x in (self.base, E4.get("hls_url") or "", E4.get("public_base") or "") if x} - {None}
+        self.orig = {}   # имя канала (как в общем списке) -> исходная ссылка провайдера: для «перенаправления» и «напрямую»
+        self.arc = {}    # имя канала -> дней архива у ОСНОВНОГО источника (первая ссылка; ей HLS Proxy и шлёт запрос архива)
+        self.arch_off = 0
+        try:
+            for it in parse(open(E4["combined"], encoding="utf-8", errors="replace").read())[1]:
+                if EX_RX.search(it["name"]): continue
+                i = _url_idx(it["lines"])
+                if i is not None and it["name"].lower() not in self.orig:
+                    self.orig[it["name"].lower()] = it["lines"][i].strip(); self.arc[it["name"].lower()] = arch_days(it["lines"][0])
+        except OSError: pass
+        for k, v in list(self.orig.items()):   # HLS Proxy отрезает HD/FHD/UHD/4K в конце названия
+            q = QUAL_RX.sub("", k)
+            if q not in self.orig: self.orig[q] = v; self.arc[q] = self.arc[k]
+        self.ex = {}     # код своего канала -> строки из HLS Proxy (общий логин), если он уже там
+        for it in items or []:
+            m = EX_RX.search(it["name"])
+            if m: self.ex[m.group(1)] = it["lines"]
+
+    def h(self, url):
+        return hmac.new(self.salt, url.encode(), hashlib.sha256).hexdigest()[:16]
+
+    def redirect(self, tok, url):
+        hx = self.h(url); self.u[hx] = url; self.t.setdefault(tok, set()).add(hx)
+        return f"{self.base}/live/_r/{tok}/{hx}"
+
+    def logo(self, l0):
+        m = re.search(r'tvg-logo="(https?://[^"]+)"', l0)
+        if not m or not self.base or urllib.parse.urlsplit(m.group(1)).hostname in self.own: return l0
+        hx = self.h(m.group(1)); self.l[hx] = m.group(1)
+        return l0[:m.start(1)] + f"{self.base}/live/_logo/{hx}" + l0[m.end(1):]
+
+    def mode(self, mode):
+        """Режим, который реально получится: без HLS Proxy «через сервер» невозможно, без адреса редактора — перенаправление."""
+        m = mode if mode in LINK_MODES else DEF_MODE
+        if m == "hls" and E4["mode"] != "hls": m = "redirect"
+        if m == "redirect" and not self.base: m = "direct"
+        return m
+
+    def apply(self, lines, kind, mode, tok, fb=True, lp=True, ex=None, rn=None):
+        """lines — строки канала; kind: hls (канал источника, ссылка HLS Proxy/исходная) или ext (своя ссылка / отдельный плейлист).
+        rn — имя канала в HLS Proxy с меткой «не склеивать» (по нему ищется исходная ссылка именно его источника).
+        Возвращает (строки, как отдан) или (None, "drop"). ex — свои каналы в HLS Proxy под логином этого клиента."""
+        lines = list(lines); i = _url_idx(lines)
+        if i is None: return None, "drop"
+        cur = lines[i].strip()
+        m = self.mode(mode)
+        name = INF.match(lines[0]).group(1).strip().lower() if INF.match(lines[0]) else ""
+        key = (rn or name).lower()
+        src = cur if kind == "ext" or E4["mode"] != "hls" else (self.orig.get(key) or self.orig.get(QUAL_RX.sub("", key)))
+        if kind == "hls" and ARCH_RX.search(lines[0]) and arch_days(lines[0]):   # склеенный канал: метка архива могла прийти от запасного источника
+            d = self.arc.get(key, self.arc.get(QUAL_RX.sub("", key)))
+            if d == 0: lines[0] = ARCH_RX.sub("", lines[0]); self.arch_off += 1   # у основного архива нет — запись не откроется
+        via = m
+        if m == "hls":
+            if kind == "ext":
+                hl = None
+                if re.match(r"^https?://", cur):
+                    x = x10(cur); self.need[x] = (re.sub(r'[\r\n",]', " ", name)[:120] or "channel", cur)
+                    hl = (ex if ex is not None else self.ex).get(x)
+                j = _url_idx(hl) if hl else None
+                if j is not None: lines[i] = hl[j]
+                elif fb and self.base: lines[i] = self.redirect(tok, cur); via = "redirect"
+                else: return None, "drop"
+        elif m == "redirect":
+            if src: lines[i] = self.redirect(tok, src)
+            else: via = "hls"   # исходная ссылка неизвестна — остаётся ссылка сервера
+        else:
+            if src: lines[i] = src
+            else: via = "hls"
+        if lp: lines[0] = self.logo(lines[0])
+        return lines, via
+
+    def save(self, wgid):
+        d = {"u": self.u, "t": {k: sorted(v) for k, v in self.t.items()}, "l": self.l}
+        tmp = LINKS_FILE + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f: json.dump(d, f)
+        try: os.chown(tmp, 0, grp.getgrnam(E4.get("editor_group", "e4tv")).gr_gid)
+        except Exception: pass
+        os.chmod(tmp, 0o640); os.replace(tmp, LINKS_FILE)
+
+    def sync_extra(self):
+        """Свои каналы «через сервер»: записать extra.m3u и, если HLS Proxy их ещё не знает, дописать в общий список и перезапустить его.
+        True — HLS Proxy перезапущен, плейлисты надо собрать ещё раз (тогда ссылки станут ссылками сервера)."""
+        need = dict(list(self.need.items())[:EXTRA_MAX])
+        txt = "".join(f'#EXTINF:-1 group-title="E4 extra",{n} [={x}]\n{u}\n' for x, (n, u) in sorted(need.items()))
+        try: old = open(EXTRA_FILE, encoding="utf-8").read()
+        except OSError: old = ""
+        if txt != old:
+            try:
+                os.makedirs(os.path.dirname(EXTRA_FILE), exist_ok=True)
+                with open(EXTRA_FILE + ".tmp", "w", encoding="utf-8") as f: f.write(txt)
+                os.replace(EXTRA_FILE + ".tmp", EXTRA_FILE)
+            except OSError as e: print("extra.m3u:", e); return False
+        if E4["mode"] != "hls" or set(need) <= set(self.ex): return False
+        p = E4["combined"]   # дописываем сами, чтобы не ждать полной пересборки; build.py дальше берёт extra.m3u сам
+        try:
+            st_ = os.stat(p); head, items = parse(open(p, encoding="utf-8", errors="replace").read())
+            body = [l for it in items if not EX_RX.search(it["name"]) for l in it["lines"]]
+            with open(p + ".tmp", "w", encoding="utf-8") as f: f.write("\n".join([head] + body) + "\n" + txt)
+            os.chown(p + ".tmp", st_.st_uid, st_.st_gid); os.chmod(p + ".tmp", st_.st_mode & 0o777); os.replace(p + ".tmp", p)
+        except OSError as e: print("общий список:", e); return False
+        import subprocess
+        try: subprocess.run(["systemctl", "restart", "hls-proxy"], timeout=60)
+        except Exception as e: print("не удалось перезапустить HLS Proxy:", e); return False
+        try:
+            with open(E4["build_dir"] + "/hls.sha256", "w") as f: f.write(_hls_hash() + "  -\n")
+        except OSError: pass
+        print(f"через сервер: в HLS Proxy добавлено своих каналов: {len(set(need) - set(self.ex))}")
+        time.sleep(3)
+        return True
+
+
 XCCH = {}   # id клиента -> каналы для Xtream Codes
 
 
@@ -315,7 +501,7 @@ def xc_channels(lines):
             a = dict(re.findall(r'([\w-]+)="([^"]*)"', l))
             m = INF.match(l)
             cur = {"name": (m.group(1).strip() if m else "") or a.get("tvg-name", "") or "Канал", "group": a.get("group-title") or "Без группы",
-                   "logo": a.get("tvg-logo", ""), "tvg_id": a.get("tvg-id", "")}
+                   "logo": a.get("tvg-logo", ""), "tvg_id": a.get("tvg-id", ""), "arch": arch_days(l)}
         elif l.startswith("#") or not l.strip(): continue
         elif cur: cur["url"] = l.strip(); out.append(cur); cur = None
     return out
@@ -369,7 +555,7 @@ def write_acl(clients):
         print("не удалось обновить nginx:", e)
 
 
-def build_clients(active, LOUT, head, keep, wgid, st, items=None, fmap=None):
+def build_clients(active, LOUT, head, keep, wgid, st, items=None, fmap=None, LK=None):
     """Личный плейлист клиента: каналы выбранных ему плейлистов (без повторов) + его правки:
     off — выключенные каналы, add — добавленные из основного, extra — свои каналы, urls — своя ссылка у канала.
     В режиме hls ссылки — под логином клиента (кроме своих ссылок и отдельных плейлистов: они идут напрямую)."""
@@ -377,7 +563,8 @@ def build_clients(active, LOUT, head, keep, wgid, st, items=None, fmap=None):
     kmap = {}   # ключ канала основного плейлиста -> (строки, группа)
     for it in items or []:
         m = (fmap or {}).get(it["name"].lower())
-        if m and m[0] not in kmap: kmap[m[0]] = (it, m[1])
+        if EX_RX.search(it["name"]): continue
+        if m and (m[0] not in kmap or NM_RX.search(kmap[m[0]][0]["name"])): kmap[m[0]] = (it, m[1])   # как в основном: без «не склеивать»
     for x in active:
         cid = str(x["id"])
         OFF, URLS = set(x.get("off") or []), x.get("urls") if isinstance(x.get("urls"), dict) else {}
@@ -385,19 +572,19 @@ def build_clients(active, LOUT, head, keep, wgid, st, items=None, fmap=None):
         kid = lambda g: x.get("no_adult") and (g in ADULT_GROUPS or "18+" in g)
         for lid in x.get("lists") or []:
             for e in LOUT.get(lid, []):
-                if e["n"] in seen or e.get("k") in OFF or kid(e["g"]): continue
-                seen.add(e["n"]); ent.append(e)
+                if e["n"] in seen or e.get("k") in seen or e.get("k") in OFF or kid(e["g"]): continue   # по k: «не склеивать» и тёзка — один раз
+                seen.add(e["n"]); seen.add(e.get("k")); ent.append(e)
         for k in x.get("add") or []:   # добавленные вручную из основного плейлиста
             if k in OFF or k not in kmap: continue
             it, g = kmap[k]
-            if it["name"].lower() in seen or kid(g): continue
-            seen.add(it["name"].lower()); ent.append({"n": it["name"].lower(), "k": k, "free": False, "lines": list(it["lines"]), "g": g})
+            if it["name"].lower() in seen or k in seen or kid(g): continue
+            seen.add(it["name"].lower()); seen.add(k); ent.append({"n": it["name"].lower(), "k": k, "free": False, "lines": unmark(list(it["lines"])), "g": g, "rn": it["name"]})
         for j, e in enumerate(ent):   # своя ссылка у канала: идёт напрямую, мимо HLS Proxy (копия — записи общие для всех клиентов)
             u = URLS.get(e.get("k"))
             i = _url_idx(e["lines"]) if u and URLOK.match(u) else None
             if i is not None:
                 ln = list(e["lines"]); ln[i] = u
-                ent[j] = dict(e, lines=ln, free=True)
+                ent[j] = dict(e, lines=ln, free=True, kind="ext")
         for c in x.get("extra") or []:   # свои каналы клиента
             if not (isinstance(c, dict) and c.get("name") and URLOK.match(str(c.get("url", "")))) or ("x:" + str(c.get("id"))) in OFF: continue
             nm = re.sub(r"\s{2,}", " ", re.sub(r'[\r\n,"]', " ", c["name"])).strip(); gr = re.sub(r'[\r\n"]', " ", c.get("group") or "Мои каналы").strip()
@@ -406,8 +593,10 @@ def build_clients(active, LOUT, head, keep, wgid, st, items=None, fmap=None):
                         "lines": [f'#EXTINF:-1{lg} group-title="{gr}",{nm}', c["url"]]})
         ORD = {k: i for i, k in enumerate(x.get("order") or [])}
         if ORD: ent.sort(key=lambda e: ORD.get(e.get("k"), 10**6))   # свой порядок клиента (перетаскивание), остальные — после
-        cmap, miss = None, 0
-        if E4["mode"] == "hls" and any(not e["free"] for e in ent):
+        cm = x.get("link_mode") if x.get("link_mode") in LINK_MODES else ""   # пусто = как у плейлиста
+        emode = lambda e: LK.mode(cm or e.get("lm") or GMODE) if LK else "hls"
+        cmap, miss, via = None, 0, {}
+        if E4["mode"] == "hls" and any(emode(e) == "hls" for e in ent):
             t0, err = time.time(), None
             while True:   # после перезапуска HLS Proxy логин появляется не сразу
                 try: cmap = {it["name"].lower(): it["lines"] for it in parse(master(HPFX + cid, x.get("hls_pw") or ""))[1]}; break
@@ -416,19 +605,27 @@ def build_clients(active, LOUT, head, keep, wgid, st, items=None, fmap=None):
                     if time.time() - t0 > 45: break
                     time.sleep(5)
             if cmap is None: st["clients_err"][cid] = f"HLS Proxy не отдал плейлист клиента: {err}"; continue
+        cex = {m.group(1): ln for n, ln in (cmap or {}).items() for m in [EX_RX.search(n)] if m}   # свои каналы под логином клиента
         out = [head]
         for e in ent:
             lines = list(e["lines"])
             if multi: lines[0] = re.sub(r'\s+tvg-chno="[^"]*"', "", lines[0])   # номера из разных плейлистов совпали бы
-            if cmap is not None and not e["free"]:
+            em, kind = emode(e), e.get("kind") or ("ext" if e["free"] else "hls")
+            if cmap is not None and kind == "hls" and em == "hls":
                 cl = cmap.get(e["n"]); i, j = _url_idx(lines), (_url_idx(cl) if cl else None)
                 if i is None or j is None: miss += 1; continue   # без своей ссылки клиент шёл бы мимо своего лимита
                 lines[i] = cl[j]
+            if LK:
+                lines, how = LK.apply(lines, kind, em, x["token"], e.get("fb", GFB), e.get("lp", GLP), ex=cex if cmap is not None else None,
+                                      rn=e.get("rn"))
+                via[how] = via.get(how, 0) + 1
+                if not lines: continue
             out += lines
         fn = f"{OUTDIR}/{x['token']}.m3u8"; tmp = fn + ".tmp"
         with open(tmp, "w", encoding="utf-8") as f: f.write("\n".join(out) + "\n")
         os.chown(tmp, 0, wgid); os.chmod(tmp, 0o640); os.replace(tmp, fn); keep.add(fn)
-        st["clients"][cid] = {"channels": sum(1 for l in out if l.startswith("#EXTINF")), "missing": miss}
+        st["clients"][cid] = {"channels": sum(1 for l in out if l.startswith("#EXTINF")), "missing": miss, "via": via,
+                              "mode": LK.mode(cm) if (LK and cm) else ""}
         XCCH[cid] = xc_channels(out)
 
 
@@ -483,6 +680,9 @@ def activity():
 
 def main():
     rules = rj(RULES, {}) or {}
+    global GMODE, GFB, GLP   # общая настройка «Скрывать ссылки провайдера» (у плейлиста и клиента "" = как у всех)
+    GMODE = rules.get("link_mode") if rules.get("link_mode") in LINK_MODES else ""
+    GFB, GLP = rules.get("fallback") is not False, rules.get("logo_proxy") is not False
     alll = [x for x in (rules.get("lists") or []) if isinstance(x, dict) and TOK.match(str(x.get("token", "")))]
     # выключенный или просроченный плейлист: файла нет, ссылка отдаёт 404
     lists = [x for x in alll if x.get("enabled") is not False and not expired(x)]
@@ -493,6 +693,8 @@ def main():
     active = [x for x in clients if x.get("enabled") is not False and not expired(x)]
     AUTH = f"{OUTDIR}/auth"
     fmap = rj(FINAL, {}) or {}
+    nfin = len(fmap)   # каналов в основном (для ожидания HLS Proxy) — до запасных ключей
+    fmap = with_quality_aliases(fmap)
     os.makedirs(OUTDIR, exist_ok=True)
     try: wgid = grp.getgrnam("www-data").gr_gid
     except KeyError: wgid = -1
@@ -515,15 +717,17 @@ def main():
         while True:   # после перезапуска HLS Proxy плейлист появляется не сразу
             try:
                 head, items = parse(master())
-                if not fmap or len(items) >= 0.8 * len(fmap) or time.time() - t0 > WAIT: break
+                if not nfin or len(items) >= 0.8 * nfin or time.time() - t0 > WAIT: break
             except Exception as e:
                 if time.time() - t0 > WAIT: st["error"] = str(e); items = None; break
             time.sleep(5)
+        LK = Links(items)   # «Ссылки на каналы»: через сервер / перенаправление / напрямую
         if items is not None and MAIN:   # основной плейлист: всё, что собрано
             fn = f"{OUTDIR}/{MAIN}.m3u8"; tmp = fn + ".tmp"
-            with open(tmp, "w", encoding="utf-8") as f: f.write("\n".join([head] + [l for it in items for l in it["lines"]]) + "\n")
+            mi = [it for it in items if not NM_RX.search(it["name"]) and not EX_RX.search(it["name"])]   # «не склеивать» и свои каналы — не сюда
+            with open(tmp, "w", encoding="utf-8") as f: f.write("\n".join([head] + [l for it in mi for l in it["lines"]]) + "\n")
             os.chown(tmp, 0, wgid); os.chmod(tmp, 0o640); os.replace(tmp, fn); keep.add(fn)
-            st["main"] = {"channels": len(items)}
+            st["main"] = {"channels": len(mi)}
         if items is not None:
             for L in calc:
                 G, C, X = set(L.get("groups") or []), set(L.get("channels") or []), set(L.get("exclude") or [])
@@ -532,11 +736,15 @@ def main():
                 ALLG, XG = L.get("all") is True, set(L.get("xgroups") or [])
                 num = L.get("chno") if isinstance(L.get("chno"), int) else None
                 out, miss, groups, sel_items = [head], 0, set(), []
+                kpos, kpos_src = {}, {}
+                lmode, lfb, llp, via = L.get("link_mode") or GMODE, rules.get("fallback") is not False, rules.get("logo_proxy") is not False, {}
                 for it in items:
+                    if EX_RX.search(it["name"]): continue   # свои каналы «через сервер» — служебные, в выбор не входят
                     m = fmap.get(it["name"].lower())
                     if not m: miss += 1; continue
                     k, g = m[0], m[1]
                     srcs = set(m[2]) if len(m) > 2 else set()
+                    if NM_RX.search(it["name"]) and not (SRCS & srcs): continue   # «не склеивать» — только где источник выбран явно (и не по ручной отметке)
                     if k in C and k not in X: pass   # канал выбран вручную — берём из любого источника
                     elif SRCS:
                         if srcs and not (SRCS & srcs): continue
@@ -544,7 +752,12 @@ def main():
                     if L.get("no_adult") and g in ADULT_GROUPS: continue   # детский профиль: 18+ никогда
                     ing = (g not in XG) if ALLG else (g in G)
                     if not ((ing and k not in X) or k in C): continue
-                    sel_items.append((k, it))
+                    j = kpos.get(k)   # один канал «не склеивать» и его тёзка: в плейлисте — только один
+                    if j is None: kpos[k] = len(sel_items); sel_items.append((k, it))
+                    elif (SRCS and (SRCS & srcs) and not (SRCS & kpos_src[k])) or \
+                         (not SRCS and NM_RX.search(sel_items[j][1]["name"]) and not NM_RX.search(it["name"])): sel_items[j] = (k, it)
+                    else: continue
+                    kpos_src[k] = srcs
                 FG = set(L.get("fgroups") or [])   # «<id>:<группа>» отдельных плейлистов целиком
                 fids = {x.split(":", 2)[1] for x in C | X if x.startswith("f:")} | {x.split(":", 1)[0] for x in FG}
                 for fs in [f for f in FREE if f["id"] in fids]:
@@ -556,7 +769,7 @@ def main():
                 if ORD: sel_items.sort(key=lambda x: ORD.get(x[0], 10**6))   # свой порядок, остальные — как в основном
                 FE = rules.get("free_edits") if isinstance(rules.get("free_edits"), dict) else {}
                 for k, it in sel_items:
-                    lines = list(it["lines"])
+                    lines = unmark(list(it["lines"]))
                     fe = FE.get(k) if k.startswith("f:") else None
                     if isinstance(fe, dict):   # своя ссылка / логотип у канала отдельного плейлиста
                         lg = fe.get("logo") if isinstance(fe.get("logo"), str) and URLOK.match(fe["logo"]) else None
@@ -571,9 +784,13 @@ def main():
                     if num is not None:   # нумерация каналов (tvg-chno) по порядку
                         l0 = re.sub(r'\s+tvg-chno="[^"]*"', "", lines[0])
                         lines[0] = re.sub(r'^(#EXTINF:\s*-?\d+)', lambda mm: f'{mm.group(1)} tvg-chno="{num}"', l0, count=1); num += 1
-                    out += lines
-                    if not L.get("no_clients"): LOUT.setdefault(L["id"], []).append({"n": it["name"].lower(), "k": k, "free": k.startswith("f:"), "lines": lines,
-                                                         "g": gm.group(1) if gm else ""})
+                    kind = "ext" if k.startswith("f:") else "hls"   # отдельный плейлист — своя ссылка, остальное — из HLS Proxy/общего списка
+                    if not L.get("no_clients"): LOUT.setdefault(L["id"], []).append({"n": it["name"].lower(), "k": k, "free": kind == "ext", "lines": lines,
+                                                         "g": gm.group(1) if gm else "", "kind": kind, "lm": lmode, "fb": lfb, "lp": llp, "rn": it["name"]})
+                    if L in lists:   # файл есть только у включённого плейлиста
+                        fl, how = LK.apply(lines, kind, lmode, L["token"], lfb, llp, rn=it["name"])
+                        via[how] = via.get(how, 0) + 1
+                        if fl: out += fl
                 if L not in lists: continue   # выключенный плейлист: файла и ссылки нет, но клиенты его каналы получают
                 names = [L["token"]] + ([L["slug"]] if SLUG.match(str(L.get("slug") or "")) else [])   # длинная и короткая ссылка
                 pw = L.get("password") if PASS.match(str(L.get("password") or "")) else None
@@ -588,9 +805,16 @@ def main():
                     with open(tmp, "w", encoding="utf-8") as f: f.write("\n".join(out) + "\n")
                     os.chown(tmp, 0, wgid); os.chmod(tmp, 0o640); os.replace(tmp, fn)
                     keep.add(fn)
-                st["lists"][str(L.get("id"))] = {"channels": sum(1 for x in out if x.startswith("#EXTINF")), "groups": len(groups), "unmatched": miss}
+                st["lists"][str(L.get("id"))] = {"channels": sum(1 for x in out if x.startswith("#EXTINF")), "groups": len(groups), "unmatched": miss,
+                                                 "via": via, "mode": LK.mode(lmode)}
     if items is not None:
-        build_clients(active, LOUT, head, keep, wgid, st, items, fmap)
+        build_clients(active, LOUT, head, keep, wgid, st, items, fmap, LK)
+        global RERUN
+        RERUN = LK.sync_extra()   # свои каналы «через сервер» впервые попали в HLS Proxy — собрать ещё раз со ссылками сервера
+        try: LK.save(wgid)
+        except OSError as e: print("links.json:", e)
+        if LK.arch_off: print(f"метка архива снята (у основного источника архива нет): {LK.arch_off} раз в плейлистах и у клиентов")
+        st["arch_off"] = LK.arch_off
     for x in active:   # не удалять прошлый файл клиента, если в этот раз собрать не вышло
         fn = f"{OUTDIR}/{x['token']}.m3u8"
         if fn not in keep and os.path.exists(fn) and (st["error"] or str(x["id"]) in st.get("clients_err", {})): keep.add(fn)
@@ -621,6 +845,8 @@ if __name__ == "__main__":
     rc = 0
     for _ in range(3):   # если листы сохранили ещё раз, пока шла сборка, — собрать заново
         m0 = os.path.getmtime(RULES) if os.path.exists(RULES) else 0
+        RERUN = False
         rc = main()
+        if RERUN: WAIT = max(WAIT, 60); continue   # свои каналы только что попали в HLS Proxy — ещё раз, уже со ссылками сервера
         if (os.path.getmtime(RULES) if os.path.exists(RULES) else 0) == m0: break
     sys.exit(rc)

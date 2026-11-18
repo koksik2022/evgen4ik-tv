@@ -4,7 +4,7 @@ set -euo pipefail
 cd "$(dirname "$0")"
 rm -rf dist; mkdir -p dist
 inst=dist/evgen4ik-tv-install.sh
-{ cat install.sh; echo "__PAYLOAD__"; tar czf - --owner=0 --group=0 --exclude=__pycache__ src | base64; } > "$inst"
+{ cat install.sh; echo "__PAYLOAD__"; tar czf - --owner=0 --group=0 --exclude=__pycache__ --exclude='*.bak-*' src | base64; } > "$inst"
 chmod 755 "$inst"
 S="dist/Evgen4ik-TV/1 На сервер (VDS)"; P="dist/Evgen4ik-TV/2 На этот компьютер (Windows)"
 mkdir -p "$S" "$P"
