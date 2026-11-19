@@ -136,7 +136,7 @@ def validate(r):
         if isinstance(v.get("hidden"), bool): e["hidden"] = v["hidden"]
         if urls(v.get("urls")): e["urls"] = urls(v["urls"])
         if s(v.get("tvg_id")): e["tvg_id"] = s(v["tvg_id"])
-        if isinstance(v.get("logo"), str) and URL_RX.match(v["logo"].strip()): e["logo"] = v["logo"].strip()
+        if v.get("logo") == "none" or (isinstance(v.get("logo"), str) and URL_RX.match(v["logo"].strip())): e["logo"] = v["logo"].strip()   # "none" — «Без логотипа»
         mg = [m for m in keys(v.get("merge"), 30) if m != k.lower()]
         if mg: e["merge"] = mg
         if e: out["channels"][k.lower()[:200]] = e
@@ -283,6 +283,7 @@ def validate(r):
     out["link_mode"] = r["link_mode"] if r.get("link_mode") in LINK_MODES else ""
     out["logo_proxy"] = r.get("logo_proxy") is not False   # логотипы через сервер
     out["fallback"] = r.get("fallback") is not False       # своя ссылка не прошла через HLS Proxy — отдать «только в файле»
+    out["open_logos"] = r.get("open_logos") is True   # логотипы из открытых баз (it999, iptv-org, tv-logos) каналам без картинки
     out["stream_format"] = r["stream_format"] if r.get("stream_format") in ("hls", "ts") else ""   # формат потока HLS Proxy для плееров; "" — как настроено в нём
     seen_slug = set()
     for L in out["lists"]:
@@ -366,6 +367,21 @@ def own_hosts():
     return {str(h).lower() for h in (E4.get("address"), E4.get("host"), E4.get("domain")) if h}
 
 
+def state_with_logos():
+    """state.json для редактора. С HLS Proxy: если источник не прислал логотип, показываем тот,
+    что HLS Proxy сам подставил в плейлист (то же, что увидит плеер)."""
+    st = read_json(STATE)
+    if not st or E4["mode"] != "hls": return st
+    try:
+        main_map(); lg = MAIN_CACHE.get("logo") or {}
+        for c in st.get("channels") or []:
+            if isinstance(c, dict) and not c.get("logo"):
+                u = lg.get(str(c.get("k") or c.get("n") or "").lower())
+                if u: c["logo"] = u; c["logo_hls"] = True; c["ls"] = "hls"
+    except Exception: pass
+    return st
+
+
 def main_map():
     """Название канала -> ссылка из основного плейлиста (с HLS Proxy — ссылка рестрима). Кэш 60 секунд."""
     if time.time() - MAIN_CACHE["at"] < 60 and MAIN_CACHE["map"]: return MAIN_CACHE["map"]
@@ -378,12 +394,15 @@ def main_map():
         with urllib.request.urlopen(rq, timeout=15, context=ctx) as r: t = r.read(40 * 1024 * 1024).decode("utf-8", "replace")
     except Exception:
         return MAIN_CACHE["map"]
-    m, name = {}, None
+    m, name, lg = {}, None, {}
     for l in t.replace("\r", "").split("\n"):
-        if l.startswith("#EXTINF"): name = l.rsplit(",", 1)[-1].strip().lower()
+        if l.startswith("#EXTINF"):
+            name = l.rsplit(",", 1)[-1].strip().lower()
+            g = re.search(r'tvg-logo="([^"]+)"', l)
+            if g: lg.setdefault(name, g.group(1))
         elif l.strip() and not l.startswith("#") and name:
             m.setdefault(name, l.strip()); learn_host(l.strip()); name = None
-    MAIN_CACHE.update(at=time.time(), map=m)
+    MAIN_CACHE.update(at=time.time(), map=m, logo=lg)
     return m
 
 
@@ -549,6 +568,12 @@ def local_tz():
 LINKS_FILE = f"{DATA}/links.json"
 LOGO_DIR = f"{DATA}/logos"
 LOGO_MAX = 512 * 1024
+def _blank_png():
+    """Прозрачная картинка 1x1 для «Без логотипа»."""
+    import struct, zlib
+    ch = lambda t, d: struct.pack(">I", len(d)) + t + d + struct.pack(">I", zlib.crc32(t + d) & 0xffffffff)
+    return b"\x89PNG\r\n\x1a\n" + ch(b"IHDR", struct.pack(">IIBBBBB", 1, 1, 8, 6, 0, 0, 0)) + ch(b"IDAT", zlib.compress(b"\x00\x00\x00\x00\x00")) + ch(b"IEND", b"")
+BLANK_PNG = _blank_png()
 _LINKS = {"m": None, "d": {}}
 
 
@@ -970,7 +995,7 @@ class H(BaseHTTPRequestHandler):
             if not u or m.group(2) not in d.get("t", {}).get(m.group(1), ()): return self._send(404, "not found", "text/plain")
             return self._redirect(add_query(u, self.path))   # архив: плеер дописывает ?utc=…&lutc=… — передаём провайдеру
         m = re.fullmatch(r"/live/_logo/([0-9a-f]{16})", path)
-        r = logo_get(m.group(1)) if m else None
+        r = logo_get(m.group(1)) if m else ((BLANK_PNG, "image/png") if path == "/live/_logo/none" else None)   # «Без логотипа» — пустая картинка
         if not r:   # сайт картинки не отдал её серверу (бывает 403) — пусть плеер возьмёт сам, лишь бы логотип был
             u = (links().get("l") or {}).get(m.group(1)) if m else None
             if isinstance(u, str) and re.match(r"^https?://[^\s\"<>]{1,2000}$", u): return self._redirect(u)
@@ -1094,7 +1119,7 @@ class H(BaseHTTPRequestHandler):
             with open(f"{HERE}/index.html", "rb") as f:
                 return self._send(200, f.read(), "text/html; charset=utf-8")
         if self.path == "/api/state":
-            return self._send(200, {"state": read_json(STATE), "rules": read_json(RULES, {}), "status": prep_status(),
+            return self._send(200, {"state": state_with_logos(), "rules": read_json(RULES, {}), "status": prep_status(),
                                     "public_base": PUBLIC_BASE, "conf": PUBLIC_CONF})
         if self.path == "/api/backups":
             return self._send(200, list_backups())
@@ -1195,7 +1220,7 @@ class H(BaseHTTPRequestHandler):
             backup_rules()
             write_json_atomic(RULES, rules)
             clean_uploads(rules)
-            if body.get("apply"):   # полная пересборка; листы пересоберутся после неё сами
+            if body.get("apply") or bool(old.get("open_logos")) != rules["open_logos"]:   # полная пересборка (логотипы ставит сборка); листы пересоберутся после неё сами
                 with open(TRIGGER, "w") as f: f.write(str(time.time()))
             elif old.get("lists") != rules["lists"] or any(old.get(k) != rules[k] for k in ("link_mode", "logo_proxy", "fallback", "stream_format")) or old.get("lists_only_sources") != rules["lists_only_sources"] or old.get("free_sources") != rules["free_sources"] or (old.get("free_edits") or {}) != rules["free_edits"] or (old.get("clients") or []) != rules["clients"]:
                 with open(LTRIGGER, "w") as f: f.write(str(time.time()))

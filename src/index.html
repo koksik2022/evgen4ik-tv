@@ -116,7 +116,7 @@ button.htile:hover{background:var(--panel2);border-color:var(--ring)}
 .hbarh{height:8px;border-radius:4px;background:var(--panel2);overflow:hidden}.hbarh i{display:block;height:100%;border-radius:4px;background:var(--accent)}.hbarh i.w{background:var(--warn)}
 .hlinks{display:flex;flex-wrap:wrap;align-items:center;gap:10px 12px}.hlinks h2{margin:0 6px 0 0}
 button.linkbtn{border:0;background:none;box-shadow:none;padding:0;color:var(--accent);font:inherit;cursor:pointer}button.linkbtn:hover{text-decoration:underline;background:none}
-/* одна строка «Ссылки провайдера» */
+/* одна строка «Ссылки провайдера» (на страницах клиентов и плейлистов) */
 .lmline{flex:none;display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;padding:10px 14px;border:1px dashed var(--ring);border-radius:12px;font-size:13.5px;color:var(--muted)}
 .lmline b{color:var(--ink)}
 .muted{color:var(--muted);font-size:12.5px}
@@ -355,7 +355,7 @@ pre.jlog{font:12px/1.55 var(--mono);white-space:pre-wrap;color:var(--muted);marg
     <button data-mode="sources"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M5.25 14.25h13.5m-13.5 0a3 3 0 0 1-3-3m3 3a3 3 0 1 0 0 6h13.5a3 3 0 1 0 0-6m-16.5-3a3 3 0 0 1 3-3h13.5a3 3 0 0 1 3 3m-19.5 0a4.5 4.5 0 0 1 .9-2.7L5.737 5.1a3.375 3.375 0 0 1 2.7-1.35h7.126c1.062 0 2.062.5 2.7 1.35l2.587 3.45a4.5 4.5 0 0 1 .9 2.7m0 0a3 3 0 0 1-3 3m0 3h.008v.008h-.008v-.008Zm0-6h.008v.008h-.008v-.008Zm-3 6h.008v.008h-.008v-.008Zm0-6h.008v.008h-.008v-.008Z"/></svg>Источники<span class="cnt" id="navSrc"></span></button>
     <button data-mode="check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 12h4l3-8 4 16 3-8h4"/></svg>Проверка потоков<span class="cnt" id="navCheck"></span></button>
     <h3>Настройки</h3>
-    <button data-mode="links"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M16.5 10.5V6.75a4.5 4.5 0 1 0-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 0 0 2.25-2.25v-6.75a2.25 2.25 0 0 0-2.25-2.25H6.75a2.25 2.25 0 0 0-2.25 2.25v6.75a2.25 2.25 0 0 0 2.25 2.25Z"/></svg>Ссылки провайдера</button>
+    <button data-mode="links"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M16.5 10.5V6.75a4.5 4.5 0 1 0-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 0 0 2.25-2.25v-6.75a2.25 2.25 0 0 0-2.25-2.25H6.75a2.25 2.25 0 0 0-2.25 2.25v6.75a2.25 2.25 0 0 0 2.25 2.25Z"/></svg>Ссылки и логотипы</button>
     <button data-mode="filters"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M12 3c2.755 0 5.455.232 8.083.678.533.09.917.556.917 1.096v1.044a2.25 2.25 0 0 1-.659 1.591l-5.432 5.432a2.25 2.25 0 0 0-.659 1.591v2.927a2.25 2.25 0 0 1-1.244 2.013L9.75 21v-6.568a2.25 2.25 0 0 0-.659-1.591L3.659 7.409A2.25 2.25 0 0 1 3 5.818V4.774c0-.54.384-1.006.917-1.096A48.32 48.32 0 0 1 12 3Z"/></svg>Автоскрытие групп</button>
     <button data-mode="rules"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.325.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 0 1 1.37.49l1.296 2.247a1.125 1.125 0 0 1-.26 1.431l-1.003.827c-.293.241-.438.613-.43.992a7.723 7.723 0 0 1 0 .255c-.008.378.137.75.43.991l1.004.827c.424.35.534.955.26 1.43l-1.298 2.247a1.125 1.125 0 0 1-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.47 6.47 0 0 1-.22.128c-.331.183-.581.495-.644.869l-.213 1.281c-.09.543-.56.94-1.11.94h-2.594c-.55 0-1.019-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 0 1-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 0 1-1.369-.49l-1.297-2.247a1.125 1.125 0 0 1 .26-1.431l1.004-.827c.292-.24.437-.613.43-.991a6.932 6.932 0 0 1 0-.255c.007-.38-.138-.751-.43-.992l-1.004-.827a1.125 1.125 0 0 1-.26-1.43l1.297-2.247a1.125 1.125 0 0 1 1.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.086.22-.128.332-.183.582-.495.644-.869l.214-1.28Z"/><path d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z"/></svg>Постоянные правила</button>
     <button data-mode="history"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"/></svg>История и копии</button>
@@ -420,7 +420,7 @@ const clean=s=>String(s||"").replace(/[\x00-\x1f\x7f"]/g," ").trim().slice(0,100
 const URLRX=/^(https?|rtmp|rtsp|udp|rtp):\/\/[^\s"]{1,2000}$/i;
 let EPG_URL="", CONF={}, booted=false;
 let STATUS=null;   // последний ответ /api/status (сборка, HLS Proxy, автопроверка) — для боковой панели, «Обзора» и «Журнала»
-const PAGES={home:"Обзор",check:"Проверка потоков",journal:"Журнал",clients:"Клиенты",client:"Клиент",plist:"Объединённые плейлисты",lists:"Объединённые плейлисты",main:"Группы и каналы",sources:"Источники",filters:"Автоскрытие групп",history:"История и резервные копии",rules:"Постоянные правила",help:"Справка",links:"Ссылки провайдера"};
+const PAGES={home:"Обзор",check:"Проверка потоков",journal:"Журнал",clients:"Клиенты",client:"Клиент",plist:"Объединённые плейлисты",lists:"Объединённые плейлисты",main:"Группы и каналы",sources:"Источники",filters:"Автоскрытие групп",history:"История и резервные копии",rules:"Постоянные правила",help:"Справка",links:"Ссылки и логотипы"};
 // ---------- версия и обновление по кнопке ----------
 let VER={}, verPoll=null, verShown=false;
 async function checkVersion(force){try{VER=await (await fetch("/api/version"+(force?"?force=1":""))).json()}catch(e){return} showVer(); if(mode==="home"&&R) renderHome();
@@ -449,11 +449,11 @@ function norm(r){r=r||{};return{version:1,hidden_patterns:r.hidden_patterns||(ST
   group_order:r.group_order||[],custom_groups:r.custom_groups||[],custom_channels:r.custom_channels||[],lists:r.lists||[],
   sources:r.sources||[],disabled_sources:r.disabled_sources||[],primary_source:r.primary_source||null,stream_limit:r.stream_limit??null,stream_limit_mode:r.stream_limit_mode==="auto"?"auto":"manual",
   lists_only_sources:r.lists_only_sources||[],channel_order:r.channel_order||{},auto_rules:r.auto_rules||[],free_sources:r.free_sources||[],free_edits:r.free_edits||{},clients:r.clients||[],client_msg:r.client_msg||"",
-  link_mode:r.link_mode||"",logo_proxy:r.logo_proxy!==false,fallback:r.fallback!==false,stream_format:r.stream_format||""}}
+  link_mode:r.link_mode||"",logo_proxy:r.logo_proxy!==false,fallback:r.fallback!==false,stream_format:r.stream_format||"",open_logos:r.open_logos===true}}
 function isDirty(){return JSON.stringify(R)!==saved}
 const DIRTY_NAMES={channels:"каналы",groups:"группы",group_order:"порядок групп",channel_order:"порядок каналов",hidden_patterns:"скрытие",custom_groups:"свои группы",custom_channels:"свои каналы",
   lists:"плейлисты",clients:"клиенты",client_msg:"сообщение клиентам",sources:"источники",disabled_sources:"источники",primary_source:"основной источник",lists_only_sources:"источники",
-  auto_rules:"правила",free_sources:"бесплатная подборка",free_edits:"бесплатная подборка",stream_limit:"лимит потоков",stream_limit_mode:"лимит потоков",link_mode:"ссылки провайдера",logo_proxy:"ссылки провайдера",fallback:"ссылки провайдера",stream_format:"формат потока"};
+  auto_rules:"правила",free_sources:"бесплатная подборка",free_edits:"бесплатная подборка",stream_limit:"лимит потоков",stream_limit_mode:"лимит потоков",link_mode:"ссылки провайдера",logo_proxy:"ссылки провайдера",fallback:"ссылки провайдера",stream_format:"формат потока",open_logos:"логотипы"};
 function dirtyWhat(){let s={}; try{s=JSON.parse(saved)||{}}catch(e){} const w=new Set();
   for(const k of new Set([...Object.keys(R),...Object.keys(s)])) if(JSON.stringify(R[k])!==JSON.stringify(s[k])) w.add(DIRTY_NAMES[k]||"настройки");
   return [...w]}
@@ -566,9 +566,12 @@ function lmGlobalCard(){const exc=[...R.lists.filter(L=>!L.owner&&L.link_mode&&L
       ${CONF.mode==="hls"?`<div class="cf" style="margin-top:12px;max-width:520px"><label for="gFmt">Формат потока для плееров (через HLS Proxy)</label>
         <select id="gFmt"><option value="" ${!R.stream_format?"selected":""}>Как настроено в HLS Proxy</option><option value="hls" ${R.stream_format==="hls"?"selected":""}>HLS (.m3u8) — плеер сам качает куски, стандарт</option><option value="ts" ${R.stream_format==="ts"?"selected":""}>MPEG-TS (.mpeg) — один сплошной поток, для старых Smart TV</option></select>
         <div class="muted" style="margin-top:4px">Меняет галку «MPEG-TS» у всех логинов HLS Proxy. После «Сохранить» HLS Proxy перезапустится — просмотр прервётся на несколько секунд. Плеерам Xtream формат подстроится сам.</div></div>`:""}`:""}</div>`}
-// одна строка вместо карточки: сама настройка — в «Настройки → Ссылки провайдера»
+// одна строка вместо карточки: сама настройка — в «Настройки → Ссылки и логотипы»
 function lmLine(){const m=lmAll(); return `<div class="lmline"><span>Ссылки провайдера: <b>${m?LMN[m]:"по-разному"}</b></span>${m?lmRoute(m):""}<span class="sp"></span><button class="sm" data-go-page="links">Изменить</button></div>`}
-function renderLinks(){$("settings").innerHTML=lmGlobalCard()}
+function olCard(){return `<div class="card"><h2>Логотипы</h2><p class="hint">Каналам, у которых нет картинки ни у источника, ни у тёзки (HD, orig, +2), подставить логотип из открытых баз — по названию канала. Порядок: it999 (из вашего телегида), затем iptv-org, затем tv-logos. Свои логотипы каналов не меняются.</p>
+  <label class="switch" title="Картинки ищутся по названию: у каналов с похожими именами изредка может встать чужой логотип — его можно заменить в карточке канала"><input type="checkbox" id="gOL" ${R.open_logos?"checked":""}><i></i>Логотипы из открытых баз</label>
+  <div class="muted" style="margin-top:6px">Базы скачиваются при сборке раз в сутки. После «Сохранить» плейлист пересоберётся (несколько минут).</div></div>`}
+function renderLinks(){$("settings").innerHTML=lmGlobalCard()+olCard()}
 // «Сделать иначе» в карточке плейлиста (k="l") и клиента (k="c")
 function lmOwn(k,obj,inh,inhTxt){const own=obj.link_mode&&LMK[obj.link_mode], eff=own?lmFix(obj.link_mode):inh;
   return `<div>Ссылки провайдера: <b>${eff?LMN[eff]:"по-разному"}</b> <span class="muted">— ${own?"особая настройка":inhTxt}</span></div>
@@ -767,13 +770,18 @@ function renderPane(){
 }
 function nameHtml(c,eg){const dn=dispName(c);
   return `${c.alias?'<button class="sm unm" title="Снова сделать отдельным каналом">Расклеить</button> ':""}${esc(dn)}${dn!==c.n?`<small>(${esc(c.n)})</small>`:""}${(c.msrc||c.src).map(s=>`<span class="tag">${esc(s)}</span>`).join("")}${c.msrc?`<span class="mod">склеено: ${ALL.filter(x=>x.alias===c.k).length+1}</span>`:""}${c.alias?`<span class="mod">склеен с «${esc(dispName(findC(c.alias)))}»</span>`:""}${q?`<small>· ${esc(dispG(eg))}</small>`:""}`}
-const logoOf=c=>chRule(c.k).logo||c.logo;
+const logoOf=c=>{const l=chRule(c.k).logo; return l==="none"?"":(l||c.logo)};
+// откуда логотип канала — подпись в карточке
+const LSRC={src:"от источника",twin:"от тёзки (HD, orig, +2)",hls:"подставил HLS Proxy","open:it999":"открытая база it999 (телегид)","open:iptv-org":"открытая база iptv-org","open:tv-logos":"открытая база tv-logos"};
+function lsrcTxt(c){const r=chRule(c.k); if(c.custom) return c.logo?"свой канал — задан вами":"нет";
+  if(r.logo==="none") return "убран — «Без логотипа»"; if(r.logo) return "свой — задан здесь";
+  return c.logo?(LSRC[c.ls]||"от источника"):"нет — ни у источника, ни в базах"}
 function rowMain(c,opts){const r=chRule(c.k),h=chHidden(c),eg=effGroup(c),lg=logoOf(c);
   const cr=chkRes[c.k]||(()=>{const d=acDeadOf(c); return d?{ok:false,msg:"Автопроверка "+((AC&&AC.result&&AC.result.at)||"")+": "+(d.msg||"не отвечает")}:null})(), dr=!!sel&&!q;
   let s=`<div class="c${h?" hidden":""}" data-k="${esc(c.k)}" draggable="${dr}">
       <input type="checkbox" class="chk" ${checked.has(c.k)?"checked":""} aria-label="Выбрать">
       ${lg?`<img loading="lazy" src="${esc(lg)}" alt="" onerror="this.style.visibility='hidden'">`:"<span></span>"}
-      <span class="cn" title="${esc(c.n)}">${cr?`<span class="${cr.ok?"st-ok":"st-bad"}" title="${esc(cr.msg)}">${cr.ok?"✔":"✖"}</span> `:""}${nameHtml(c,eg)}${r.group&&!c.custom?`<span class="mod">перенесён из «${esc(dispG(c.g))}»</span>`:""}${r.urls?`<span class="mod">своя ссылка</span>`:""}${r.tvg_id?`<span class="mod">EPG: ${esc(r.tvg_id)}</span>`:""}${r.logo?`<span class="mod">свой логотип</span>`:""}</span>
+      <span class="cn" title="${esc(c.n)}">${cr?`<span class="${cr.ok?"st-ok":"st-bad"}" title="${esc(cr.msg)}">${cr.ok?"✔":"✖"}</span> `:""}${nameHtml(c,eg)}${r.group&&!c.custom?`<span class="mod">перенесён из «${esc(dispG(c.g))}»</span>`:""}${r.urls?`<span class="mod">своя ссылка</span>`:""}${r.tvg_id?`<span class="mod">EPG: ${esc(r.tvg_id)}</span>`:""}${r.logo==="none"?`<span class="mod">без логотипа</span>`:r.logo?`<span class="mod">свой логотип</span>`:""}</span>
       <select class="mv" title="Переместить в группу">${opts.replace(`value="${esc(eg)}"`,`value="${esc(eg)}" selected`)}</select>
       <button class="icon play" title="Смотреть канал">▶</button>
       <button class="icon url" title="Ссылки на поток, программа передач (EPG), логотип">🔗</button>
@@ -787,14 +795,15 @@ function rowMain(c,opts){const r=chRule(c.k),h=chHidden(c),eg=effGroup(c),lg=log
       <div class="chk-res" id="chkRes"></div>
       <div class="ufields">
         <label for="uEpg">Программа (EPG)</label><input type="text" id="uEpg" list="epgl" spellcheck="false" placeholder="${esc(c.id?"сейчас: "+c.id+" — начните вводить название канала":"начните вводить название канала")}" value="${esc(c.custom?(R.custom_channels[c.ci].tvg_id||""):(r.tvg_id||""))}">
-        <label for="uLogo">Логотип</label><input type="text" id="uLogo" spellcheck="false" placeholder="${esc(c.logo||"ссылка на картинку")}" value="${esc(c.custom?(c.logo||""):(r.logo||""))}">
+        <label for="uLogo">Логотип</label><input type="text" id="uLogo" spellcheck="false" placeholder="${esc(r.logo==="none"?"без логотипа":(c.logo||"ссылка на картинку"))}" value="${esc(c.custom?(c.logo||""):(r.logo==="none"?"":(r.logo||"")))}">
+        <span></span><div class="muted" style="font-size:12px">Сейчас: ${esc(lsrcTxt(c))}${!c.custom?` · <button class="sm" data-u="nologo" title="${r.logo==="none"?"Снова показывать логотип":"Не показывать логотип у этого канала, даже если его подставит HLS Proxy или открытая база"}">${r.logo==="none"?"Вернуть логотип":"Без логотипа"}</button>`:""}</div>
       </div>
       <div class="ubtns"><button data-u="ok" class="primary">Готово</button><button data-u="check">Проверить ссылки</button>${!c.custom&&(r.urls||r.tvg_id||r.logo)?`<button data-u="orig">Вернуть исходные</button>`:""}<button data-u="cancel">Отмена</button>${c.custom?`<button data-u="del" class="danger">Удалить канал</button>`:""}</div></div>`}
   return s}
 function rowL(L,c){const v=visMain(c),on=member(L,c),so=on||srcOk(L,c);
   return `<div class="c lm${on?" in":""}${v?"":" hidden"}${so?"":" off"}" data-k="${esc(c.k)}">
       <input type="checkbox" class="lin" ${on?"checked":""} ${v?"":"disabled"} aria-label="В плейлисте">
-      ${c.logo?`<img loading="lazy" src="${esc(c.logo)}" alt="" onerror="this.style.visibility='hidden'">`:"<span></span>"}
+      ${logoOf(c)?`<img loading="lazy" src="${esc(logoOf(c))}" alt="" onerror="this.style.visibility='hidden'">`:"<span></span>"}
       <span class="cn" title="${esc(c.n)}">${nameHtml(c,effGroup(c))}${v?"":`<small>скрыт в основном плейлисте</small>`}${so?"":`<small>нет в выбранных источниках</small>`}</span></div>`}
 function renderBulk(opts){
   const b=$("bulk"); if(!checked.size||mode!=="main"){b.hidden=true;return}
@@ -943,6 +952,7 @@ $("clist").addEventListener("click",e=>{
   const ued=e.target.closest(".ued");
   if(ued){const a=e.target.dataset.u; if(!a) return; const c=findC(ued.dataset.k);
     if(a==="cancel"){openU=null;renderPane();return}
+    if(a==="nologo"){setCh(c.k,{logo:chRule(c.k).logo==="none"?null:"none"});render();return}
     if(a==="orig"){setCh(c.k,{urls:null,tvg_id:null,logo:null});openU=null;render();return}
     if(a==="check"){checkUrls(ued.querySelector("textarea").value.split(/\n+/).map(x=>x.trim()).filter(Boolean),$("chkRes"));return}
     if(a==="del"){if(!confirm("Удалить канал «"+c.n+"»?")) return; R.custom_channels.splice(c.ci,1); delete R.channels[c.k]; openU=null; render(); return}
@@ -952,7 +962,7 @@ $("clist").addEventListener("click",e=>{
       const ep=clean($("uEpg").value), lg=$("uLogo").value.trim();
       if(lg&&!URLRX.test(lg)){toast("Ссылка на логотип неверная");return}
       if(c.custom){if(!us.length){toast("Нужна хотя бы одна ссылка (или удалите канал)");return} const d=R.custom_channels[c.ci]; d.urls=us; d.tvg_id=ep; d.logo=lg}
-      else{const orig=c.u.map(x=>x[1]); setCh(c.k,{urls:!us.length||JSON.stringify(us)===JSON.stringify(orig)?null:us,tvg_id:ep&&ep!==c.id?ep:null,logo:lg&&lg!==c.logo?lg:null})}
+      else{const orig=c.u.map(x=>x[1]); setCh(c.k,{urls:!us.length||JSON.stringify(us)===JSON.stringify(orig)?null:us,tvg_id:ep&&ep!==c.id?ep:null,logo:lg&&lg!==c.logo?lg:(!lg&&chRule(c.k).logo==="none"?"none":null)})}
       openU=null; render(); return}
     return}
   const row=e.target.closest(".c"); if(!row) return; const k=row.dataset.k, c=findC(k); if(!c) return;
@@ -1350,7 +1360,7 @@ $("settings").addEventListener("input",e=>{const t=e.target;
   else return; markDirty()});
 // общая настройка «Скрывать ссылки провайдера» (на страницах «Клиенты» и «Объединённые плейлисты»)
 $("settings").addEventListener("change",e=>{const t=e.target; if(mode!=="links") return;
-  if(t.name==="gLm") R.link_mode=t.value; else if(t.id==="gLogo") R.logo_proxy=t.checked; else if(t.id==="gFb") R.fallback=t.checked; else if(t.id==="gFmt") R.stream_format=t.value; else return; render()});
+  if(t.name==="gLm") R.link_mode=t.value; else if(t.id==="gLogo") R.logo_proxy=t.checked; else if(t.id==="gFb") R.fallback=t.checked; else if(t.id==="gFmt") R.stream_format=t.value; else if(t.id==="gOL") R.open_logos=t.checked; else return; render()});
 $("settings").addEventListener("click",e=>{if(mode==="links"&&e.target.id==="gLmAdv"){lmAdv=!lmAdv; render()}});
 $("settings").addEventListener("change",e=>{if(mode!=="client") return; const c=CC(), t=e.target; if(!c) return;
   if(t.id==="cEn") c.enabled=t.checked;
@@ -1905,7 +1915,8 @@ const HELP_HOW=[
   ["Собрать плейлист для телевизора",["«Объединённые плейлисты» → «+ Новый плейлист».","Слева отметьте группы, справа — отдельные каналы. В карточке «Источники» можно оставить только нужных провайдеров.","«Сохранить» → кнопка «M3U» или «QR». Ссылку вставьте в плеер (TiviMate, OTT Navigator и др.)."]],
   ["Добавить клиента и отправить ему ссылку",["«Клиенты» → «+ Новый клиент»: имя, срок, «Каналов одновременно».","В «Что смотрит» отметьте плейлист → «Сохранить».","В строке клиента «⋯» → «Скопировать сообщение с инструкцией» — готовый текст со ссылкой, перешлите его клиенту."]],
   ["Свой набор каналов для одного клиента",["В карточке клиента у общего плейлиста нажмите «Сделать личным».","Правьте личный плейлист — изменения коснутся только этого клиента."]],
-  ["Скрыть ссылки провайдера",["Меню слева «Настройки» → «Ссылки провайдера» → выберите вариант → «Сохранить».","Для одного клиента или плейлиста иначе — в его карточке «Сделать иначе»."]],
+  ["Логотипы каналам без картинки",["Меню слева «Настройки» → «Ссылки и логотипы» → галка «Логотипы из открытых баз» → «Сохранить». Плейлист пересоберётся сам."]],
+  ["Скрыть ссылки провайдера",["Меню слева «Настройки» → «Ссылки и логотипы» → выберите вариант → «Сохранить».","Для одного клиента или плейлиста иначе — в его карточке «Сделать иначе»."]],
   ["Архив передач",["Ничего настраивать не нужно: если архив есть у провайдера, он появится у клиента сам.","В плеере откройте программу передач и выберите прошедшую. Через Xtream архив тоже работает.","Не открывается — у главного провайдера этого канала может не быть архива."]],
   ["Канал не показывает",["«Проверка потоков» → «Проверить сейчас».","▶ — посмотреть канал, «Найти» — открыть его в «Группах и каналах». «Скрыть неработающие» прячет их в основном плейлисте (сработает после «Сохранить и применить»).","Не отвечает весь источник — проверьте кабинет провайдера: оплату, устройства, блокировку."]],
   ["Вернуть как было",["До сохранения — «↶ Шаг назад» или «Отменить всё» в полосе внизу (она появляется, когда есть несохранённое).","После сохранения — «История и копии» → «Восстановить»."]]];
@@ -2128,11 +2139,11 @@ function renderPreview(){if(!PV) return; const head=`<div class="plhead"><b>${es
   $("pvIn").innerHTML=head+`<p class="hint" style="margin:0 0 10px">${PV.free?`Эти каналы не входят в основной плейлист — их можно взять в свои плейлисты: «Объединённые плейлисты» → «Откуда брать каналы». Внутри <b>${PV.count} каналов в ${gs.length} группах</b>.`:`Источник добавлен, но его каналов ещё нет в основном плейлисте. Это предпросмотр: <b>${PV.count} каналов в ${gs.length} группах</b>.`}</p>
     <div class="pvgrid"><div>${gs.map(g=>`<div class="pvg${!q&&g===PV.sel?" on":""}" data-pvg="${esc(g)}"><span>${esc(g)}</span><span class="muted">${PV.by.get(g).length}</span></div>`).join("")}</div>
     <div><div style="padding:8px 12px;border-bottom:1px solid var(--line)"><input type="search" id="pvQ" placeholder="Поиск по всем группам" value="${esc(PV.q||"")}" style="width:100%"></div>
-    ${list.slice(0,500).map((c,i)=>{const ed=pvEd(c), lg=ed.logo||c.logo, k=pvKey(c);
-      return `<div class="pvc">${lg?`<img loading="lazy" src="${esc(lg)}" alt="" onerror="this.style.visibility='hidden'">`:'<span class="nl"></span>'}<span>${esc(c.n)}${ed.url?'<span class="mod">своя ссылка</span>':""}${ed.logo?'<span class="mod">свой логотип</span>':""}${q?` <small class="muted">${esc(c.g)}</small>`:""}</span><button class="icon pved" data-i="${i}" title="Изменить ссылку и логотип">✎</button>${c.u||ed.url?`<button class="icon pvplay" data-i="${i}" title="Смотреть канал">▶</button>`:"<span></span>"}</div>`
+    ${list.slice(0,500).map((c,i)=>{const ed=pvEd(c), lg=ed.logo==="none"?"":(ed.logo||c.logo), k=pvKey(c);
+      return `<div class="pvc">${lg?`<img loading="lazy" src="${esc(lg)}" alt="" onerror="this.style.visibility='hidden'">`:'<span class="nl"></span>'}<span>${esc(c.n)}${ed.url?'<span class="mod">своя ссылка</span>':""}${ed.logo==="none"?'<span class="mod">без логотипа</span>':ed.logo?'<span class="mod">свой логотип</span>':""}${q?` <small class="muted">${esc(c.g)}</small>`:""}</span><button class="icon pved" data-i="${i}" title="Изменить ссылку и логотип">✎</button>${c.u||ed.url?`<button class="icon pvplay" data-i="${i}" title="Смотреть канал">▶</button>`:"<span></span>"}</div>`
        +(PV.ed===k?`<div class="pvedit" data-i="${i}"><div class="ufields">
           <label for="pvU">Ссылка на поток</label><input type="text" id="pvU" spellcheck="false" value="${esc(ed.url||"")}" placeholder="${esc(c.u||"http(s)://…")}">
-          <label for="pvL">Логотип</label><input type="text" id="pvL" spellcheck="false" value="${esc(ed.logo||"")}" placeholder="${esc(c.logo||"ссылка на картинку")}"></div>
+          <label for="pvL">Логотип</label><input type="text" id="pvL" spellcheck="false" value="${esc(ed.logo==="none"?"":(ed.logo||""))}" placeholder="${esc(c.logo||"ссылка на картинку")}"></div>
           <div class="uhint">Пустое поле — остаётся исходное. ${PV.free?"Вступит в силу после «Сохранить»: ваши плейлисты обновятся через несколько секунд. Когда плейлист сам обновляется раз в 6 часов, ваша правка остаётся.":"Вступит в силу после «Сохранить и применить». Своя ссылка заменит ссылки этого канала из всех источников."}</div>
           <div class="ubtns"><button data-pve="ok" class="primary">Готово</button>${ed.url||ed.logo?'<button data-pve="orig">Вернуть исходные</button>':""}<button data-pve="cancel">Отмена</button></div></div>`:"")}).join("")||'<div class="empty">Ничего не найдено</div>'}
     ${list.length>500?'<div class="empty">показаны первые 500 — уточните поиском</div>':""}</div></div>
@@ -2152,6 +2163,7 @@ document.addEventListener("click",e=>{const t=e.target; if(!PV) return;
     if(u&&!URLRX.test(u)){toast("Ссылка на поток должна начинаться с http://, https://, rtmp:// или udp://");return}
     if(lg&&!/^https?:\/\/[^\s"]{1,2000}$/i.test(lg)){toast("Логотип — ссылка http(s)://… на картинку");return}
     if(u===c.u) u=""; if(lg===c.logo) lg="";
+    if(!lg&&pa!=="orig"&&!PV.free&&pvEd(c).logo==="none") lg="none";   // «Без логотипа» сохраняется, пока не нажата «Вернуть исходные»
     if(PV.free){const n={}; if(u) n.url=u; if(lg) n.logo=lg; if(Object.keys(n).length) R.free_edits[k]=n; else delete R.free_edits[k]}
     else setCh(k,{urls:u?[u]:null,logo:lg||null});
     PV.ed=null; markDirty(); renderPreview(); toast(PV.free?"Готово — нажмите «Сохранить»":"Готово — нажмите «Сохранить и применить»")}},true);

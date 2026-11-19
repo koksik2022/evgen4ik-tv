@@ -248,6 +248,39 @@ class GroupOrder(unittest.TestCase):
         self.assertIsNone(build.SHIFT_RX.search("Пятый Канал"))
 
 
+class OpenLogos(unittest.TestCase):
+    def test_keys_and_pick_order(self):
+        import build as B
+        self.assertIn("matchtv", B.lkeys("Матч ТВ HD"))          # латиница для кириллицы, без HD
+        self.assertEqual(B.lkeys("Ю"), [])                        # короче 4 знаков — не сравниваем
+        idx = {"it999": {}, "iptv-org": {}, "tv-logos": {}}
+        B._ol_add(idx["iptv-org"], "Match! TV", "https://a/kz.png", "KZ", "iptv-org")
+        B._ol_add(idx["iptv-org"], "Match TV", "https://a/ru.png", "RU", "iptv-org")
+        B._ol_add(idx["tv-logos"], "match tv", "https://b/ru.png", "RU", "tv-logos")
+        self.assertEqual(B.open_logo_pick("Матч ТВ", idx), ("https://a/ru.png", "iptv-org"))   # своя страна, база по порядку
+        B._ol_add(idx["it999"], "Матч ТВ", "https://c/it.png", "RU", "it999")
+        self.assertEqual(B.open_logo_pick("Матч ТВ (+2)", idx), ("https://c/it.png", "it999"))
+        self.assertEqual(B.open_logo_pick("Нет такого канала", idx), (None, None))
+        self.assertEqual([u for u, _ in B.open_logo_cands("Матч ТВ", idx)][:2], ["https://c/it.png", "https://a/ru.png"])   # запасные — по порядку
+
+    def test_no_logo_rule(self):
+        import build as B
+        self.assertEqual(app.validate({"channels": {"тнт": {"logo": "none"}}})["channels"]["тнт"]["logo"], "none")
+        self.assertNotIn("тнт", app.validate({"channels": {"тнт": {"logo": "javascript:x"}}})["channels"])
+        self.assertTrue(app.BLANK_PNG.startswith(b"\x89PNG") and app.icon_type(app.BLANK_PNG))
+        old = B.CONF.get("public_base")
+        try:
+            B.CONF["public_base"] = "http://srv:8081/pl/"
+            self.assertEqual(B.nologo_url(), "http://srv:8081/live/_logo/none")
+            B.CONF["public_base"] = ""
+            self.assertEqual(B.nologo_url(), "")
+        finally: B.CONF["public_base"] = old
+
+    def test_rules_flag_off_by_default(self):
+        self.assertFalse(app.validate({})["open_logos"])
+        self.assertTrue(app.validate({"open_logos": True})["open_logos"])
+
+
 class StreamFormat(unittest.TestCase):
     def test_new_client_gets_hls_not_mpegts(self):
         import tempfile, subprocess as sp

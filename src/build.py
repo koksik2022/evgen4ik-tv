@@ -66,17 +66,122 @@ def it999_ids():
                 if not ch: break
                 buf += d.decompress(ch).decode("utf-8", "replace")
                 if "<programme" in buf: break
-        m = {}
+        m, ic = {}, {}
         for cid, body in re.findall(r'<channel id="([^"]+)">(.*?)</channel>', buf, re.S):
+            im = re.search(r'<icon\s+src="(https?://[^"\s]+)"', body)
             for n in re.findall(r"<display-name[^>]*>([^<]+)<", body):
                 m.setdefault(n.strip().lower(), cid)
+                if im: ic.setdefault(n.strip(), im.group(1))
         if len(m) > 500:
             open(cp, "w", encoding="utf-8").write("\n".join(f"{k}\t{v}" for k, v in m.items()))
+            open(f"{DIR}/cache/it999_icons.txt", "w", encoding="utf-8").write("\n".join(f"{k}\t{v}" for k, v in ic.items()))
+        IT999_ICONS.update(ic)
         return m, "fresh"
     except Exception as e:
+        try: IT999_ICONS.update(dict(l.split("\t", 1) for l in open(f"{DIR}/cache/it999_icons.txt", encoding="utf-8").read().splitlines() if "\t" in l))
+        except Exception: pass
         if os.path.exists(cp):
             return dict(l.split("\t", 1) for l in open(cp, encoding="utf-8").read().splitlines() if "\t" in l), f"CACHE ({e})"
         return {}, f"FAIL ({e})"
+
+# ---------- Логотипы из открытых баз (галка «Логотипы из открытых баз» в редакторе, по умолчанию выключена) ----------
+# Порядок: it999 (картинки из телегида) -> iptv-org/database -> tv-logo/tv-logos. Сопоставление по названию канала.
+IT999_ICONS = {}
+IPTV_CH = "https://iptv-org.github.io/api/channels.json"
+IPTV_LG = "https://iptv-org.github.io/api/logos.json"
+TVL_TREE = "https://api.github.com/repos/tv-logo/tv-logos/git/trees/main?recursive=1"
+TVL_RAW = "https://raw.githubusercontent.com/tv-logo/tv-logos/main/"
+OL_TTL = 20 * 3600   # открытые базы скачиваются не чаще раза в ~сутки
+TR = dict(zip("абвгдезийклмнопрстуфхцы", "abvgdeziyklmnoprstufhcy"))
+TR.update({"ж": "zh", "ч": "ch", "ш": "sh", "щ": "sch", "ю": "yu", "я": "ya", "э": "e", "ъ": "", "ь": "", "ё": "e"})
+TVL_CC = {"russia": "RU", "belarus": "BY", "kazakhstan": "KZ", "united-states": "US", "united-kingdom": "GB", "germany": "DE", "france": "FR", "italy": "IT", "spain": "ES", "poland": "PL", "turkey": "TR"}
+
+def lkeys(n):
+    """Ключи названия для сравнения с базами: без HD/orig/+2/страны и знаков; плюс латиница для кириллицы."""
+    b = re.sub(r"[^0-9a-zа-я]", "", base(n))
+    t = "".join(TR.get(ch, ch) for ch in b)
+    return [k for k in dict.fromkeys((b, t)) if len(k) >= 4]
+
+def _ol_add(idx, name, url, cc, src):
+    for k in lkeys(name): idx.setdefault(k, []).append((cc or "", url, src))
+
+def open_logo_index(log):
+    """Индекс «ключ названия -> [(страна, картинка, база)]». Сетевые базы берутся из кэша, если он свежее суток."""
+    cp = f"{DIR}/cache/openlogos.json"
+    try: cache = json.load(open(cp, encoding="utf-8"))
+    except Exception: cache = {}
+    if time.time() - cache.get("at", 0) > OL_TTL:
+        fresh, errs = {"at": time.time(), "iptv": [], "tvl": []}, []
+        try:
+            lg = {}
+            for x in json.loads(fetch(IPTV_LG, 180)):
+                if x.get("feed") is None and str(x.get("url", "")).startswith("https://"): lg.setdefault(x.get("channel"), x["url"])
+            for c in json.loads(fetch(IPTV_CH, 180)):
+                u = lg.get(c.get("id"))
+                if not u or c.get("closed"): continue
+                for n in [c.get("name") or ""] + list(c.get("alt_names") or []): fresh["iptv"].append([n, u, c.get("country") or ""])
+        except Exception as e: errs.append(f"iptv-org: {e}")
+        try:
+            for x in json.loads(fetch(TVL_TREE, 180)).get("tree", []):
+                p = x.get("path", "")
+                m = re.fullmatch(r"countries/([a-z-]+)/([a-z0-9-]+?)(?:-[a-z]{2})?\.png", p)
+                if m: fresh["tvl"].append([m.group(2).replace("-", " "), TVL_RAW + p, TVL_CC.get(m.group(1), m.group(1))])
+        except Exception as e: errs.append(f"tv-logos: {e}")
+        for k in ("iptv", "tvl"):   # база не скачалась -> оставить прошлую копию
+            if not fresh[k] and cache.get(k): fresh[k] = cache[k]
+        if fresh["iptv"] or fresh["tvl"]:
+            if errs: fresh["at"] = time.time() - OL_TTL + 3600   # с ошибкой — повторить через час
+            try:
+                with open(cp + ".tmp", "w", encoding="utf-8") as f: json.dump(fresh, f, ensure_ascii=False)
+                os.replace(cp + ".tmp", cp)
+            except Exception as e: errs.append(f"кэш не записан: {e}")
+            cache = fresh
+        log.append("Открытые базы логотипов: " + ("скачаны" if not errs else "с ошибками — " + "; ".join(errs)[:300]))
+    idx = {"it999": {}, "iptv-org": {}, "tv-logos": {}}
+    for n, u in IT999_ICONS.items(): _ol_add(idx["it999"], n, u, "RU", "it999")
+    for n, u, cc in cache.get("iptv", []): _ol_add(idx["iptv-org"], n, u, cc, "iptv-org")
+    for n, u, cc in cache.get("tvl", []): _ol_add(idx["tv-logos"], n, u, cc, "tv-logos")
+    return idx
+
+def open_logo_cands(name, idx):
+    """Картинки для канала по порядку: базы it999 -> iptv-org -> tv-logos; внутри — страна канала, затем RU, затем прочие."""
+    want, out = country(name) or "RU", []
+    for db in ("it999", "iptv-org", "tv-logos"):
+        for k in lkeys(name):
+            cand = idx[db].get(k) or []
+            for cc, u, src in sorted(cand, key=lambda x: (x[0] != want, x[0] != "RU")):
+                if (u, src) not in out: out.append((u, src))
+    return out
+
+def open_logo_pick(name, idx):
+    c = open_logo_cands(name, idx)
+    return c[0] if c else (None, None)
+
+def _img_ok(u):
+    """Ссылка отдаёт картинку (PNG/JPEG/GIF/WebP/SVG), а не страницу или ошибку."""
+    try:
+        with urllib.request.urlopen(urllib.request.Request(u, headers={"User-Agent": "Mozilla/5.0"}), timeout=15) as x:
+            b = x.read(64)
+        return b[:8] == b"\x89PNG\r\n\x1a\n" or b[:3] == b"\xff\xd8\xff" or b[:4] in (b"GIF8", b"RIFF") or b.lstrip()[:4] in (b"<svg", b"<?xm")
+    except Exception:
+        return False
+
+def img_check(urls, log):
+    """Проверка картинок с кэшем: рабочая — неделю, нерабочая — сутки."""
+    import concurrent.futures as cf
+    cp = f"{DIR}/cache/openlogos-ok.json"
+    try: ok = json.load(open(cp, encoding="utf-8"))
+    except Exception: ok = {}
+    now = time.time()
+    todo = [u for u in dict.fromkeys(urls) if u not in ok or now - ok[u][1] > (7 * 86400 if ok[u][0] else 86400)]
+    if todo:
+        with cf.ThreadPoolExecutor(16) as ex:
+            for u, r in zip(todo, ex.map(_img_ok, todo)): ok[u] = [r, now]
+        try:
+            with open(cp + ".tmp", "w", encoding="utf-8") as f: json.dump(ok, f)
+            os.replace(cp + ".tmp", cp)
+        except Exception as e: log.append(f"openlogos-ok.json не записан: {e}")
+    return {u: v[0] for u, v in ok.items()}
 
 INF = re.compile(r'#EXTINF:\s*(-?\d+)((?:\s+[\w-]+="[^"]*")*)\s*,(.*)$')
 def parse(text, src):
@@ -217,6 +322,13 @@ def _auto_group(name, R):
         if t == "group" and pat.search(name): return val
     return None
 
+NOLOGO = "none"   # «Без логотипа» в карточке канала: пустая картинка с вашего сервера, чтобы HLS Proxy не подставил свою
+
+def nologo_url():
+    b = str(CONF.get("public_base") or "").rstrip("/")
+    b = re.sub(r"/pl$", "", b) if re.match(r"^https?://", b) else ""
+    return b + "/live/_logo/none" if b else ""
+
 def apply_rules(allc, R):
     keep, dropped, done = [], 0, set()
     alias = {}   # склеенные каналы: ключ -> ключ основного
@@ -245,7 +357,11 @@ def apply_rules(allc, R):
         if cr.get("rename"): c["name"] = cr["rename"]
         elif R["auto_rules"]: c["name"] = _auto_name(c["name"], R)
         if cr.get("tvg_id"): c["attrs"]["tvg-id"] = cr["tvg_id"]
-        if cr.get("logo"): c["attrs"]["tvg-logo"] = cr["logo"]
+        if cr.get("logo") == NOLOGO:
+            u = nologo_url()
+            if u: c["attrs"]["tvg-logo"] = u
+            else: c["attrs"].pop("tvg-logo", None)
+        elif cr.get("logo"): c["attrs"]["tvg-logo"] = cr["logo"]
         c["out"] = gr.get("rename") or c["new"]
         if cr.get("urls"):   # свои ссылки вместо всех исходных; первая — основная, остальные — резерв
             if k in done: continue
@@ -262,11 +378,12 @@ def write_state(allc, auto_order, sortkey):
         k = c["name"].lower(); e = ch.get(k)
         if not e:
             ch[k] = {"k": k, "n": c["name"], "g": c["new"], "src": [c["src"]],
-                     "logo": c["attrs"].get("tvg-logo", ""), "id": c["attrs"].get("tvg-id", ""), "u": [[c["src"], c["url"]]]}
+                     "logo": c["attrs"].get("tvg-logo", ""), "ls": c.get("ls", "") if c["attrs"].get("tvg-logo") else "",
+                     "id": c["attrs"].get("tvg-id", ""), "u": [[c["src"], c["url"]]]}
         else:
             if c["src"] not in e["src"]: e["src"].append(c["src"])
             if len(e["u"]) < 10 and [c["src"], c["url"]] not in e["u"]: e["u"].append([c["src"], c["url"]])
-            if not e["logo"]: e["logo"] = c["attrs"].get("tvg-logo", "")
+            if not e["logo"] and c["attrs"].get("tvg-logo"): e["logo"] = c["attrs"]["tvg-logo"]; e["ls"] = c.get("ls", "")
     SNAP.update({"channels": list(ch.values()), "auto_order": auto_order, "default_hidden": EXCLUDE_GROUPS})
 
 def _editor_gid():
@@ -450,6 +567,39 @@ def main():
                 return (i, bb, int(m.group(1)) if m else 0, c["src"] != prim)
             return (i, c["src"] != prim)
         return (0,)
+    # Логотип у тёзок: «ТНТ4», «ТНТ4 HD», «ТНТ4 orig», «Пятый канал (+2)» — один канал. Нет своей картинки — берём у тёзки
+    lg, nl = {}, 0
+    for c in allc:
+        b = base(c["name"]); u = c["attrs"].get("tvg-logo")
+        if u: c["ls"] = "src"   # откуда логотип — показывается в карточке канала
+        if b and u: lg.setdefault(b, u)
+    for c in allc:
+        if not c["attrs"].get("tvg-logo"):
+            u = lg.get(base(c["name"]))
+            if u: c["attrs"]["tvg-logo"] = u; c["ls"] = "twin"; nl += 1
+    log.append(f"Логотипов взято у тёзок (HD, orig, +2 и т.п.): {nl}")
+    REP = sys.argv[sys.argv.index("--logo-report") + 1] if "--logo-report" in sys.argv else ""
+    if R0.get("open_logos") or REP:
+        try:
+            idx = open_logo_index(log); cands, rep, by = {}, [], collections.Counter()
+            for c in allc:
+                if not c["attrs"].get("tvg-logo"): cands.setdefault(base(c["name"]), open_logo_cands(c["name"], idx))
+            ok = img_check([v[0][0] for v in cands.values() if v], log)       # сначала первые варианты
+            ok.update(img_check([u for v in cands.values() if v and not ok.get(v[0][0]) for u, _ in v[1:4]], log))   # битая — следующие
+            got = {b: next(((u, s_) for u, s_ in v[:4] if ok.get(u)), (None, None)) for b, v in cands.items()}
+            nbad = sum(1 for v in cands.values() if v and not ok.get(v[0][0]))
+            if nbad: log.append(f"Логотипы из открытых баз: битых картинок {nbad} — взята следующая база или пропущено")
+            for c in allc:
+                if c["attrs"].get("tvg-logo"): continue
+                u, src = got.get(base(c["name"]), (None, None))
+                if not u: continue
+                rep.append((c["name"], src, u)); by[src] += 1
+                if R0.get("open_logos"): c["attrs"]["tvg-logo"] = u; c["ls"] = "open:" + src
+            log.append(("Логотипов из открытых баз: " if R0.get("open_logos") else "Логотипы из открытых баз (галка выключена, только отчёт): ")
+                       + f"{len(rep)} ({', '.join(f'{k} {v}' for k, v in by.most_common()) or 'нет'})")
+            if REP:
+                with open(REP, "w", encoding="utf-8") as f: f.write("".join(f"{n}\t{s_}\t{u}\n" for n, s_, u in rep))
+        except Exception as e: log.append(f"Логотипы из открытых баз: ошибка ({e}) — пропущено")
     write_state(allc, sorted({c["new"] for c in allc}, key=gkey0), lambda c: (gkey0(c["new"]), ckey(c)))
     SNAP["warnings"] = warns
     SNAP["sources"] = sinfo; SNAP["builtin_sources"] = [n for n, _ in SRC]; SNAP["primary_source"] = prim
