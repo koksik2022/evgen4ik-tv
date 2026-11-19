@@ -1767,18 +1767,28 @@ const HE_ITEMS=()=>(((STATUS||{}).hls_err||{}).items||[]);
 const heFind=x=>{const n=String(x.n||"").toLowerCase(); return ALL.find(c=>!c.alias&&(dispName(c).toLowerCase()===n||c.n.toLowerCase()===n))||null};
 const heF=x=>x.f24!=null?x.f24:x.c24, heG=x=>x.g24||0;   // не открылся / перебои за сутки
 const heHome=x=>heF(x)>0;                                   // на «Обзоре» — только «не открывался»; перебои — в «Журнале»
+let heShowHid=false;                                        // «Показать скрытые»
+const heHid=x=>((STATUS||{}).he_hidden||{})[x.n]===x.ts;    // скрыта до следующей ошибки: новая ошибка меняет время — запись снова видна
+const heBase=full=>full?HE_ITEMS():HE_ITEMS().filter(heHome), heList=full=>heShowHid?heBase(full):heBase(full).filter(x=>!heHid(x));
+async function heHide(arr,unhide){try{const j=await acApi("/api/he-hide",{items:arr.map(x=>({n:x.n,ts:x.ts})),unhide:!!unhide}); if(STATUS) STATUS.he_hidden=j.hidden; render()}catch(e){toast(e.message)}}
 function heWhat(x){const f=heF(x), g=heG(x), p=[]; if(f) p.push("не открывался"+(f>1?" "+plural(f,"раз","раза","раз"):"")); if(g) p.push("перебои"+(g>1?" "+plural(g,"раз","раза","раз"):"")); return p.join(", ")||"раньше суток"}
 function heRows(items,lim){return items.slice(0,lim).map((x,i)=>{const c=heFind(x);
   return `<div class="aitem herow" data-hi="${i}"><span class="dot ${heF(x)?"bad":"warn"}"></span><span class="t"><b>${esc(x.n)}</b> <span class="muted">· ${esc(heWhat(x))} · ${esc(x.msg)} · последний ${relDT(x.last)}</span>${c&&chRule(c.k).urls?' <span class="badge">ссылка заменена</span>':""}</span>
-    ${c?`<button class="icon play" data-k="${esc(c.k)}" title="Посмотреть канал">▶</button><button class="sm" data-he="fix">Заменить ссылку</button><button class="sm" data-he="find">Найти</button>`:'<span class="muted">нет в редакторе</span>'}</div>
+    ${c?`<button class="icon play" data-k="${esc(c.k)}" title="Посмотреть канал">▶</button><button class="sm" data-he="fix">Заменить ссылку</button><button class="sm" data-he="find">Найти</button>`:'<span class="muted">нет в редакторе</span>'}${heHid(x)?'<button class="sm" data-he="unhide" title="Снова показывать">Вернуть</button>':'<button class="icon" data-he="hide" title="Скрыть, пока канал снова не сломается">✕</button>'}</div>
     ${c&&fixK===c.k?fixBox(c):""}`}).join("")}
-function heCard(full){if(CONF.mode!=="hls") return ""; const all=HE_ITEMS(), it=full?all:all.filter(heHome), at=((STATUS||{}).hls_err||{}).at;
-  return `<div class="card hecard"><div class="hhead"><h2>Не открылось у клиентов</h2><span class="muted">${full?"за 2 суток":"за сутки"}${at?" · обновлено "+esc(at.slice(11)):""}</span></div>
+function heCard(full){if(CONF.mode!=="hls") return ""; const it=heList(full), nh=heBase(full).filter(heHid).length, at=((STATUS||{}).hls_err||{}).at, vis=it.filter(x=>!heHid(x)).length;
+  return `<div class="card hecard"><div class="hhead"><h2>Не открылось у клиентов</h2><span class="muted">${full?"за 2 суток":"за сутки"}${at?" · обновлено "+esc(at.slice(11)):""}${vis>1?' <button class="sm" data-he="hideall" title="Скрыть все записи, пока каналы снова не сломаются">Скрыть все</button>':""}</span></div>
     <p class="hint" style="margin:0 0 8px">Что HLS Proxy не смог взять у провайдера, когда канал включали (в том числе ваши проверки). <b>Не открывался</b> — канал не запустился; <b>перебои</b> — не скачались куски видео, канал при этом мог идти${full?"":" (перебои — только в «Журнале»)"}. Переключение зрителем на другой канал ошибкой не считается.</p>
     ${it.length?`<div class="alist">${heRows(it,full?300:8)}</div>${!full&&it.length>8?`<p style="margin:8px 0 0"><button class="sm" data-hgo="journal">Все ${it.length} в «Журнале» ›</button></p>`:""}`
-      :`<div class="hempty">${full?"За двое суток":"За сутки"} ошибок источников не было<span class="muted">Если канал не откроется у клиента из-за провайдера, он появится здесь</span></div>`}</div>`}
+      :nh?`<div class="hempty">Новых ошибок нет<span class="muted">Скрытые записи появятся снова, если канал опять не откроется</span></div>`
+      :`<div class="hempty">${full?"За двое суток":"За сутки"} ошибок источников не было<span class="muted">Если канал не откроется у клиента из-за провайдера, он появится здесь</span></div>`}
+    ${nh?`<p style="margin:8px 0 0"><button class="sm" data-he="showhid">${heShowHid?"Не показывать скрытые":"Показать скрытые ("+nh+")"}</button></p>`:""}</div>`}
 $("settings").addEventListener("click",e=>{if(mode!=="home"&&mode!=="journal") return; const t=e.target, a=t.dataset&&t.dataset.he; if(!a) return;
-  const row=t.closest(".herow"), items=mode==="home"?HE_ITEMS().filter(heHome):HE_ITEMS(), x=row&&items[+row.dataset.hi], c=x&&heFind(x); if(!c) return; e.stopPropagation();
+  if(a==="showhid"){e.stopPropagation(); heShowHid=!heShowHid; render(); return}
+  if(a==="hideall"){e.stopPropagation(); heHide(heList(mode==="journal").filter(x=>!heHid(x))); return}
+  const row=t.closest(".herow"), items=heList(mode==="journal"), x=row&&items[+row.dataset.hi], c=x&&heFind(x);
+  if(x&&(a==="hide"||a==="unhide")){e.stopPropagation(); heHide([x],a==="unhide"); return}
+  if(!c) return; e.stopPropagation();
   if(a==="fix"){fixK=fixK===c.k?null:c.k; render(); return}
   if(a==="find"){q=dispName(c).toLowerCase(); flt=""; srcF=null; sel=effGroup(c); go("main")}},true);
 function renderCheck(){

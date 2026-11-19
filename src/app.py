@@ -22,6 +22,7 @@ EPG_FLAG = f"{DATA}/epg-fetch.flag"         # «Обновить телегид 
 EPG_STATUS = f"{DATA}/epg-status.json"      # итог последнего запроса обновления телегида
 LSTATUS = f"{DATA}/lists-status.json"
 ACTIVITY = f"{DATA}/activity.json"
+HE_HIDDEN = f"{DATA}/he-hidden.json"   # «Не открылось у клиентов»: скрытые записи {канал: время последней ошибки}
 XC_FILE = f"{DATA}/xc.json"          # каналы клиентов для входа через Xtream Codes (собирает lists.py)
 XC_ACT = f"{DATA}/xc-activity.json"  # кто входил через Xtream и какой канал включал (пишет сам редактор)
 EPG = f"{DATA}/epg.json"
@@ -707,6 +708,7 @@ def prep_status():
     d["lists"] = read_json(LSTATUS, {})
     d["activity"] = read_json(ACTIVITY, {})   # кто и когда открывал плейлисты (по журналу nginx, собирает lists.py --activity)
     d["hls_err"] = read_json(f"{DATA}/hls-errors.json", {}) or {}   # «Не открылось у клиентов»: ошибки источников из журнала HLS Proxy (lists.py --activity)
+    d["he_hidden"] = read_json(HE_HIDDEN, {}) or {}
     with XC_ACT_LOCK: d["xc"] = dict(XC_ACT_MEM) if XC_ACT_MEM is not None else (read_json(XC_ACT, {}) or {})
     return d
 
@@ -805,6 +807,21 @@ def scan_conns(port):
             if a.is_loopback: continue
             ips[str(a)] = ips.get(str(a), 0) + 1
     return ips
+
+
+def he_hide(items, unhide=False):
+    """Скрыть записи «Не открылось у клиентов». Запись помнит время последней ошибки: новая ошибка канала — запись снова видна."""
+    h = read_json(HE_HIDDEN, {}) or {}
+    if not isinstance(h, dict): h = {}
+    for x in items if isinstance(items, list) else []:
+        if not isinstance(x, dict): continue
+        n, ts = str(x.get("n") or "")[:200], str(x.get("ts") or "")[:40]
+        if not n: continue
+        if unhide: h.pop(n, None)
+        elif ts: h.pop(n, None); h[n] = ts   # в конец: при переполнении уходят самые старые
+    h = dict(list(h.items())[-500:])
+    write_json_atomic(HE_HIDDEN, h)
+    return h
 
 
 # ---------- обновления: есть ли новая версия на GitHub, обновление по кнопке (делает root-служба e4tv-update) ----------
@@ -1226,6 +1243,8 @@ class H(BaseHTTPRequestHandler):
             with open(EPG_FLAG, "w") as f: f.write(str(time.time()))
             with open(LTRIGGER, "w") as f: f.write(str(time.time()))
             return self._send(200, {"ok": True})
+        if self.path == "/api/he-hide":   # «Не открылось у клиентов»: скрыть / вернуть записи (до следующей ошибки канала)
+            return self._send(200, {"hidden": he_hide(body.get("items"), bool(body.get("unhide")))})
         if self.path == "/api/autocheck-run":   # служба e4tv-check-now (root) проверит потоки
             if not os.path.exists(CTRIGGER): return self._send(400, {"error": "автопроверка не настроена на сервере — обновите Evgen4ik TV"})
             with open(CTRIGGER, "w") as f: f.write(str(time.time()))

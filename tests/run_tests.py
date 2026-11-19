@@ -492,6 +492,16 @@ class AutoCheck(unittest.TestCase):
         self.assertEqual(self.ac.settings(), {"auto": True, "workers": 6})   # autocheck.py читает то, что записал редактор
         self.assertEqual(self.api("/api/autocheck-conf", {"auto": False, "workers": "x"})[1]["conf"], {"auto": False, "workers": 2})
 
+    def test_he_hide(self):   # «Не открылось у клиентов»: скрыть до следующей ошибки, вернуть
+        if os.path.exists(app.HE_HIDDEN): os.remove(app.HE_HIDDEN)
+        code, j = self.api("/api/he-hide", {"items": [{"n": "Первый канал", "ts": "2026-11-19T08:53:00Z"}, {"n": "", "ts": "x"}, "мусор"]})
+        self.assertEqual((code, j["hidden"]), (200, {"Первый канал": "2026-11-19T08:53:00Z"}))
+        self.assertEqual(self.api("/api/status")[1]["he_hidden"], {"Первый канал": "2026-11-19T08:53:00Z"})
+        self.assertEqual(self.api("/api/he-hide", {"items": [{"n": "Первый канал"}], "unhide": True})[1]["hidden"], {})
+        many = [{"n": f"к{i}", "ts": "t"} for i in range(520)]
+        h = self.api("/api/he-hide", {"items": many})[1]["hidden"]
+        self.assertEqual((len(h), "к0" in h, "к519" in h), (500, False, True))   # не больше 500, уходят самые старые
+
     def test_run_button(self):
         if os.path.exists(app.CTRIGGER): os.remove(app.CTRIGGER)
         self.assertEqual(self.api("/api/autocheck-run", {})[0], 400)        # служба не установлена — честная ошибка
