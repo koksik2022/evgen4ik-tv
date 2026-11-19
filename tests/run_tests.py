@@ -281,6 +281,34 @@ class OpenLogos(unittest.TestCase):
         self.assertTrue(app.validate({"open_logos": True})["open_logos"])
 
 
+class HlsErrors(unittest.TestCase):
+    def test_parse_real_errors_skip_cancels(self):
+        st = {}
+        um = {"http://a.example/iptv/K/1": "Первый канал", "p:/iptv/K/2": "НТВ"}
+        lines = [
+            "[2026-11-18T11:26:10.079Z] ERROR channelHandler Channel n2712c6db cannot be started: Error: 502: http://x/y",
+            "[2026-11-18T11:26:16.643Z] INFO ==> Request playlist for stream НТВ +2 [~eca36c1c] (n2712c6db)",
+            "[2026-11-18T17:34:39.000Z] ERROR Request failed, no retry left: Exception: 404 : http://a.example/iptv/K/1/index.m3u8?token=SECRET",
+            "[2026-11-18T17:34:40.000Z] ERROR Request failed, no retry left: Exception: Aborted by main process http://a.example/iptv/K/1/1.ts",
+            "[2026-11-18T17:46:10.000Z] ERROR HLS.fetchPlaylist: Пятница! (n7d) The request is interrupted by main process",
+            "[2026-11-18T18:00:00.000Z] ERROR Request failed, no retry left: Exception: ESOCKETTIMEDOUT http://cdn.example/iptv/K/2/5.ts",
+            "[2026-11-18T18:00:20.000Z] ERROR Request failed, no retry left: Exception: ESOCKETTIMEDOUT http://cdn.example/iptv/K/2/6.ts",
+        ]
+        lists.he_parse(lines, st, um)
+        self.assertEqual(sorted(st["ev"]), ["НТВ", "НТВ +2", "Первый канал"])     # отмены и переключения не считаются
+        self.assertEqual(len(st["ev"]["НТВ"]), 1)                                   # пачка ошибок по кускам — один случай
+        s = lists.he_summary(st, now=lists._he_epoch("2026-11-19T00:00:00Z"))
+        msgs = {x["n"]: x["msg"] for x in s["items"]}
+        self.assertEqual(msgs["Первый канал"], "источник ответил ошибкой 404")
+        self.assertEqual(msgs["НТВ"], "источник не ответил вовремя")
+        kinds = {x["n"]: (x["f24"], x["g24"]) for x in s["items"]}
+        self.assertEqual(kinds["НТВ"], (0, 1))            # кусок видео не скачался — перебои, а не «не открылся»
+        self.assertEqual(kinds["Первый канал"], (1, 0))   # не взят плейлист — не открылся
+        self.assertEqual(lists.he_msg("aborted"), "источник оборвал соединение")
+        self.assertNotIn("SECRET", json.dumps(s, ensure_ascii=False))                # ссылки с ключами не попадают в сводку
+        self.assertEqual(lists.he_summary(st, now=lists._he_epoch("2026-11-21T00:00:00Z"))["items"], [])   # старше 2 суток — убираются
+
+
 class StreamFormat(unittest.TestCase):
     def test_new_client_gets_hls_not_mpegts(self):
         import tempfile, subprocess as sp

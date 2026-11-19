@@ -694,6 +694,7 @@ def prep_status():
     d["ac"] = {"at": r.get("at"), "total": r.get("total"), "ok": r.get("ok"), "bad": len(r.get("bad") or []), "error": r.get("error")} if r else {}
     d["lists"] = read_json(LSTATUS, {})
     d["activity"] = read_json(ACTIVITY, {})   # кто и когда открывал плейлисты (по журналу nginx, собирает lists.py --activity)
+    d["hls_err"] = read_json(f"{DATA}/hls-errors.json", {}) or {}   # «Не открылось у клиентов»: ошибки источников из журнала HLS Proxy (lists.py --activity)
     with XC_ACT_LOCK: d["xc"] = dict(XC_ACT_MEM) if XC_ACT_MEM is not None else (read_json(XC_ACT, {}) or {})
     return d
 

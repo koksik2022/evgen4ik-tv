@@ -660,6 +660,141 @@ UA_NAMES = [("ott navigator", "OTT Navigator"), ("ott-navigator", "OTT Navigator
             ("okhttp", "Android-плеер"), ("dalvik", "Android-плеер"), ("mozilla", "браузер")]
 
 
+# ---------- «Не открылось у клиентов»: ошибки источников из журнала HLS Proxy ----------
+HERR = E4["editor_dir"] + "/hls-errors.json"          # сводка для редактора (Обзор, Журнал)
+HSTATE = E4["build_dir"] + "/hls-errors.state.json"   # курсор журнала, события, коды каналов HLS Proxy
+HE_KEEP = 48 * 3600
+# отмены, а не поломки: зритель переключил канал или HLS Proxy сам прервал запрос; проверка лицензии HLS Proxy
+HE_SKIP = re.compile(r"Aborted by main process|Cancelled by parent|interrupted by main process|lms\.hls-proxy\.com", re.I)
+HE_REQ = re.compile(r"(?:Request playlist for stream|HLS\.fetchPlaylist:) (.+?) \(([0-9a-z]{4,16})\)")
+HE_CH = re.compile(r"channelHandler Channel ([0-9a-z]{4,16}) cannot be started: (.*)")
+HE_FP = re.compile(r"HLS\.fetchPlaylist: (.+?) \(([0-9a-z]{4,16})\) (.*)")
+HE_RQ = re.compile(r"Request failed, no retry left: Exception: (.*?)\s*(https?://\S+)")
+HE_TS = re.compile(r"\[(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d)(?:\.\d+)?Z\]")
+
+
+def he_name(n):
+    return re.sub(r"\s*\[~[0-9a-f]+\]\s*$", "", n or "").strip()
+
+
+def he_msg(m):
+    """Причина по-русски, без ссылок (в них ключи провайдера)."""
+    m = re.sub(r"https?://\S+", "", m or "").strip(" :")
+    if re.search(r"ESOCKETTIMEDOUT|ETIMEDOUT|timed? ?out", m, re.I): return "источник не ответил вовремя"
+    if re.search(r"aborted by speed|speed is below", m, re.I): return "источник отдаёт поток слишком медленно"
+    c = re.search(r"(?<!\d)([45]\d\d)(?!\d)", m)
+    if c: return f"источник ответил ошибкой {c.group(1)}"
+    if re.search(r"certificate", m, re.I): return "у источника неверный или просроченный сертификат"
+    if re.search(r"EXT-X-|EXTM3U|Cannot read properties", m): return "источник прислал не плейлист"
+    if re.search(r"ENOTFOUND|EAI_AGAIN|ECONNREFUSED|EHOSTUNREACH", m, re.I): return "нет связи с источником"
+    if re.fullmatch(r"aborted|ECONNRESET|socket hang up", m, re.I): return "источник оборвал соединение"
+    return re.sub(r"[\x00-\x1f]", " ", m)[:120] or "ошибка источника"
+
+
+def he_urlkey(u):
+    u = re.sub(r"[?#].*$", "", u or "")
+    return u.rsplit("/", 1)[0] if "/" in u[8:] else u
+
+
+def he_pathkey(u):
+    """Та же папка без адреса сервера: куски видео часто отдаёт другой сервер провайдера (CDN). Только глубокие пути."""
+    p = re.sub(r"^[a-z]+://[^/]+", "", he_urlkey(u), flags=re.I)
+    return "p:" + p if p.count("/") >= 3 else ""
+
+
+def he_urlmap(path):
+    """Папка ссылки потока -> название канала (по общему плейлисту, который читает HLS Proxy)."""
+    m, name = {}, None
+    try:
+        with open(path, encoding="utf-8", errors="replace") as f:
+            for l in f:
+                l = l.strip()
+                if l.startswith("#EXTINF"): name = l.rsplit(",", 1)[-1].strip()
+                elif l and not l.startswith("#") and name:
+                    m.setdefault(he_urlkey(l), name)
+                    pk = he_pathkey(l)
+                    if pk: m[pk] = name if m.get(pk, name) == name else ""   # одна папка у разных каналов — не угадываем
+                    name = None
+    except OSError: pass
+    return m
+
+
+def he_parse(lines, st, urlmap):
+    """Разобрать строки журнала HLS Proxy, добавить события в st["ev"] (название -> [[время, причина, вид], ...]).
+    Вид: "f" — канал не открылся (не взят плейлист), "g" — перебои (не скачался кусок видео, канал при этом может идти)."""
+    ids, ev = st.setdefault("ids", {}), st.setdefault("ev", {})
+    for l in lines:
+        m = HE_REQ.search(l)
+        if m: ids[m.group(2)] = he_name(m.group(1))
+        if not re.search(r"\bERROR\b", l): continue
+        if HE_SKIP.search(l): continue
+        name = msg = None; kind = "f"
+        m = HE_CH.search(l)
+        if m: name, msg = ids.get(m.group(1)) or "#" + m.group(1), m.group(2)   # код без названия — уточним ниже
+        else:
+            m = HE_FP.search(l)
+            if m: name, msg = he_name(m.group(1)), m.group(3)
+            else:
+                m = HE_RQ.search(l)
+                if m:
+                    name, msg = urlmap.get(he_urlkey(m.group(2))) or urlmap.get(he_pathkey(m.group(2)) or "-"), m.group(1)
+                    if not re.search(r"\.m3u8?(?:[?#]|$)", m.group(2), re.I): kind = "g"   # кусок видео, а не плейлист
+        if not name: continue
+        t = HE_TS.search(l)
+        ts = (t.group(1) + "Z") if t else time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        lst = ev.setdefault(name, [])
+        if lst and abs(_he_epoch(ts) - _he_epoch(lst[-1][0])) < 60:   # пачка ошибок подряд — один случай; «не открылся» важнее «перебоев»
+            if kind == "f" or (lst[-1][2:] or ["f"])[0] != "f": lst[-1][1:] = [he_msg(msg), kind if kind == "f" else (lst[-1][2:] or ["f"])[0]]
+            continue
+        lst.append([ts, he_msg(msg), kind])
+    for k in [k for k in ev if k.startswith("#") and ids.get(k[1:])]:   # название канала стало известно позже ошибки
+        ev.setdefault(ids[k[1:]], []).extend(ev.pop(k)); ev[ids[k[1:]]].sort()
+    if len(ids) > 30000: st["ids"] = dict(list(ids.items())[-20000:])
+
+
+def _he_epoch(ts):
+    try: return datetime.datetime.strptime(ts, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=datetime.timezone.utc).timestamp()
+    except ValueError: return 0
+
+
+def he_summary(st, now=None):
+    now = now or time.time(); items = []
+    for n, lst in list(st.get("ev", {}).items()):
+        lst[:] = [e for e in lst if now - _he_epoch(e[0]) < HE_KEEP][-50:]
+        if not lst: st["ev"].pop(n, None); continue
+        if n.startswith("#"): continue   # канал не опознан — не показываем
+        d24 = [e for e in lst if now - _he_epoch(e[0]) < 86400]
+        f24 = sum(1 for e in d24 if (e[2:] or ["f"])[0] == "f")
+        fl = [e for e in lst if (e[2:] or ["f"])[0] == "f"]
+        top = fl[-1] if fl else lst[-1]   # причина: последнее «не открылся», иначе последние перебои
+        last = datetime.datetime.fromtimestamp(_he_epoch(lst[-1][0])).strftime("%d.%m.%Y %H:%M")
+        items.append({"n": n, "c24": len(d24), "f24": f24, "g24": len(d24) - f24, "f48": len(fl), "c48": len(lst),
+                      "last": last, "ts": lst[-1][0], "msg": top[1]})
+    items.sort(key=lambda x: x["ts"], reverse=True)
+    return {"at": time.strftime("%d.%m.%Y %H:%M"), "items": items[:300]}
+
+
+def hls_errors():
+    if E4.get("mode") != "hls": return
+    import subprocess
+    st = rj(HSTATE, {}) or {}
+    cmd = ["journalctl", "-u", "hls-proxy", "-o", "cat", "--no-pager", "--show-cursor"]
+    cmd += ["--after-cursor", st["cur"]] if st.get("cur") else ["--since", "-24h"]
+    try: out = subprocess.run(cmd, capture_output=True, text=True, timeout=60, errors="replace").stdout
+    except Exception: return
+    lines = out.splitlines()
+    if lines and lines[-1].startswith("-- cursor: "): st["cur"] = lines.pop()[11:].strip()
+    he_parse(lines, st, he_urlmap(E4.get("combined") or ""))
+    summ = he_summary(st)
+    os.makedirs(os.path.dirname(HSTATE), exist_ok=True)
+    with open(HSTATE + ".tmp", "w", encoding="utf-8") as f: json.dump(st, f, ensure_ascii=False)
+    os.chmod(HSTATE + ".tmp", 0o600); os.replace(HSTATE + ".tmp", HSTATE)
+    with open(HERR + ".tmp", "w", encoding="utf-8") as f: json.dump(summ, f, ensure_ascii=False)
+    try: os.chown(HERR + ".tmp", 0, grp.getgrnam(E4.get("editor_group", "e4tv")).gr_gid)
+    except Exception: pass
+    os.chmod(HERR + ".tmp", 0o640); os.replace(HERR + ".tmp", HERR)
+
+
 def ua_name(ua):
     u = (ua or "").lower()
     for k, v in UA_NAMES:
@@ -864,7 +999,11 @@ def main():
 
 
 if __name__ == "__main__":
-    if "--activity" in sys.argv: sys.exit(activity())
+    if "--activity" in sys.argv:
+        rc = activity()
+        try: hls_errors()   # «Не открылось у клиентов» — ошибки источников из журнала HLS Proxy
+        except Exception as e: print(f"hls-errors: {e}")
+        sys.exit(rc)
     rc = 0
     for _ in range(3):   # если листы сохранили ещё раз, пока шла сборка, — собрать заново
         m0 = os.path.getmtime(RULES) if os.path.exists(RULES) else 0
