@@ -300,6 +300,102 @@ def _hls_hash():
     return h.hexdigest()
 
 
+# ---------- Телегид в HLS Proxy: источники, сколько дней хранить, «Обновить сейчас» ----------
+EPG_FLAG = E4["editor_dir"] + "/epg-fetch.flag"
+EPG_STATUS = E4["editor_dir"] + "/epg-status.json"
+
+
+def _epg_status(upd):
+    st = rj(EPG_STATUS, {}) or {}
+    st.update(upd)
+    try:
+        with open(EPG_STATUS + ".tmp", "w", encoding="utf-8") as f: json.dump(st, f, ensure_ascii=False)
+        try: os.chown(EPG_STATUS + ".tmp", 0, grp.getgrnam(E4.get("editor_group", "e4tv")).gr_gid)
+        except Exception: pass
+        os.chmod(EPG_STATUS + ".tmp", 0o640); os.replace(EPG_STATUS + ".tmp", EPG_STATUS)
+    except OSError: pass
+
+
+def sync_hls_epg(rules):
+    """Свои источники телегида и срок хранения — в настройку HLS Proxy (local.json). Поменялось — перезапуск и сразу скачать.
+    Пустой список источников — как при установке (epg_url из config.json)."""
+    if E4["mode"] != "hls": return False
+    try: c = json.load(open(CONF, encoding="utf-8"))
+    except Exception: return False
+    epg = c.setdefault("epg", {})
+    srcs = [u for u in (rules.get("epg_sources") or []) if re.match(r"^https?://[^\s\"<>]{1,1000}$", str(u))][:5] or [E4.get("epg_url") or "http://epg.it999.ru/edem.xml.gz"]
+    days = rules.get("epg_days")
+    changed = False
+    if epg.get("tvGuideUrl") != srcs: epg["tvGuideUrl"] = srcs; changed = True
+    if isinstance(days, int) and 1 <= days <= 14 and epg.get("historyDays") != days: epg["historyDays"] = days; changed = True
+    _epg_status({"hls": {"sources": epg.get("tvGuideUrl") or [], "days": epg.get("historyDays")}})
+    if not changed: return False
+    st_ = os.stat(CONF); tmp = CONF + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f: json.dump(c, f, ensure_ascii=False, indent=1)
+    os.chown(tmp, st_.st_uid, st_.st_gid); os.chmod(tmp, 0o600); os.replace(tmp, CONF)
+    import subprocess
+    try: subprocess.run(["systemctl", "restart", "hls-proxy"], timeout=60)
+    except Exception as e: print("не удалось перезапустить HLS Proxy:", e)
+    try:
+        if os.path.isdir(E4["build_dir"]):
+            with open(E4["build_dir"] + "/hls.sha256", "w") as f: f.write(_hls_hash() + "  -\n")
+    except OSError: pass
+    with open(EPG_FLAG, "w") as f: f.write(str(time.time()))   # новые источники — скачать сразу, а не ждать расписания
+    print("телегид: настройки HLS Proxy обновлены, HLS Proxy перезапущен")
+    return True
+
+
+def hls_fetch_epg():
+    """Попросить HLS Proxy скачать телегид сейчас (то же, что «Fetch EPG» в его панели): вход админом, затем /fetchepg."""
+    if E4["mode"] != "hls": return
+    st0 = rj(EPG_STATUS, {}) or {}
+    try: got = os.path.getmtime(os.path.join(E4.get("hls_dir") or "/opt/hls-proxy", "epg.xml.gz"))
+    except OSError: got = 0
+    req = st0.get("req_ts") or 0
+    # прошлый запрос не дошёл до конца (HLS Proxy перезапустила сборка посреди скачивания) — повторить, но не дольше получаса
+    pending = st0.get("ok") and req > got and time.time() - req < 1800
+    if not os.path.exists(EPG_FLAG) and not pending: return
+    try: os.remove(EPG_FLAG)
+    except OSError: pass
+    try:
+        c = json.load(open(CONF, encoding="utf-8")); S = c.get("SERVER") or {}
+        pw = S.get("password") or ""
+        proto = "https" if S.get("protocol") == "https" else "http"
+        host = S.get("address") if proto == "https" else "127.0.0.1"   # https: по имени, с обычной проверкой сертификата
+        base = f"{proto}://{host}:{int(S.get('port') or (443 if proto == 'https' else 80))}"
+        if not pw: raise RuntimeError("нет пароля администратора HLS Proxy")
+
+        class NoRedir(urllib.request.HTTPRedirectHandler):
+            def redirect_request(self, *a, **k): return None
+        op = urllib.request.build_opener(NoRedir)
+        tok, err = None, ""
+        for _ in range(15):   # после перезапуска HLS Proxy поднимается несколько секунд
+            try:
+                rq = urllib.request.Request(base + "/login", data=urllib.parse.urlencode({"username": "admin", "password": pw}).encode(), method="POST")
+                try: r = op.open(rq, timeout=10); hdrs = r.headers
+                except urllib.error.HTTPError as e: hdrs = e.headers
+                for v in hdrs.get_all("Set-Cookie") or []:
+                    m = re.match(r"\s*X-Auth-Token=([^;]+)", v)
+                    if m: tok = m.group(1)
+                if tok: break
+                err = "HLS Proxy не принял пароль администратора"; break
+            except Exception as e: err = str(e); time.sleep(2)
+        if not tok: raise RuntimeError(err or "нет ответа HLS Proxy")
+        try:   # уже качает — второй раз не просим
+            with op.open(urllib.request.Request(base + "/status.json", headers={"Cookie": "X-Auth-Token=" + tok}), timeout=10) as r:
+                if json.loads(r.read(200000).decode("utf-8", "replace")).get("isEpgFetch"): return
+        except Exception: pass
+        rq = urllib.request.Request(base + "/fetchepg", headers={"Cookie": "X-Auth-Token=" + tok})
+        try: op.open(rq, timeout=20); code = 200
+        except urllib.error.HTTPError as e: code = e.code
+        if code not in (200, 301, 302, 303): raise RuntimeError(f"HLS Proxy ответил {code}")
+        _epg_status({"at": time.strftime("%d.%m.%Y %H:%M"), "ok": True, "error": "", "req_ts": req if pending else time.time()})
+        print("телегид: HLS Proxy начал скачивание")
+    except Exception as e:
+        _epg_status({"at": time.strftime("%d.%m.%Y %H:%M"), "ok": False, "error": str(e)[:200]})
+        print("телегид: не удалось запустить обновление:", e)
+
+
 def sync_hls_clients(active, fmt=""):
     """Режим hls: у каждого клиента свой логин в HLS Proxy со своим лимитом потоков.
     Выключенные и просроченные клиенты из HLS Proxy убираются — их старые ссылки на потоки перестают работать.
@@ -868,6 +964,10 @@ def main():
             ps = preset_stat(fs["url"][5:])
             if ps: st.setdefault("presets", {})[fs["url"][5:]] = ps
     sync_hls_clients(active, rules.get("stream_format") or "")   # свои логины клиентов в HLS Proxy (перезапускает его, если что-то поменялось)
+    try:
+        sync_hls_epg(rules)   # свои источники телегида / срок хранения (перезапуск — только если поменялись)
+        hls_fetch_epg()       # «Обновить телегид сейчас» или новые источники
+    except Exception as e: print("телегид:", e)
     if lists or MAIN or active:
         t0 = time.time()
         while True:   # после перезапуска HLS Proxy плейлист появляется не сразу

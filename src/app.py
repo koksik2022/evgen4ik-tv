@@ -18,6 +18,8 @@ RULES = f"{DATA}/rules.json"
 STATE = f"{DATA}/state.json"
 TRIGGER = f"{DATA}/apply.trigger"
 LTRIGGER = f"{DATA}/lists.trigger"
+EPG_FLAG = f"{DATA}/epg-fetch.flag"         # «Обновить телегид сейчас» (выполняет lists.py)
+EPG_STATUS = f"{DATA}/epg-status.json"      # итог последнего запроса обновления телегида
 LSTATUS = f"{DATA}/lists-status.json"
 ACTIVITY = f"{DATA}/activity.json"
 XC_FILE = f"{DATA}/xc.json"          # каналы клиентов для входа через Xtream Codes (собирает lists.py)
@@ -283,6 +285,11 @@ def validate(r):
     out["link_mode"] = r["link_mode"] if r.get("link_mode") in LINK_MODES else ""
     out["logo_proxy"] = r.get("logo_proxy") is not False   # логотипы через сервер
     out["fallback"] = r.get("fallback") is not False       # своя ссылка не прошла через HLS Proxy — отдать «только в файле»
+    # телегид: свои источники (пусто — как при установке, it999) и сколько дней хранить в HLS Proxy (None — не менять)
+    es = r.get("epg_sources") if isinstance(r.get("epg_sources"), list) else []
+    out["epg_sources"] = list(dict.fromkeys(u.strip() for u in es if isinstance(u, str) and re.match(r"^https?://[^\s\"<>]{1,1000}$", u.strip())))[:5]
+    ed = r.get("epg_days")
+    out["epg_days"] = ed if isinstance(ed, int) and not isinstance(ed, bool) and 1 <= ed <= 14 else None
     out["open_logos"] = r.get("open_logos") is True   # логотипы из открытых баз (it999, iptv-org, tv-logos) каналам без картинки
     out["stream_format"] = r["stream_format"] if r.get("stream_format") in ("hls", "ts") else ""   # формат потока HLS Proxy для плееров; "" — как настроено в нём
     seen_slug = set()
@@ -685,6 +692,11 @@ def prep_status():
         try:   # когда HLS Proxy последний раз обновил телегид (для «Обзора»)
             d["epg_at"] = time.strftime("%d.%m.%Y %H:%M", time.localtime(os.path.getmtime(os.path.join(E4.get("hls_dir") or "/opt/hls-proxy", "epg.xml.gz"))))
         except OSError: d["epg_at"] = ""
+        d["epg_req"] = os.path.exists(EPG_FLAG)                # запрошено обновление, ещё не передано HLS Proxy
+        d["epg_st"] = read_json(EPG_STATUS, {}) or {}
+        try:   # что сейчас в HLS Proxy: источники и сколько дней хранить (local.json читает только root — берём из сводки lists.py)
+            d["epg_hls"] = (read_json(EPG_STATUS, {}) or {}).get("hls") or {}
+        except Exception: d["epg_hls"] = {}
     try:   # следующая плановая сборка (таймер e4tv-build)
         nx = subprocess.run(["systemctl", "show", "e4tv-build.timer", "-p", "NextElapseUSecRealtime"], capture_output=True, text=True, timeout=5).stdout
         m = re.search(r"(\d{4})-(\d\d)-(\d\d) (\d\d):(\d\d)", nx)
@@ -951,7 +963,8 @@ class H(BaseHTTPRequestHandler):
                 u += ("&" if "?" in u else "?") + "output=ts"
             return self._redirect(add_query(u, self.path))
         if path == "/xmltv.php":
-            return self._redirect(E4.get("player_epg") or E4["epg_url"])
+            es = (read_json(RULES, {}) or {}).get("epg_sources") or []
+            return self._redirect((es[0] if E4["mode"] != "hls" and es else None) or E4.get("player_epg") or E4["epg_url"])
         gm, cats = {}, []
         for ch in chans:
             if ch["group"] not in gm: gm[ch["group"]] = str(len(gm) + 1); cats.append({"category_id": gm[ch["group"]], "category_name": ch["group"], "parent_id": 0})
@@ -1208,6 +1221,11 @@ class H(BaseHTTPRequestHandler):
                 return self._send(200, save_ac_conf(body))
             except ValueError as e:
                 return self._send(400, {"error": str(e)})
+        if self.path == "/api/epg-fetch":   # «Обновить телегид сейчас»: флаг + пересборка листов; lists.py (root) попросит HLS Proxy скачать телегид
+            if E4["mode"] != "hls": return self._send(400, {"error": "без HLS Proxy телегид плеер берёт сам по ссылке"})
+            with open(EPG_FLAG, "w") as f: f.write(str(time.time()))
+            with open(LTRIGGER, "w") as f: f.write(str(time.time()))
+            return self._send(200, {"ok": True})
         if self.path == "/api/autocheck-run":   # служба e4tv-check-now (root) проверит потоки
             if not os.path.exists(CTRIGGER): return self._send(400, {"error": "автопроверка не настроена на сервере — обновите Evgen4ik TV"})
             with open(CTRIGGER, "w") as f: f.write(str(time.time()))
@@ -1223,7 +1241,7 @@ class H(BaseHTTPRequestHandler):
             clean_uploads(rules)
             if body.get("apply") or bool(old.get("open_logos")) != rules["open_logos"]:   # полная пересборка (логотипы ставит сборка); листы пересоберутся после неё сами
                 with open(TRIGGER, "w") as f: f.write(str(time.time()))
-            elif old.get("lists") != rules["lists"] or any(old.get(k) != rules[k] for k in ("link_mode", "logo_proxy", "fallback", "stream_format")) or old.get("lists_only_sources") != rules["lists_only_sources"] or old.get("free_sources") != rules["free_sources"] or (old.get("free_edits") or {}) != rules["free_edits"] or (old.get("clients") or []) != rules["clients"]:
+            elif old.get("lists") != rules["lists"] or any(old.get(k) != rules[k] for k in ("link_mode", "logo_proxy", "fallback", "stream_format", "epg_sources", "epg_days")) or old.get("lists_only_sources") != rules["lists_only_sources"] or old.get("free_sources") != rules["free_sources"] or (old.get("free_edits") or {}) != rules["free_edits"] or (old.get("clients") or []) != rules["clients"]:
                 with open(LTRIGGER, "w") as f: f.write(str(time.time()))
             return self._send(200, {"ok": True, "applied": bool(body.get("apply")), "rules": rules})
         return self._send(404, {"error": "not found"})

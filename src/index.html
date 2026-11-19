@@ -357,6 +357,7 @@ pre.jlog{font:12px/1.55 var(--mono);white-space:pre-wrap;color:var(--muted);marg
     <button data-mode="check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 12h4l3-8 4 16 3-8h4"/></svg>Проверка потоков<span class="cnt" id="navCheck"></span></button>
     <h3>Настройки</h3>
     <button data-mode="links"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M16.5 10.5V6.75a4.5 4.5 0 1 0-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 0 0 2.25-2.25v-6.75a2.25 2.25 0 0 0-2.25-2.25H6.75a2.25 2.25 0 0 0-2.25 2.25v6.75a2.25 2.25 0 0 0 2.25 2.25Z"/></svg>Ссылки и логотипы</button>
+    <button data-mode="epg"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="5" width="18" height="13" rx="2"/><path d="M7 21h10M8 9h8M8 12.5h5"/></svg>Телегид</button>
     <button data-mode="filters"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M12 3c2.755 0 5.455.232 8.083.678.533.09.917.556.917 1.096v1.044a2.25 2.25 0 0 1-.659 1.591l-5.432 5.432a2.25 2.25 0 0 0-.659 1.591v2.927a2.25 2.25 0 0 1-1.244 2.013L9.75 21v-6.568a2.25 2.25 0 0 0-.659-1.591L3.659 7.409A2.25 2.25 0 0 1 3 5.818V4.774c0-.54.384-1.006.917-1.096A48.32 48.32 0 0 1 12 3Z"/></svg>Автоскрытие групп</button>
     <button data-mode="rules"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.325.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 0 1 1.37.49l1.296 2.247a1.125 1.125 0 0 1-.26 1.431l-1.003.827c-.293.241-.438.613-.43.992a7.723 7.723 0 0 1 0 .255c-.008.378.137.75.43.991l1.004.827c.424.35.534.955.26 1.43l-1.298 2.247a1.125 1.125 0 0 1-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.47 6.47 0 0 1-.22.128c-.331.183-.581.495-.644.869l-.213 1.281c-.09.543-.56.94-1.11.94h-2.594c-.55 0-1.019-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 0 1-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 0 1-1.369-.49l-1.297-2.247a1.125 1.125 0 0 1 .26-1.431l1.004-.827c.292-.24.437-.613.43-.991a6.932 6.932 0 0 1 0-.255c.007-.38-.138-.751-.43-.992l-1.004-.827a1.125 1.125 0 0 1-.26-1.43l1.297-2.247a1.125 1.125 0 0 1 1.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.086.22-.128.332-.183.582-.495.644-.869l.214-1.28Z"/><path d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z"/></svg>Постоянные правила</button>
     <button data-mode="history"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"/></svg>История и копии</button>
@@ -421,7 +422,7 @@ const clean=s=>String(s||"").replace(/[\x00-\x1f\x7f"]/g," ").trim().slice(0,100
 const URLRX=/^(https?|rtmp|rtsp|udp|rtp):\/\/[^\s"]{1,2000}$/i;
 let EPG_URL="", CONF={}, booted=false;
 let STATUS=null;   // последний ответ /api/status (сборка, HLS Proxy, автопроверка) — для боковой панели, «Обзора» и «Журнала»
-const PAGES={home:"Обзор",check:"Проверка потоков",journal:"Журнал",clients:"Клиенты",client:"Клиент",plist:"Объединённые плейлисты",lists:"Объединённые плейлисты",main:"Группы и каналы",sources:"Источники",filters:"Автоскрытие групп",history:"История и резервные копии",rules:"Постоянные правила",help:"Справка",links:"Ссылки и логотипы"};
+const PAGES={home:"Обзор",check:"Проверка потоков",journal:"Журнал",clients:"Клиенты",client:"Клиент",plist:"Объединённые плейлисты",lists:"Объединённые плейлисты",main:"Группы и каналы",sources:"Источники",filters:"Автоскрытие групп",history:"История и резервные копии",rules:"Постоянные правила",help:"Справка",links:"Ссылки и логотипы",epg:"Телегид"};
 // ---------- версия и обновление по кнопке ----------
 let VER={}, verPoll=null, verShown=false;
 async function checkVersion(force){try{VER=await (await fetch("/api/version"+(force?"?force=1":""))).json()}catch(e){return} showVer(); if(mode==="home"&&R) renderHome();
@@ -450,11 +451,11 @@ function norm(r){r=r||{};return{version:1,hidden_patterns:r.hidden_patterns||(ST
   group_order:r.group_order||[],custom_groups:r.custom_groups||[],custom_channels:r.custom_channels||[],lists:r.lists||[],
   sources:r.sources||[],disabled_sources:r.disabled_sources||[],primary_source:r.primary_source||null,stream_limit:r.stream_limit??null,stream_limit_mode:r.stream_limit_mode==="auto"?"auto":"manual",
   lists_only_sources:r.lists_only_sources||[],channel_order:r.channel_order||{},auto_rules:r.auto_rules||[],free_sources:r.free_sources||[],free_edits:r.free_edits||{},clients:r.clients||[],client_msg:r.client_msg||"",
-  link_mode:r.link_mode||"",logo_proxy:r.logo_proxy!==false,fallback:r.fallback!==false,stream_format:r.stream_format||"",open_logos:r.open_logos===true}}
+  link_mode:r.link_mode||"",logo_proxy:r.logo_proxy!==false,fallback:r.fallback!==false,stream_format:r.stream_format||"",open_logos:r.open_logos===true,epg_sources:Array.isArray(r.epg_sources)?r.epg_sources:[],epg_days:Number.isInteger(r.epg_days)?r.epg_days:null}}
 function isDirty(){return JSON.stringify(R)!==saved}
 const DIRTY_NAMES={channels:"каналы",groups:"группы",group_order:"порядок групп",channel_order:"порядок каналов",hidden_patterns:"скрытие",custom_groups:"свои группы",custom_channels:"свои каналы",
   lists:"плейлисты",clients:"клиенты",client_msg:"сообщение клиентам",sources:"источники",disabled_sources:"источники",primary_source:"основной источник",lists_only_sources:"источники",
-  auto_rules:"правила",free_sources:"бесплатная подборка",free_edits:"бесплатная подборка",stream_limit:"лимит потоков",stream_limit_mode:"лимит потоков",link_mode:"ссылки провайдера",logo_proxy:"ссылки провайдера",fallback:"ссылки провайдера",stream_format:"формат потока",open_logos:"логотипы"};
+  auto_rules:"правила",free_sources:"бесплатная подборка",free_edits:"бесплатная подборка",stream_limit:"лимит потоков",stream_limit_mode:"лимит потоков",link_mode:"ссылки провайдера",logo_proxy:"ссылки провайдера",fallback:"ссылки провайдера",stream_format:"формат потока",open_logos:"логотипы",epg_sources:"телегид",epg_days:"телегид"};
 function dirtyWhat(){let s={}; try{s=JSON.parse(saved)||{}}catch(e){} const w=new Set();
   for(const k of new Set([...Object.keys(R),...Object.keys(s)])) if(JSON.stringify(R[k])!==JSON.stringify(s[k])) w.add(DIRTY_NAMES[k]||"настройки");
   return [...w]}
@@ -572,6 +573,32 @@ function lmLine(){const m=lmAll(); return `<div class="lmline"><span>Ссылк�
 function olCard(){return `<div class="card"><h2>Логотипы</h2><p class="hint">Каналам, у которых нет картинки ни у источника, ни у тёзки (HD, orig, +2), подставить логотип из открытых баз — по названию канала. Порядок: it999 (из вашего телегида), затем iptv-org, затем tv-logos. Свои логотипы каналов не меняются.</p>
   <label class="switch" title="Картинки ищутся по названию: у каналов с похожими именами изредка может встать чужой логотип — его можно заменить в карточке канала"><input type="checkbox" id="gOL" ${R.open_logos?"checked":""}><i></i>Логотипы из открытых баз</label>
   <div class="muted" style="margin-top:6px">Базы скачиваются при сборке раз в сутки. После «Сохранить» плейлист пересоберётся (несколько минут).</div></div>`}
+
+// ---------- «Телегид»: источники, сколько дней хранить, обновить сейчас ----------
+const EPG_DEF="http://epg.it999.ru/edem.xml.gz";
+function renderEpg(){const s=STATUS||{}, hls=CONF.mode==="hls", h=s.epg_hls||{}, st=s.epg_st||{};
+  const cur=(h.sources&&h.sources.length?h.sources:(R.epg_sources.length?R.epg_sources:[EPG_DEF]));
+  const stat=s.epg_req?'<span class="st-run">⏳ Запрошено — HLS Proxy начнёт скачивание в течение минуты</span>'
+    :st.at?(st.ok?`Последний запрос «Обновить сейчас»: ${relDT(st.at)} — скачивание и разбор занимают 1–3 минуты`:`<span class="st-bad">✖ ${esc(st.at)}: ${esc(st.error||"ошибка")}</span>`):"";
+  $("settings").innerHTML=`<div class="card"><h2>Телегид (программа передач)</h2>
+    <p class="hint">${hls?`Телегид скачивает HLS Proxy и отдаёт плеерам по ссылке <code>${esc(CONF.epg_url||"")}</code>. Сам он обновляет его в 8:00 и 23:00.`:"Без HLS Proxy плеер сам скачивает телегид по ссылке из шапки плейлиста."}</p>
+    ${hls?`<div class="hrow" style="gap:24px;margin:8px 0 14px;flex-wrap:wrap"><div><span class="muted">Последнее обновление</span><br><b>${s.epg_at?relDT(s.epg_at):"—"}</b></div>
+      <div><span class="muted">Сейчас в HLS Proxy</span><br><b>${cur.length} ${cur.length===1?"источник":"источника"}</b>${h.days?` · хранит ${plural(h.days,"день","дня","дней")}`:""}</div></div>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><button id="epgFetch" class="primary">⟳ Обновить сейчас</button><span class="hint" style="margin:0">${stat}</span></div>`:""}</div>
+  <div class="card"><h2>Источники</h2>
+    <p class="hint">Ссылки на файлы XMLTV (<code>.xml</code> или <code>.xml.gz</code>) — по одной в строке, до 5. Пусто — как при установке: it999. Несколько — ${hls?"HLS Proxy объединит программу из всех":"плеер получит их списком (не все плееры это умеют)"}.</p>
+    <textarea id="epgSrc" rows="4" spellcheck="false" placeholder="${EPG_DEF}" style="width:100%;max-width:760px">${esc(R.epg_sources.join("\n"))}</textarea>
+    <p class="hint" style="margin:6px 0 0">Каналы связываются с программой по коду (поле «Программа (EPG)» в карточке канала). Коды подбираются по it999 — у другого источника свои коды, у части каналов программа может пропасть.</p>
+    ${hls?`<div class="cf" style="margin-top:12px;max-width:520px"><label for="epgDays">Хранить прошедшие передачи, дней</label>
+      <input type="number" id="epgDays" min="1" max="14" value="${R.epg_days??""}" placeholder="${h.days||3} (сейчас)" style="width:120px">
+      <div class="muted" style="margin-top:4px">Нужно для архива: сколько дней назад плеер покажет программу. Пусто — не менять.</div></div>
+    <p class="hint" style="margin:12px 0 0">После «Сохранить» HLS Proxy перезапустится (просмотр прервётся на несколько секунд) и сразу скачает телегид из новых источников.</p>`:""}</div>`}
+$("settings").addEventListener("input",e=>{if(mode!=="epg") return; const t=e.target;
+  if(t.id==="epgSrc"){R.epg_sources=[...new Set(t.value.split(/\n+/).map(x=>x.trim()).filter(x=>/^https?:\/\/[^\s"<>]{1,1000}$/.test(x)))].slice(0,5); markDirty()}
+  if(t.id==="epgDays"){const v=parseInt(t.value,10); R.epg_days=v>=1&&v<=14?v:null; markDirty()}});
+$("settings").addEventListener("click",async e=>{if(mode!=="epg"||e.target.id!=="epgFetch") return; const b=e.target; b.disabled=true;
+  try{await acApi("/api/epg-fetch",{}); toast("Обновление запрошено — HLS Proxy скачает телегид за 1–3 минуты"); if(STATUS) STATUS.epg_req=true; renderEpg()}
+  catch(err){toast(err.message); b.disabled=false}});
 function renderLinks(){$("settings").innerHTML=lmGlobalCard()+olCard()}
 // «Сделать иначе» в карточке плейлиста (k="l") и клиента (k="c")
 function lmOwn(k,obj,inh,inhTxt){const own=obj.link_mode&&LMK[obj.link_mode], eff=own?lmFix(obj.link_mode):inh;
@@ -627,7 +654,7 @@ function render(){buildAll(); snapUndo();
   const fb=$("srcFBar"); if(mode==="main"&&srcF){const ch=ALL.filter(c=>!c.alias&&inSrcF(c)), gN=new Set(ch.map(effGroup)).size;
     fb.innerHTML=`<span style="font-size:16px">🔎</span><b>Источник: ${esc(srcF)}</b><span class="muted">${ch.length} каналов в ${gN} группах — прячьте, переименовывайте, переносите и смотрите ▶ прямо здесь</span><span style="flex:1"></span><button id="srcFClear">✕ Показать все источники</button>`;
     fb.hidden=false} else fb.hidden=true;
-  if(mode==="home") renderHome(); else if(mode==="check") renderCheck(); else if(mode==="journal") renderJournal(); else if(mode==="help") renderHelp(); else if(mode==="links") renderLinks();
+  if(mode==="home") renderHome(); else if(mode==="check") renderCheck(); else if(mode==="journal") renderJournal(); else if(mode==="help") renderHelp(); else if(mode==="links") renderLinks(); else if(mode==="epg") renderEpg();
   else if(mode==="clients") renderClients(); else if(mode==="client") renderClient(); else if(mode==="plist") renderPlist(); else if(mode==="history") renderHistory(); else if(mode==="rules") renderRules(); else if(mode==="sources"||mode==="filters") renderSettings(mode);
   else if(mode==="lists"&&lsrc!=="main"){renderSrcbar();renderGroupsExt();renderPaneExt();renderMine()}
   else {if(mode==="lists"){renderSrcbar();renderMine()} renderGroups();renderPane()}
@@ -1966,6 +1993,7 @@ const HELP_HOW=[
   ["Собрать плейлист для телевизора",["«Объединённые плейлисты» → «+ Новый плейлист».","Слева отметьте группы, справа — отдельные каналы. В карточке «Источники» можно оставить только нужных провайдеров.","«Сохранить» → кнопка «M3U» или «QR». Ссылку вставьте в плеер (TiviMate, OTT Navigator и др.)."]],
   ["Добавить клиента и отправить ему ссылку",["«Клиенты» → «+ Новый клиент»: имя, срок, «Каналов одновременно».","В «Что смотрит» отметьте плейлист → «Сохранить».","В строке клиента «⋯» → «Скопировать сообщение с инструкцией» — готовый текст со ссылкой, перешлите его клиенту."]],
   ["Свой набор каналов для одного клиента",["В карточке клиента у общего плейлиста нажмите «Сделать личным».","Правьте личный плейлист — изменения коснутся только этого клиента."]],
+  ["Телегид: обновить сейчас, сменить источник",["Меню слева «Настройки» → «Телегид».","«⟳ Обновить сейчас» — HLS Proxy скачает программу за 1–3 минуты (сам он обновляет в 8:00 и 23:00).","Свои источники — ссылки XMLTV по одной в строке → «Сохранить». HLS Proxy перезапустится на несколько секунд."]],
   ["Логотипы каналам без картинки",["Меню слева «Настройки» → «Ссылки и логотипы» → галка «Логотипы из открытых баз» → «Сохранить». Плейлист пересоберётся сам."]],
   ["Скрыть ссылки провайдера",["Меню слева «Настройки» → «Ссылки и логотипы» → выберите вариант → «Сохранить».","Для одного клиента или плейлиста иначе — в его карточке «Сделать иначе»."]],
   ["Архив передач",["Ничего настраивать не нужно: если архив есть у провайдера, он появится у клиента сам.","В плеере откройте программу передач и выберите прошедшую. Через Xtream архив тоже работает.","Не открывается — у главного провайдера этого канала может не быть архива."]],

@@ -661,7 +661,9 @@ def main():
             f = allc[j]; f["new"] = c["new"]; f["out"] = c.get("out", c["new"]); seq.append(f)
     allc = seq
     log.append(f"Каналов с резервом (одинаковое имя): {pairs}, основной источник {prim}")
-    out = [f'#EXTM3U url-tvg="{EPG_HDR}"']
+    es = [u for u in (R0.get("epg_sources") or []) if re.match(r"^https?://[^\s\"<>]{1,1000}$", str(u))]
+    hdr = ",".join(es) if es and CONF.get("mode") != "hls" else EPG_HDR   # с HLS Proxy телегид собирает он сам (свои источники — в его настройке)
+    out = [f'#EXTM3U url-tvg="{hdr}"']
     for c in allc:
         a = "".join(f' {k}="{v}"' for k, v in c["attrs"].items())
         out.append(f'#EXTINF:{c["dur"]}{a} group-title="{c.get("out", c["new"])}",{c["name"]}')

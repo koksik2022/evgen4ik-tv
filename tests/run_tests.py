@@ -309,6 +309,35 @@ class HlsErrors(unittest.TestCase):
         self.assertEqual(lists.he_summary(st, now=lists._he_epoch("2026-11-21T00:00:00Z"))["items"], [])   # старше 2 суток — убираются
 
 
+class Epg(unittest.TestCase):
+    def test_validate(self):
+        r = app.validate({"epg_sources": ["http://a.example/x.xml.gz", " https://b.example/e.xml ", "javascript:x", "http://a.example/x.xml.gz"], "epg_days": 7})
+        self.assertEqual(r["epg_sources"], ["http://a.example/x.xml.gz", "https://b.example/e.xml"])   # без мусора и повторов
+        self.assertEqual(r["epg_days"], 7)
+        self.assertIsNone(app.validate({"epg_days": 99})["epg_days"])
+        self.assertIsNone(app.validate({"epg_days": True})["epg_days"])
+        self.assertEqual(app.validate({})["epg_sources"], [])
+
+    def test_sync_hls_epg(self):
+        import tempfile, subprocess as sp
+        d = tempfile.mkdtemp(dir=TMP); p = os.path.join(d, "local.json")
+        json.dump({"SERVER": {"password": "x"}, "clients": {}, "epg": {"tvGuideUrl": ["http://epg.it999.ru/edem.xml.gz"], "historyDays": 3}}, open(p, "w"))
+        old = (lists.CONF, lists.E4.get("mode"), lists.os.chown, sp.run, lists.EPG_FLAG, lists.EPG_STATUS)
+        calls = []
+        lists.CONF = p; lists.E4["mode"] = "hls"; lists.os.chown = lambda *a, **k: None; sp.run = lambda *a, **k: calls.append(a)
+        lists.EPG_FLAG = os.path.join(d, "flag"); lists.EPG_STATUS = os.path.join(d, "st.json")
+        try:
+            self.assertFalse(lists.sync_hls_epg({}))                                   # пусто — как при установке, перезапуска нет
+            self.assertTrue(lists.sync_hls_epg({"epg_sources": ["http://b.example/e.xml"], "epg_days": 7}))
+            e = json.load(open(p))["epg"]
+            self.assertEqual((e["tvGuideUrl"], e["historyDays"]), (["http://b.example/e.xml"], 7))
+            self.assertTrue(os.path.exists(lists.EPG_FLAG))                            # новые источники — скачать сразу
+            self.assertEqual(len(calls), 1)                                            # один перезапуск HLS Proxy
+            self.assertFalse(lists.sync_hls_epg({"epg_sources": ["http://b.example/e.xml"], "epg_days": 7}))   # без изменений — без перезапуска
+        finally:
+            lists.CONF, lists.E4["mode"], lists.os.chown, sp.run, lists.EPG_FLAG, lists.EPG_STATUS = old
+
+
 class StreamFormat(unittest.TestCase):
     def test_new_client_gets_hls_not_mpegts(self):
         import tempfile, subprocess as sp
