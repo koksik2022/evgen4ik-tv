@@ -9,6 +9,26 @@ c() { python3 -c 'import json,sys; c=json.load(open(sys.argv[1])); v=c
 for k in sys.argv[2].split("."): v=v.get(k,"") if isinstance(v,dict) else ""
 print(v)' "$CONF" "$1" 2>/dev/null; }
 need_root() { [ "$(id -u)" = 0 ] || { echo "Нужны права root: sudo e4tv $*"; exit 1; }; }
+CREDS=/root/evgen4ik-tv-доступ.txt
+creds_pw() {   # creds_pw <логин> <пароль> — обновить строки «Логин:»/«Пароль:» в файле доступа (если он есть)
+  [ -f "$CREDS" ] || return 0
+  python3 - "$CREDS" "$1" "$2" <<'P'
+import os, sys
+path, user, pw = sys.argv[1:4]
+lines = open(path, encoding="utf-8").read().splitlines()
+def put(prefix, value, after):
+    line = f"{prefix:<19}{value}"
+    for i, l in enumerate(lines):
+        if l.startswith(prefix + " "): lines[i] = line; return
+    pos = next((i + 1 for i, l in enumerate(lines) if l.startswith(after)), len(lines))
+    lines.insert(pos, line)
+put("Логин:", user, "Редактор:")
+put("Пароль:", pw, "Логин:")
+tmp = path + ".tmp"
+with open(tmp, "w", encoding="utf-8") as f: f.write("\n".join(lines) + "\n")
+os.chmod(tmp, 0o600); os.replace(tmp, path)
+P
+}
 
 set_auth() {   # set_auth <логин> <пароль>  (пароль можно передать и через E4PW)
   local file; file=$(c auth_file); file=${file:-/etc/evgen4ik-tv/auth.json}
@@ -63,6 +83,7 @@ case "${1:-help}" in
     if [ -z "$p" ]; then p=$(python3 -c 'import secrets,string;a=string.ascii_letters+string.digits;print("".join(secrets.choice(a) for _ in range(14)))'); gen=1
     else read -r -s -p "Ещё раз: " p2; echo; [ "$p" = "$p2" ] || { echo "Пароли не совпали"; exit 1; }; gen=0; fi
     set_auth "$u" "$p" || exit 1
+    creds_pw "$u" "$p" && [ -f "$CREDS" ] && echo "Логин и пароль записаны в $CREDS (виден только root)."
     echo "Готово. Все открытые сеансы редактора завершены."
     [ $gen = 1 ] && echo "Логин: $u   Пароль: $p" ;;
   _setauth) need_root "$@"; set_auth "$2" ;;

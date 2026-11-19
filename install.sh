@@ -9,7 +9,7 @@
 # Повторный запуск обновляет программу и сохраняет настройки.
 set -uo pipefail
 
-E4_VER="3.5"
+E4_VER="3.5.1"
 HLSP_VER="8.4.8"
 HLSP_URL="https://www.hls-proxy.com/downloads/${HLSP_VER}/hls-proxy-${HLSP_VER}.linux-x64.zip"
 HLSP_SHA256="96a2faad73df375e2ce1b92466f21f4389e07b79a038435343659c984e16b587"   # SHA-256 архива 8.4.8 (сверено 16.11.2026); пусто — не сверяется
@@ -755,17 +755,21 @@ first_build_and_check() {
 final_report() {
   local user; user=$(python3 -c 'import json;print(json.load(open("'"$ETC"'/auth.json"))["user"])' 2>/dev/null || echo admin)
   local main; main="$(conf_get public_base)$(conf_get main_token).m3u8"
-  # при обновлении пароль не меняется — сохраняем строку с ним из прошлого файла (до 2.9.1 она терялась)
+  # Строка «Пароль:» в файле доступа. Пароль редактора хранится только хешем (auth.json), поэтому:
+  #  - пароль задан сейчас (--password, ввод в мастере или сгенерирован) — пишем его;
+  #  - пароль не менялся (обновление) — переносим строку из прошлого файла, в том числе в режиме туннеля.
+  # До 2.9.1 строка терялась при каждом обновлении; до 3.5.1 — при ручном пароле и при переходе на туннель.
   local oldpw=""; [ -f "$CREDS" ] && oldpw=$(grep -m1 '^Пароль: ' "$CREDS" || true)
+  local pwline=""
+  if [ -n "$PASSWORD" ]; then pwline="Пароль:            $PASSWORD"
+  elif [ -n "$oldpw" ]; then pwline=$oldpw
+  elif [ "$ACCESS" = login ]; then pwline="Пароль:            (прежний; забыли — смените: e4tv passwd)"; fi
   {
     echo "Evgen4ik TV — доступ ($(date '+%d.%m.%Y %H:%M'))"
     echo "Редактор:          $(conf_get editor_url)"
     [ "$ACCESS" = login ] && echo "Логин:             $user"
-    if [ "$ACCESS" = login ]; then
-      if [ "${GENPW:-0}" = 1 ]; then echo "Пароль:            $PASSWORD"
-      elif [ -n "$oldpw" ] && [ -z "$PASSWORD" ]; then echo "$oldpw"
-      elif [ -z "$PASSWORD" ]; then echo "Пароль:            (прежний; забыли — смените: e4tv passwd)"; fi
-    fi
+    [ "$ACCESS" = tunnel ] && [ -n "$pwline" ] && echo "Логин:             $user (вход по паролю выключен; включить: установщик → «изменить настройки»)"
+    [ -n "$pwline" ] && echo "$pwline"
     [ "$ACCESS" = tunnel ] && echo "Туннель с ПК:      ssh -N -L 8095:127.0.0.1:8095 root@$IP"
     echo "Основной плейлист: $main"
     echo "Программа (EPG):   $(conf_get player_epg)"
@@ -774,7 +778,7 @@ final_report() {
       echo "Потоков максимум:  $(python3 -c 'import json;v=json.load(open("'"$HLS"'/local.json")).get("maxSimultaneousStreamCountPerClientDefault","?");print("без лимита" if isinstance(v,int) and v>=999 else v)') (сменить: e4tv streams N, 0 — без лимита)"
       echo "Пароль панели:     $(python3 -c 'import json;print(json.load(open("'"$HLS"'/local.json"))["SERVER"].get("password",""))')"
     fi
-  } > "$CREDS"; chmod 600 "$CREDS"
+  } > "$CREDS.tmp" && chmod 600 "$CREDS.tmp" && mv -f "$CREDS.tmp" "$CREDS"   # старый файл заменяется только целиком
   echo
   echo -e "${G}${B}══════════════ Готово! ══════════════${N}"
   # пароли на экран не выводим (скриншоты, запись терминала) — они только в файле
