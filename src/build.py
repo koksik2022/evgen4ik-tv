@@ -268,6 +268,7 @@ def load_rules(log):
                                                 "hidden": hd if isinstance(hd, bool) else None,
                                                 "urls": _urls(v.get("urls")),
                                                 "tvg_id": _clean(v["tvg_id"]) if isinstance(v.get("tvg_id"), str) and v["tvg_id"].strip() else None,
+                                                "primary": _clean(v["primary"], 40) if isinstance(v.get("primary"), str) and v["primary"].strip() else None,
                                                 "shift": v["shift"] if isinstance(v.get("shift"), (int, float)) and not isinstance(v.get("shift"), bool) and v["shift"] and -12 <= v["shift"] <= 14 else None,
                                                 "logo": v["logo"].strip() if isinstance(v.get("logo"), str) and URL_RX.match(v["logo"].strip()) else None,
                                                 "merge": [m.lower()[:200] for m in (v.get("merge") or [])[:30] if isinstance(m, str) and m.strip()]}
@@ -646,10 +647,13 @@ def main():
     # Основным делаем PRIMARY_SRC: на занятые дублями позиции ставим его запись раньше остальных.
     pos = collections.defaultdict(list)
     for i, c in enumerate(allc): pos[c["name"].lower()].append(i)   # HLS Proxy сравнивает без учёта регистра
-    pairs, lead = 0, {}
+    pairs, lead, pc = 0, {}, 0
     for n, idx in pos.items():
         if len(idx) < 2: continue
-        grp = sorted(idx, key=lambda i: allc[i]["src"] != prim)   # основной — первым, остальные по порядку
+        cp = ((RULES or {}).get("channels", {}).get(allc[idx[0]].get("k")) or {}).get("primary")   # свой основной источник у канала
+        p = cp if cp and any(allc[i]["src"] == cp for i in idx) else prim
+        if cp and p == cp: pc += 1
+        grp = sorted(idx, key=lambda i: allc[i]["src"] != p)   # основной — первым, остальные по порядку
         lead[grp[0]] = grp[1:]
         pairs += 1
     # Основной остаётся на своём месте и в своей группе, резервы — сразу за ним и в той же группе:
@@ -662,7 +666,7 @@ def main():
         for j in lead.get(i, ()):
             f = allc[j]; f["new"] = c["new"]; f["out"] = c.get("out", c["new"]); seq.append(f)
     allc = seq
-    log.append(f"Каналов с резервом (одинаковое имя): {pairs}, основной источник {prim}")
+    log.append(f"Каналов с резервом (одинаковое имя): {pairs}, основной источник {prim}" + (f"; свой основной у {pc}" if pc else ""))
     es = [u for u in (R0.get("epg_sources") or []) if re.match(r"^https?://[^\s\"<>]{1,1000}$", str(u))]
     hdr = ",".join(es) if es and CONF.get("mode") != "hls" else EPG_HDR   # с HLS Proxy телегид собирает он сам (свои источники — в его настройке)
     out = [f'#EXTM3U url-tvg="{hdr}"']

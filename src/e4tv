@@ -3,7 +3,7 @@
 set -u
 CONF=${E4TV_CONF:-/etc/evgen4ik-tv/config.json}
 APP=/opt/evgen4ik-tv
-UNITS="e4tv-editor.service e4tv-build.path e4tv-build.timer e4tv-lists.path e4tv-lists.timer e4tv-activity.timer e4tv-update.path e4tv-check.path e4tv-check.timer e4tv-notify.timer"
+UNITS="e4tv-editor.service e4tv-build.path e4tv-build.timer e4tv-lists.path e4tv-lists.timer e4tv-activity.timer e4tv-update.path e4tv-check.path e4tv-check.timer e4tv-notify.timer e4tv-domain.path"
 
 c() { python3 -c 'import json,sys; c=json.load(open(sys.argv[1])); v=c
 for k in sys.argv[2].split("."): v=v.get(k,"") if isinstance(v,dict) else ""
@@ -148,6 +148,29 @@ P
     T=$(mktemp /tmp/e4tv-get.XXXXXX)
     curl -fsSL --retry 2 --connect-timeout 20 -o "$T" "$U" || { rm -f "$T"; echo "Не удалось скачать $U"; exit 1; }
     exec bash "$T" --update --yes ;;   # exec: установщик перезапишет этот файл; get.sh сам сверяет SHA-256 установщика
+  domain)   # e4tv domain [домен] [e-mail] — подключить домен (HTTPS); без параметров — из запроса редактора
+    need_root "$@"
+    if [ -z "${E4_DOM_COPY:-}" ]; then   # установщик перезапишет этот файл — работаем из копии
+      T0=$(mktemp /tmp/e4tv-dom.XXXXXX); cp "$0" "$T0"; E4_DOM_COPY=$T0 exec bash "$T0" "$@"
+    fi
+    trap 'rm -f "$E4_DOM_COPY"' EXIT
+    D=${2:-}; M=${3:-}; R="$(c data)/editor/domain.request"; S="$(c data)/editor/domain-status.json"
+    if [ -z "$D" ] && [ -s "$R" ]; then
+      D=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("domain",""))' "$R" 2>/dev/null)
+      M=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("email",""))' "$R" 2>/dev/null)
+    fi   # файл запроса не очищаем: запись в него снова запустила бы службу
+    D=${D,,}
+    [[ $D =~ ^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$ ]] || { echo "Неверный домен: «$D»"; exit 1; }
+    [ -z "$M" ] || [[ $M =~ ^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,63}$ ]] || { echo "Неверный e-mail: «$M»"; exit 1; }
+    printf '{"state":"running","domain":"%s","at":%s}\n' "$D" "$(date +%s)" > "$S"; chmod 644 "$S"
+    U=$(c update_url); U=${U:-https://raw.githubusercontent.com/koksik2022/evgen4ik-tv/main/get.sh}
+    T=$(mktemp /tmp/e4tv-get.XXXXXX)
+    curl -fsSL --retry 2 --connect-timeout 20 -o "$T" "$U" || { rm -f "$T"; printf '{"state":"error","error":"не скачался установщик"}\n' > "$S"; echo "Не удалось скачать $U"; exit 1; }
+    bash "$T" --set-domain "$D" ${M:+--email "$M"} --yes; rc=$?
+    rm -f "$T"
+    if [ "$rc" = 0 ] && [ "$(c domain)" = "$D" ]; then printf '{"state":"ok","domain":"%s","editor":"%s"}\n' "$D" "$(c editor_url)" > "$S"
+    else printf '{"state":"error","domain":"%s","error":"домен не подключился — подробности на сервере: /var/log/e4tv-domain.log"}\n' "$D" > "$S"; fi
+    chmod 644 "$S"; exit "$rc" ;;
   rebuild)
     need_root "$@"; date +%s > "$(c data)/editor/apply.trigger"; echo "Пересборка запущена. Ход: e4tv logs" ;;
   check)   # проверить потоки сейчас; итог — в редакторе («Источники» → «Автопроверка потоков»)
@@ -175,6 +198,7 @@ e4tv info       — ссылки: редактор, основной плейл�
 e4tv status     — состояние служб и последней сборки
 e4tv passwd     — сменить логин/пароль редактора
 e4tv token      — новая ссылка основного плейлиста (старая перестанет работать)
+e4tv domain ДОМЕН [E-MAIL] — подключить домен и HTTPS (ссылки клиентов сменятся на новые)
 e4tv notify-test — пробное сообщение в Telegram (настройка: редактор → «Уведомления»)
 e4tv update     — обновить до последней версии с GitHub
 e4tv rebuild    — пересобрать плейлист сейчас

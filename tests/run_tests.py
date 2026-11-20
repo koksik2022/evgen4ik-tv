@@ -108,6 +108,67 @@ class Notify(unittest.TestCase):
         n = len(sent); notify.main(); self.assertEqual(len(sent), n, "о той же ошибке второй раз не пишет")
 
 
+class Backup(unittest.TestCase):
+    def test_roundtrip_and_restore(self):
+        import notify, base64
+        r = rules(); r["clients"][0]["name"] = "Копия"
+        json.dump(r, open(notify.RULES, "w"), ensure_ascii=False)
+        os.makedirs(notify.UPLOADS, exist_ok=True); open(f"{notify.UPLOADS}/abcd1234.m3u", "w").write("#EXTM3U\n")
+        data = notify.make_backup("пароль-123")
+        self.assertTrue(data.startswith(notify.BK_MAGIC)); self.assertNotIn(b"mama_tv", data, "зашифровано")
+        with self.assertRaises(RuntimeError): notify.open_backup(data, "не тот")
+        with self.assertRaises(RuntimeError): notify.make_backup("short")
+        bk = notify.open_backup(data, "пароль-123")
+        self.assertEqual(bk["rules"]["clients"][0]["name"], "Копия"); self.assertIn("abcd1234.m3u", bk["uploads"])
+        json.dump(rules(), open(app.RULES, "w"), ensure_ascii=False); os.remove(f"{notify.UPLOADS}/abcd1234.m3u")
+        b64 = base64.b64encode(data).decode()
+        chk = app.restore_file({"data": b64, "pass": "пароль-123", "check": True})
+        self.assertEqual(chk["clients"], len(r["clients"]))
+        self.assertNotEqual(json.load(open(app.RULES))["clients"][0]["name"], "Копия", "check ничего не меняет")
+        app.restore_file({"data": b64, "pass": "пароль-123"})
+        self.assertEqual(json.load(open(app.RULES))["clients"][0]["name"], "Копия")
+        self.assertTrue(os.path.exists(f"{notify.UPLOADS}/abcd1234.m3u"))
+        with self.assertRaises(ValueError): app.restore_file({"data": base64.b64encode(b"junk").decode(), "pass": "x"})
+
+
+class MyPage(unittest.TestCase):
+    def test_client_page(self):
+        r = rules(); a = r["clients"][0]; a["name"] = "<b>Жека</b>"; a["slug"] = "zheka-4tq"
+        json.dump(r, open(app.RULES, "w"), ensure_ascii=False)
+        pg = app.my_page(a["token"])
+        self.assertIn("&lt;b&gt;Жека&lt;/b&gt;", pg); self.assertNotIn("<b>Жека</b>", pg)
+        self.assertIn("http://tv.test/pl/zheka-4tq.m3u8", pg, "короткая ссылка, если задана")
+        self.assertIn(a["xc_pw"], pg)
+        self.assertIsNone(app.my_page("NOPE_NOPE_NOPE_NOPE_1")); self.assertIsNone(app.my_page("zheka-4tq"), "по короткой ссылке страница не открывается")
+        off = next(c for c in r["clients"] if c["name"] == "Выкл")
+        po = app.my_page(off["token"]); self.assertIn("выключен", po); self.assertNotIn(".m3u8", po)
+        old = next(c for c in r["clients"] if c["name"] == "Старый")
+        self.assertIn("закончился", app.my_page(old["token"]))
+
+
+class Domain(unittest.TestCase):
+    def test_check_and_set(self):
+        with self.assertRaises(ValueError): app.domain_check({"domain": "не домен"})
+        real, addr = app.socket.getaddrinfo, app.E4.get("address")
+        self.addCleanup(setattr, app.socket, "getaddrinfo", real); self.addCleanup(app.E4.__setitem__, "address", addr)
+        app.socket.getaddrinfo = lambda d, *a, **k: [(2, 1, 6, "", ("203.0.113.5", 0))] if d == "tv.example.com" else real(d, *a, **k)
+        app.E4["address"] = "203.0.113.5"
+        r = app.domain_check({"domain": "https://TV.Example.com/x"})
+        self.assertEqual(r["domain"], "tv.example.com"); self.assertTrue(r["match"])
+        open(app.DOMAIN_REQ, "w").close()
+        app.domain_set({"domain": "tv.example.com", "email": "a@b.ru"})
+        self.assertEqual(json.load(open(app.DOMAIN_REQ))["domain"], "tv.example.com")
+        app.E4["address"] = "198.51.100.7"
+        with self.assertRaises(ValueError): app.domain_set({"domain": "tv.example.com"})
+        with self.assertRaises(ValueError): app.domain_set({"domain": "tv.example.com", "email": "bad"})
+
+    def test_installer_set_domain(self):
+        s = open(os.path.join(ROOT, "install.sh"), encoding="utf-8").read()
+        for x in ("--set-domain) NEWDOMAIN=$2; ACTION=update", "DOMAIN=${NEWDOMAIN:-$DOMAIN_DEF}", "e4tv-domain.path", "domain.request; do"):
+            self.assertIn(x, s)
+        self.assertIn("location ^~ /my/", s)
+
+
 class Build(unittest.TestCase):
     def test_client_files(self):
         r = rules(); r["clients"][0]["link_mode"] = "direct"; r["clients"][1]["link_mode"] = "direct"
@@ -564,7 +625,7 @@ class AutoCheck(unittest.TestCase):
 
     def test_installer_has_units(self):
         s = open(os.path.join(ROOT, "install.sh"), encoding="utf-8").read()
-        for x in ("autocheck.py notify.py e4conf.py", "e4tv-check.timer e4tv-notify.timer", "OnUnitActiveSec=5min", "check.trigger; do", "e4tv-check.path e4tv-check.timer", "Unit=e4tv-check-now.service",
+        for x in ("autocheck.py notify.py e4conf.py", "e4tv-check.timer e4tv-notify.timer", "OnUnitActiveSec=5min", "check.trigger domain.request; do", "e4tv-check.path e4tv-check.timer", "Unit=e4tv-check-now.service",
                   "OnCalendar=*-*-* 06:30:00"):
             self.assertIn(x, s)
         self.assertNotIn("telegram", open(os.path.join(SRC, "autocheck.py"), encoding="utf-8").read().lower())   # уведомления убраны по просьбе
@@ -615,6 +676,31 @@ class NoMerge(unittest.TestCase):
             self.assertRegex(t, r",Первый канал \[~s2\]\nhttp://b/1")
             self.assertRegex(t, r",Только свой \[~s2\]\nhttp://b/2")
             self.assertIn("Не склеиваются с другими источниками: 2", r.stdout)
+        finally:
+            shutil.rmtree(d, ignore_errors=True)
+
+    def test_channel_primary_source(self):
+        """Свой основной источник у канала: его поток первым (HLS Proxy считает первый основным)."""
+        d = tempfile.mkdtemp(prefix="e4tv-prim-")
+        os.makedirs(f"{d}/data/editor"); os.makedirs(f"{d}/data/build"); os.makedirs(f"{d}/hls")
+        json.dump({**CONF, "data": f"{d}/data", "pl_dir": f"{d}/pl", "hls_dir": f"{d}/hls"}, open(f"{d}/c.json", "w"))
+        json.dump({"primary_source": "А", "channels": {"первый канал": {"primary": "Б"}}, "sources": [
+            {"id": "s1", "name": "А", "url": "http://src.test/1.m3u", "enabled": True},
+            {"id": "s2", "name": "Б", "url": "http://src.test/2.m3u", "enabled": True}]},
+            open(f"{d}/data/editor/rules.json", "w"), ensure_ascii=False)
+        run = ("import sys; sys.path.insert(0, %r); import build\n"
+               "S = {'http://src.test/1.m3u': '#EXTM3U\\n#EXTINF:-1 group-title=\"Общие\",Первый канал\\nhttp://a/1\\n#EXTINF:-1 group-title=\"Общие\",Второй\\nhttp://a/2\\n',\n"
+               "     'http://src.test/2.m3u': '#EXTM3U\\n#EXTINF:-1 group-title=\"Общие\",Первый канал\\nhttp://b/1\\n#EXTINF:-1 group-title=\"Общие\",Второй\\nhttp://b/2\\n'}\n"
+               "build.fetch = lambda u, t=120: S[u].encode(); build.it999_ids = lambda: ({}, 'тест')\n"
+               "build.main()\n") % SRC
+        r = subprocess.run([sys.executable, "-B", "-c", run], env={**os.environ, "E4TV_CONF": f"{d}/c.json"},
+                           capture_output=True, text=True, timeout=120)
+        try:
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+            t = open(f"{d}/data/combined.m3u", encoding="utf-8").read()
+            self.assertLess(t.index("http://b/1"), t.index("http://a/1"), "у канала основной — Б")
+            self.assertLess(t.index("http://a/2"), t.index("http://b/2"), "у остальных — общий основной А")
+            self.assertIn("свой основной у 1", r.stdout)
         finally:
             shutil.rmtree(d, ignore_errors=True)
 

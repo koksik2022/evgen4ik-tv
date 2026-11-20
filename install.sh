@@ -9,7 +9,7 @@
 # Повторный запуск обновляет программу и сохраняет настройки.
 set -uo pipefail
 
-E4_VER="3.8"
+E4_VER="3.9"
 HLSP_VER="8.4.8"
 HLSP_URL="https://www.hls-proxy.com/downloads/${HLSP_VER}/hls-proxy-${HLSP_VER}.linux-x64.zip"
 HLSP_SHA256="96a2faad73df375e2ce1b92466f21f4389e07b79a038435343659c984e16b587"   # SHA-256 архива 8.4.8 (сверено 16.11.2026); пусто — не сверяется
@@ -34,7 +34,7 @@ yesno(){ ask "$1 (д/н)" "${2:-д}"; case "${REPLY,,}" in д|да|y|yes|"") ret
 rnd()  { python3 -c "import secrets,string;a=string.ascii_letters+string.digits;print(''.join(secrets.choice(a) for _ in range($1)))"; }
 
 # ---------- параметры ----------
-MODE='' DOMAIN='' EMAIL='' ACCESS='' USERNAME='' PASSWORD='' YES=0 ACTION='' ADDR='' ALT_PORT='' STREAMS='' HTTP_PORT=''
+MODE='' DOMAIN='' EMAIL='' ACCESS='' USERNAME='' PASSWORD='' YES=0 ACTION='' ADDR='' ALT_PORT='' STREAMS='' HTTP_PORT='' NEWDOMAIN=''
 while [ $# -gt 0 ]; do
   case "$1" in
     --mode) MODE=$2; shift;; --domain) DOMAIN=$2; shift;; --email) EMAIL=$2; shift;;
@@ -44,6 +44,7 @@ while [ $# -gt 0 ]; do
     --port) HTTP_PORT=$2; shift;;      # порт плейлистов без домена (по умолчанию 80; занят — подбирается сам)
     --address) ADDR=$2; shift;;   # адрес для плееров (домашний ПК: IP в домашней сети)
     --yes|-y) YES=1;; --update) ACTION=update;; --reconfigure) ACTION=reconfigure;;
+    --set-domain) NEWDOMAIN=$2; ACTION=update; shift;;   # обновить и подключить домен (HTTPS), остальные настройки оставить
     -h|--help) sed -n '2,9p' "$0"; exit 0;;
     *) die "Неизвестный параметр: $1";;
   esac; shift
@@ -257,7 +258,7 @@ install_files() {
   for f in app.py build.py lists.py autocheck.py notify.py e4conf.py index.html login.html; do install -m 644 "$SRC/$f" "$APP/$f"; done
   install -d -m 755 "$APP/lib"; install -m 644 "$SRC"/lib/* "$APP/lib/"   # плееры hls.js и mpegts.js (Apache-2.0)
   install -m 755 "$SRC/e4tv" /usr/local/bin/e4tv
-  for t in apply.trigger lists.trigger update.trigger check.trigger; do [ -f "$DATA/editor/$t" ] || install -m 640 -o e4tv -g e4tv /dev/null "$DATA/editor/$t"; done
+  for t in apply.trigger lists.trigger update.trigger check.trigger domain.request; do [ -f "$DATA/editor/$t" ] || install -m 640 -o e4tv -g e4tv /dev/null "$DATA/editor/$t"; done
   if [ ! -f "$DATA/editor/rules.json" ]; then   # новая установка: лимит каналов «Авто», если не задан --streams
     if [[ ${STREAMS:-} =~ ^[0-9]+$ ]] && [ "$STREAMS" -le 50 ]; then echo "{\"stream_limit_mode\": \"manual\", \"stream_limit\": $((10#$STREAMS))}"
     else echo '{"stream_limit_mode": "auto"}'; fi > "$DATA/editor/rules.json"
@@ -452,6 +453,12 @@ pl_locations() {
         access_log off;   # в адресе пароль клиента — в журнал не пишем
     }
     location ^~ /live/ {
+        proxy_pass http://127.0.0.1:8095;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        access_log off;
+    }
+    location ^~ /my/ {   # личная страница клиента (по его ссылке, без входа в редактор)
         proxy_pass http://127.0.0.1:8095;
         proxy_set_header Host \$host;
         proxy_set_header X-Real-IP \$remote_addr;
@@ -653,6 +660,27 @@ TimeoutStartSec=1200
 # get.sh сам сверяет SHA-256 установщика; журнал — только для root (в нём пароль панели HLS Proxy)
 ExecStart=/bin/sh -c 'umask 077; exec /usr/local/bin/e4tv update > /var/log/e4tv-update.log 2>&1'
 EOF
+  cat > $U/e4tv-domain.service <<EOF
+[Unit]
+Description=Evgen4ik TV — подключить домен (HTTPS) по кнопке в редакторе
+After=network-online.target
+
+[Service]
+Type=oneshot
+TimeoutStartSec=1200
+ExecStart=/bin/sh -c 'umask 077; exec /usr/local/bin/e4tv domain > /var/log/e4tv-domain.log 2>&1'
+EOF
+  cat > $U/e4tv-domain.path <<EOF
+[Unit]
+Description=Evgen4ik TV — кнопка «Подключить домен» в редакторе
+
+[Path]
+PathModified=$DATA/editor/domain.request
+Unit=e4tv-domain.service
+
+[Install]
+WantedBy=multi-user.target
+EOF
   cat > $U/e4tv-update.path <<EOF
 [Unit]
 Description=Evgen4ik TV — кнопка «Обновить» в редакторе
@@ -748,7 +776,7 @@ EOF
   systemctl daemon-reload
   if [ "$MODE" = hls ]; then systemctl enable -q --now hls-proxy; systemctl restart hls-proxy
   elif [ -f "$HLS/.installed-by-e4tv" ]; then systemctl disable -q --now hls-proxy 2>/dev/null; warn "HLS Proxy остановлен (выбран режим без него). Файлы остались в $HLS."; fi
-  systemctl enable -q --now e4tv-editor.service e4tv-build.path e4tv-build.timer e4tv-lists.path e4tv-lists.timer e4tv-activity.timer e4tv-update.path e4tv-check.path e4tv-check.timer e4tv-notify.timer
+  systemctl enable -q --now e4tv-editor.service e4tv-build.path e4tv-build.timer e4tv-lists.path e4tv-lists.timer e4tv-activity.timer e4tv-update.path e4tv-check.path e4tv-check.timer e4tv-notify.timer e4tv-domain.path
   systemctl restart e4tv-editor.service
   ok "Службы запущены"
 }
@@ -841,8 +869,9 @@ main() {
       ask "Ваш выбор" 1; [ "$REPLY" = 2 ] && ACTION=reconfigure || ACTION=update
     fi
     if [ "$ACTION" = update ]; then
-      MODE=$(conf_get mode); DOMAIN=$DOMAIN_DEF; ACCESS=$ACCESS_DEF; YES=1
-      [ -z "$ALT_PORT" ] && [ "$MODE" = hls ] && ALT_PORT=$(conf_get editor_port)
+      MODE=$(conf_get mode); DOMAIN=${NEWDOMAIN:-$DOMAIN_DEF}; ACCESS=$ACCESS_DEF; YES=1
+      if [ -n "$NEWDOMAIN" ]; then HTTP_PORT=''; ALT_PORT=''; say "Подключаю домен $NEWDOMAIN (HTTPS)"   # порты — как для домена: 443 и 8443
+      else [ -z "$ALT_PORT" ] && [ "$MODE" = hls ] && ALT_PORT=$(conf_get editor_port); fi
       if [ -z "$HTTP_PORT" ] && [ -z "$DOMAIN" ]; then   # 2.8 и раньше: http_port нет — берём из hls_port / editor_port
         HTTP_PORT=$(conf_get http_port); [ -n "$HTTP_PORT" ] || HTTP_PORT=$( [ "$MODE" = hls ] && conf_get hls_port || conf_get editor_port )
       fi

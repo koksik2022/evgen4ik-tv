@@ -12,7 +12,7 @@
   notify.py --test   — отправить пробное сообщение
 Только стандартная библиотека Python.
 """
-import datetime, json, os, re, subprocess, sys, time, urllib.error, urllib.parse, urllib.request
+import datetime, glob, io, json, os, re, subprocess, sys, tarfile, time, urllib.error, urllib.parse, urllib.request, uuid
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from e4conf import C as E4
@@ -25,7 +25,10 @@ SNAP = f"{DATA}/state.json"
 LSTATUS = f"{DATA}/lists-status.json"
 ACT = f"{DATA}/activity.json"
 XC_ACT = f"{DATA}/xc-activity.json"
+UPLOADS = E4["uploads"]
 EVENTS = ("expire", "build", "source", "newip")
+BK_MAGIC = b"E4TVBK1\n"   # начало файла резервной копии (дальше — вывод openssl enc)
+UP_RX = re.compile(r"^[a-z0-9]{4,16}\.m3u$")
 TOKEN_RX = re.compile(r"^\d{5,15}:[A-Za-z0-9_-]{30,64}$")
 CHAT_RX = re.compile(r"^-?\d{1,20}$|^@[A-Za-z0-9_]{5,32}$")
 
@@ -63,6 +66,73 @@ def send(c, text):
     except Exception as e:
         raise RuntimeError(f"нет связи с api.telegram.org: {getattr(e, 'reason', e)}")
     if not j.get("ok"): raise RuntimeError(str(j.get("description") or "Telegram не принял сообщение")[:200])
+
+
+def send_doc(c, name, data, caption):
+    """Файл в Telegram (sendDocument, multipart вручную — только стандартная библиотека)."""
+    b = uuid.uuid4().hex
+    parts = []
+    for k, v in (("chat_id", c["chat_id"]), ("caption", caption[:1000])):
+        parts.append(f'--{b}\r\nContent-Disposition: form-data; name="{k}"\r\n\r\n{v}\r\n'.encode())
+    parts.append(f'--{b}\r\nContent-Disposition: form-data; name="document"; filename="{name}"\r\nContent-Type: application/octet-stream\r\n\r\n'.encode() + data + b"\r\n")
+    parts.append(f"--{b}--\r\n".encode())
+    rq = urllib.request.Request(f"https://api.telegram.org/bot{c['token']}/sendDocument", data=b"".join(parts),
+                                headers={"Content-Type": f"multipart/form-data; boundary={b}", "User-Agent": "Evgen4ik-TV"})
+    try:
+        with urllib.request.urlopen(rq, timeout=60) as r: j = json.load(r)
+    except urllib.error.HTTPError as e:
+        try: j = json.load(e)
+        except Exception: j = {"description": f"HTTP {e.code}"}
+    except Exception as e:
+        raise RuntimeError(f"нет связи с api.telegram.org: {getattr(e, 'reason', e)}")
+    if not j.get("ok"): raise RuntimeError(str(j.get("description") or "Telegram не принял файл")[:200])
+
+
+def _openssl(args, data, pw):
+    r = subprocess.run(["openssl", "enc", "-aes-256-cbc", "-pbkdf2", "-iter", "200000", "-md", "sha256"] + args + ["-pass", "env:E4BKPW"],
+                       input=data, capture_output=True, timeout=120, env={**os.environ, "E4BKPW": pw})
+    if r.returncode != 0: raise RuntimeError("неверный пароль или файл повреждён" if "-d" in args else "openssl: " + r.stderr.decode(errors="replace")[:200])
+    return r.stdout
+
+
+def make_backup(pw):
+    """Зашифрованная копия: правила (источники, плейлисты, клиенты) и загруженные файлы плейлистов. Без токена бота."""
+    if len(pw or "") < 8: raise RuntimeError("пароль копии не задан (не короче 8 символов)")
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w:gz") as t:
+        t.add(RULES, arcname="rules.json")
+        for f in sorted(glob.glob(f"{UPLOADS}/*.m3u")):
+            if UP_RX.match(os.path.basename(f)) and os.path.getsize(f) <= 30 * 1024 * 1024: t.add(f, arcname="uploads/" + os.path.basename(f))
+        meta = json.dumps({"version": E4.get("version", ""), "host": host(), "at": time.strftime("%Y-%m-%d %H:%M:%S")}, ensure_ascii=False).encode()
+        ti = tarfile.TarInfo("meta.json"); ti.size = len(meta); t.addfile(ti, io.BytesIO(meta))
+    return BK_MAGIC + _openssl(["-salt"], buf.getvalue(), pw)
+
+
+def open_backup(data, pw):
+    """Расшифровать копию -> {"rules": dict, "uploads": {имя: байты}, "meta": dict}. Берём только известные файлы."""
+    if not data.startswith(BK_MAGIC): raise RuntimeError("это не файл резервной копии Evgen4ik TV (.e4b)")
+    raw = _openssl(["-d"], data[len(BK_MAGIC):], pw)
+    out = {"rules": None, "uploads": {}, "meta": {}}
+    with tarfile.open(fileobj=io.BytesIO(raw), mode="r:gz") as t:
+        for m in t.getmembers():
+            if not m.isfile() or m.size > 30 * 1024 * 1024: continue
+            if m.name == "rules.json": out["rules"] = json.load(t.extractfile(m))
+            elif m.name == "meta.json": out["meta"] = json.load(t.extractfile(m))
+            elif m.name.startswith("uploads/") and UP_RX.match(m.name[8:]): out["uploads"][m.name[8:]] = t.extractfile(m).read()
+    if not isinstance(out["rules"], dict): raise RuntimeError("в копии нет правил")
+    return out
+
+
+def send_backup(c):
+    bk = c.get("backup") if isinstance(c.get("backup"), dict) else {}
+    data = make_backup(str(bk.get("pass") or ""))
+    rules = rj(RULES, {}) or {}
+    name = f"evgen4ik-tv-{re.sub(r'[^A-Za-z0-9.-]', '_', host())}-{time.strftime('%Y-%m-%d')}.e4b"
+    cap = (f"💾 Evgen4ik TV · {host()}: резервная копия {time.strftime('%d.%m.%Y %H:%M')}\n"
+           f"Клиентов: {len(rules.get('clients') or [])}, плейлистов: {len(rules.get('lists') or [])}, источников: {len(rules.get('sources') or [])}.\n"
+           "Восстановить: редактор → «История и копии» → «Восстановить из файла» + пароль копии.")
+    send_doc(c, name, data, cap)
+    return name
 
 
 def host():
@@ -145,6 +215,10 @@ def main():
         print("Отправлено"); return 0
     if not ok: return 0
     st = rj(STATE, None)
+    bk = c.get("backup") if isinstance(c.get("backup"), dict) else {}
+    if bk.get("on") and st is not None and time.time() - (st.get("last_backup") or 0) > 23.5 * 3600 and time.localtime().tm_hour >= 4:
+        try: send_backup(c); st["last_backup"] = int(time.time()); st["backup_error"] = ""
+        except Exception as e: st["backup_error"] = str(e)[:200]; st["last_backup"] = int(time.time()) - 22 * 3600   # повторить через ~1,5 часа
     first = st is None   # первый запуск: только запоминаем, что есть, без потока сообщений
     st = st or {}
     sent = st.setdefault("sent", {})

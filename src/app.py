@@ -139,6 +139,7 @@ def validate(r):
         if isinstance(v.get("hidden"), bool): e["hidden"] = v["hidden"]
         if urls(v.get("urls")): e["urls"] = urls(v["urls"])
         if s(v.get("tvg_id")): e["tvg_id"] = s(v["tvg_id"])
+        if s(v.get("primary")): e["primary"] = s(v["primary"])[:40]   # основной источник у этого канала (остальные — резерв)
         sh = v.get("shift")   # сдвиг программы передач (tvg-shift), часов: -12…+14, 0 — не сдвигать
         if isinstance(sh, (int, float)) and not isinstance(sh, bool) and sh and -12 <= sh <= 14 and float(sh) * 2 == int(float(sh) * 2): e["shift"] = int(sh) if float(sh).is_integer() else float(sh)
         if v.get("logo") == "none" or (isinstance(v.get("logo"), str) and URL_RX.match(v["logo"].strip())): e["logo"] = v["logo"].strip()   # "none" — «Без логотипа»
@@ -679,6 +680,8 @@ def tg_info():
     tok = str(c.get("token") or "")
     return {"token_set": bool(tok), "token_hint": (tok.split(":")[0] + ":…" + tok[-4:]) if tok else "", "chat_id": str(c.get("chat_id") or ""),
             "events": {e: ev.get(e) is not False for e in TG_EVENTS}, "last_run": st.get("last_run"), "last_error": st.get("last_error") or "",
+            "backup_on": bool((c.get("backup") or {}).get("on")), "backup_pass_set": len(str((c.get("backup") or {}).get("pass") or "")) >= 8,
+            "last_backup": st.get("last_backup"), "backup_error": st.get("backup_error") or "",
             "timer": os.path.exists("/etc/systemd/system/e4tv-notify.timer")}
 
 
@@ -696,6 +699,15 @@ def tg_save(body):
             if ch and not notify.CHAT_RX.match(ch): raise ValueError("Чат: число (например 123456789 или -100…) или @имя_канала")
             c["chat_id"] = ch
         if isinstance(body.get("events"), dict): c["events"] = {e: body["events"].get(e) is not False for e in TG_EVENTS}
+        bk = c.get("backup") if isinstance(c.get("backup"), dict) else {}
+        pw = str(body.get("backup_pass") or "")
+        if pw:
+            if len(pw) < 8 or len(pw) > 200: raise ValueError("Пароль копии: от 8 символов")
+            bk["pass"] = pw
+        if "backup_on" in body:
+            if body.get("backup_on") and len(str(bk.get("pass") or "")) < 8: raise ValueError("Чтобы включить копии, задайте пароль копии (от 8 символов) и сохраните его в менеджере паролей")
+            bk["on"] = bool(body.get("backup_on"))
+        c["backup"] = bk
     tmp = TG_FILE + ".tmp"
     with open(tmp, "w", encoding="utf-8") as f: json.dump(c, f, ensure_ascii=False)
     os.chmod(tmp, 0o600); os.replace(tmp, TG_FILE)
@@ -720,6 +732,62 @@ def tg_chats(body):
         ch = m.get("chat") or {}
         if "id" in ch: out[str(ch["id"])] = ch.get("title") or " ".join(x for x in (ch.get("first_name"), ch.get("last_name")) if x) or ch.get("username") or str(ch["id"])
     return {"chats": [{"id": k, "name": v} for k, v in out.items()]}
+
+
+# ---------- «Подключить домен» (HTTPS): проверка DNS здесь, перенастройку делает root-служба e4tv-domain ----------
+DOMAIN_REQ = f"{DATA}/domain.request"
+DOMAIN_ST = f"{DATA}/domain-status.json"
+DOM_RX = re.compile(r"^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$")
+MAIL_RX = re.compile(r"^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,63}$")
+
+
+def domain_check(body):
+    d = str(body.get("domain") or "").strip().lower().removeprefix("https://").removeprefix("http://").split("/")[0]
+    if not DOM_RX.match(d): raise ValueError("Домен вида tv.example.com — без http:// и пути")
+    try: ips = sorted({a[4][0] for a in socket.getaddrinfo(d, None, socket.AF_INET)})
+    except socket.gaierror: ips = []
+    mine = sorted({str(h) for h in [E4.get("address")] + list(E4.get("hosts") or []) if re.fullmatch(r"(\d{1,3}\.){3}\d{1,3}", str(h or ""))})
+    pub = [ip for ip in mine if not ipaddress.ip_address(ip).is_private]
+    return {"domain": d, "ips": ips, "server_ips": pub or mine, "match": bool(set(ips) & set(pub or mine)),
+            "home": not pub, "now": E4.get("domain") or "", "mode": E4["mode"], "can": os.path.exists(DOMAIN_REQ)}
+
+
+def domain_set(body):
+    r = domain_check(body)
+    m = str(body.get("email") or "").strip()
+    if m and not MAIL_RX.match(m): raise ValueError("E-mail неверный (или оставьте пустым)")
+    if not r["can"]: raise ValueError("На сервере нет службы подключения домена — обновите Evgen4ik TV или выполните на сервере: sudo e4tv domain " + r["domain"])
+    if not r["match"]: raise ValueError(f"Домен {r['domain']} указывает на {', '.join(r['ips']) or 'ничего'}, а нужен {', '.join(r['server_ips'])} — исправьте запись A и подождите")
+    with open(DOMAIN_ST, "w") as f: json.dump({"state": "queued", "domain": r["domain"], "at": int(time.time())}, f)
+    with open(DOMAIN_REQ, "w") as f: json.dump({"domain": r["domain"], "email": m}, f)
+    return {"ok": True, **r}
+
+
+def tg_backup_now(body):
+    import notify
+    ok, c, _ = notify.conf()
+    if not ok: raise ValueError("Сначала настройте бота и чат")
+    try: name = notify.send_backup(c)
+    except Exception as e: raise ValueError(f"Не отправилось: {e}")
+    return {"ok": True, "name": name}
+
+
+def restore_file(body):
+    """Восстановление из файла копии (.e4b): расшифровать, проверить правила, сохранить текущие в «Историю», применить."""
+    import base64, notify
+    try: data = base64.b64decode(str(body.get("data") or ""), validate=True)
+    except Exception: raise ValueError("файл не прочитался")
+    try: bk = notify.open_backup(data, str(body.get("pass") or ""))
+    except Exception as e: raise ValueError(str(e))
+    rules = validate(bk["rules"])
+    if body.get("check"): return {"ok": True, "meta": bk["meta"], "clients": len(rules["clients"]), "lists": len(rules["lists"]), "sources": len(rules.get("sources") or [])}
+    os.makedirs(UPLOADS, exist_ok=True)
+    for n, b in bk["uploads"].items():
+        with open(f"{UPLOADS}/{n}", "wb") as f: f.write(b)
+    backup_rules(); write_json_atomic(RULES, rules)
+    for t in (TRIGGER, LTRIGGER):
+        with open(t, "w") as f: f.write(str(time.time()))
+    return {"ok": True, "rules": rules, "meta": bk["meta"]}
 
 
 def tg_test(body):
@@ -971,6 +1039,72 @@ def xc_user(q, ip):
     return dict(c, user=u), None
 
 
+# ---------- личная страница клиента /my/<токен>: срок, ссылка, QR, EPG, Xtream, как подключить ----------
+MY_CSS = """:root{color-scheme:dark}body{margin:0;background:#09090b;color:#fafafa;font:15px/1.5 "Segoe UI",system-ui,-apple-system,Roboto,sans-serif}
+main{max-width:640px;margin:0 auto;padding:22px 16px 40px}.logo{display:flex;align-items:center;gap:10px;font-weight:800;font-size:18px}
+.logo i{font-style:normal;width:32px;height:32px;border-radius:9px;background:#f59e0b;color:#18181b;display:grid;place-items:center;font-size:13px}
+h1{font-size:24px;margin:18px 0 6px}h2{font-size:16px;margin:22px 0 8px}.b{display:inline-block;border-radius:8px;padding:4px 10px;font-weight:600;font-size:14px}
+.ok{background:rgba(74,222,128,.13);color:#4ade80}.warn{background:rgba(245,158,11,.15);color:#f59e0b}.bad{background:rgba(248,113,113,.14);color:#f87171}
+.card{background:#18181b;border:1px solid rgba(255,255,255,.09);border-radius:12px;padding:16px;margin-top:14px}.r{margin:10px 0}
+.r>span{display:block;color:#a1a1aa;font-size:13px;margin-bottom:4px}.v{display:flex;gap:8px}
+code{flex:1;min-width:0;background:#0c0c0f;border:1px solid rgba(255,255,255,.12);border-radius:8px;padding:9px 10px;font:13px Consolas,monospace;overflow-wrap:anywhere}
+button{font:inherit;font-weight:600;border:1px solid rgba(255,255,255,.14);background:#1f1f23;color:#fafafa;border-radius:8px;padding:8px 12px;cursor:pointer}
+#qr{width:200px;height:200px;background:#fff;border-radius:10px;padding:8px;margin:6px auto 0;box-sizing:border-box}#qr svg{width:100%;height:100%}
+.m{color:#a1a1aa;font-size:14px}ol{padding-left:20px;margin:6px 0}li{margin:4px 0}"""
+
+MY_JS = """document.addEventListener("click",e=>{const b=e.target.closest("[data-c]");if(!b)return;const t=b.dataset.c,ok=()=>{b.textContent="Скопировано";setTimeout(()=>b.textContent="Копировать",1500)};
+if(navigator.clipboard&&isSecureContext)navigator.clipboard.writeText(t).then(ok);else{const a=document.createElement("textarea");a.value=t;document.body.appendChild(a);a.select();try{document.execCommand("copy");ok()}catch(x){}a.remove()}});
+const q=document.getElementById("qr");if(q){const s=document.createElement("script");s.src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js";
+s.onload=()=>{const g=qrcode(0,"M");g.addData(q.dataset.t);g.make();q.innerHTML=g.createSvgTag({cellSize:4,margin:2,scalable:true})};s.onerror=()=>q.remove();document.head.appendChild(s)}"""
+
+
+def my_page(tok):
+    """HTML личной страницы клиента или None, если такого токена нет. Вход только по длинной ссылке (токену)."""
+    import html as H
+    if not TOK_RX.match(tok or ""): return None
+    rules = read_json(RULES, {}) or {}
+    c = next((x for x in rules.get("clients") or [] if isinstance(x, dict) and x.get("token") == tok), None)
+    if not c: return None
+    e = lambda v: H.escape(str(v or ""), quote=True)
+    st, exp = xc_status(c), c.get("expires") or ""
+    ru = ".".join(reversed(exp.split("-"))) if exp else ""
+    if st == "Disabled": badge, note = "bad", "Доступ выключен. Напишите тому, кто дал ссылку."
+    elif st == "Expired": badge, note = "bad", f"Доступ закончился {ru}. Чтобы продлить, напишите тому, кто дал ссылку."
+    elif exp:
+        left = int((time.mktime(time.strptime(exp, "%Y-%m-%d")) - time.mktime(time.strptime(time.strftime("%Y-%m-%d"), "%Y-%m-%d"))) // 86400)
+        badge = "warn" if left <= 7 else "ok"
+        note = f"Работает до {ru}" + (" — сегодня последний день" if left == 0 else f", осталось дней: {left}" if left <= 7 else "")
+    else: badge, note = "ok", "Работает, без срока"
+    slug = c.get("slug") if re.fullmatch(r"[a-z0-9][a-z0-9-]{2,31}", str(c.get("slug") or "")) else ""
+    link = PUBLIC_BASE + (slug or tok) + ".m3u8"
+    epg = E4.get("player_epg") or E4.get("epg_url") or ""
+    sp = urllib.parse.urlsplit(PUBLIC_BASE); srv = f"{sp.scheme}://{sp.netloc}" if sp.netloc else ""
+    lim = c.get("streams") if E4["mode"] == "hls" else None
+
+    def row(t, v):
+        return f'<div class="r"><span>{t}</span><div class="v"><code>{e(v)}</code><button data-c="{e(v)}">Копировать</button></div></div>'
+    parts = ['<!DOCTYPE html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">',
+             '<meta name="robots" content="noindex,nofollow"><title>Ваш доступ к ТВ</title><style>', MY_CSS, '</style></head><body><main>',
+             '<div class="logo"><i>E4</i>Evgen4ik TV</div>', f'<h1>{e(c.get("name"))}</h1><span class="b {badge}">{e(note)}</span>']
+    if st == "Active":
+        parts += ['<div class="card"><h2 style="margin-top:0">Ссылка для плеера</h2>', row("Плейлист (M3U)", link)]
+        if epg: parts.append(row("Программа передач (EPG)", epg))
+        parts.append(f'<div id="qr" data-t="{e(link)}" title="Наведите камеру телефона"></div><p class="m" style="text-align:center">QR-код ссылки на плейлист</p>')
+        if lim: parts.append(f'<p class="m">Одновременно работает каналов: {int(lim)}.</p>')
+        parts += ['</div><div class="card"><h2 style="margin-top:0">Как подключить</h2><ol>',
+                  '<li>Установите IPTV-плеер: на Android и Android TV — <b>Televizo</b> или <b>OTT Navigator</b>; на других устройствах — любой плеер, который открывает M3U-плейлист по ссылке.</li>',
+                  '<li>Добавьте плейлист по ссылке: вставьте ссылку выше или наведите камеру телефона на QR-код.</li>',
+                  '<li>Если плеер просит телепрограмму (EPG) — вставьте ссылку «Программа передач».</li>',
+                  '<li>Каналы не появились — обновите плейлист в плеере или напишите тому, кто дал ссылку.</li></ol>']
+        if c.get("xc_user") and c.get("xc_pw"):
+            parts += ['<h2>Вход через Xtream Codes</h2><p class="m">Для TiviMate, IPTV Smarters и похожих: в плеере выберите «Xtream Codes» и введите:</p>',
+                      row("Сервер", srv), row("Логин", c.get("xc_user")), row("Пароль", c.get("xc_pw"))]
+        parts.append('</div>')
+    parts += ['<p class="m" style="margin-top:18px">Ссылка личная — не пересылайте её. Эта страница открывается только по вашей ссылке.</p></main><script>',
+              MY_JS, '</script></body></html>']
+    return "".join(parts)
+
+
 def xc_status(c):
     if not c.get("enabled", True): return "Disabled"
     e = c.get("expires")
@@ -1211,6 +1345,10 @@ class H(BaseHTTPRequestHandler):
             return self._redirect("/login" if LOGIN_ON else "/", self._cookie("", 0))
         if path.startswith(("/live/_r/", "/live/_logo/")):   # «Ссылки на каналы»: перенаправление / логотип (без входа, как Xtream)
             return self._link(path)
+        if path.startswith("/my/"):   # личная страница клиента — без входа, по его токену (длинной ссылке)
+            pg = my_page(path[4:].strip("/"))
+            if pg is None: return self._send(404, "Страница не найдена", "text/plain; charset=utf-8")
+            return self._send(200, pg, "text/html; charset=utf-8", {"X-Robots-Tag": "noindex, nofollow"})
         if path in XC_PATHS or path.startswith(("/live/", "/timeshift/")):   # Xtream Codes — без входа в редактор, по логину клиента
             return self._xc(path)
         if not self._session():
@@ -1242,6 +1380,8 @@ class H(BaseHTTPRequestHandler):
             return self._send(200, prep_status())
         if self.path == "/api/tg":
             return self._send(200, tg_info())
+        if self.path == "/api/domain-status":
+            return self._send(200, read_json(DOMAIN_ST, {}) or {})
         if self.path == "/api/autocheck":
             return self._send(200, autocheck_info())
         if path.startswith("/api/provicon/") and re.fullmatch(r"[a-z0-9]{1,16}", path[14:]):   # значок провайдера (картинка)
@@ -1304,9 +1444,13 @@ class H(BaseHTTPRequestHandler):
         if self.path == "/api/rebuild":   # кнопка «Пересобрать» в боковой панели: сборка без сохранения правил
             with open(TRIGGER, "w") as f: f.write(str(time.time()))
             return self._send(200, {"ok": True})
-        if self.path in ("/api/tg", "/api/tg-chats", "/api/tg-test"):
+        if self.path in ("/api/domain-check", "/api/domain-set"):
+            try: return self._send(200, (domain_check if self.path == "/api/domain-check" else domain_set)(body if isinstance(body, dict) else {}))
+            except ValueError as e: return self._send(400, {"error": str(e)})
+        if self.path in ("/api/tg", "/api/tg-chats", "/api/tg-test", "/api/tg-backup", "/api/restore-file"):
             try:
-                return self._send(200, {"/api/tg": tg_save, "/api/tg-chats": tg_chats, "/api/tg-test": tg_test}[self.path](body if isinstance(body, dict) else {}))
+                return self._send(200, {"/api/tg": tg_save, "/api/tg-chats": tg_chats, "/api/tg-test": tg_test, "/api/tg-backup": tg_backup_now,
+                                        "/api/restore-file": restore_file}[self.path](body if isinstance(body, dict) else {}))
             except ValueError as e:
                 return self._send(400, {"error": str(e)})
         if self.path == "/api/autocheck-conf":
@@ -1342,7 +1486,7 @@ class H(BaseHTTPRequestHandler):
         return self._send(404, {"error": "not found"})
 
 
-PUBLIC_CONF = {"version": E4.get("version") or "", "mode": E4["mode"], "host": E4.get("host") or "", "login": LOGIN_ON,
+PUBLIC_CONF = {"version": E4.get("version") or "", "mode": E4["mode"], "domain": E4.get("domain") or "", "host": E4.get("host") or "", "login": LOGIN_ON,
                "main_url": (PUBLIC_BASE + E4["main_token"] + ".m3u8") if PUBLIC_BASE and E4.get("main_token") else "",
                "epg_url": E4.get("player_epg") or E4["epg_url"], "hls_url": E4.get("hls_url") or ""}
 
