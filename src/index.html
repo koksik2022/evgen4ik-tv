@@ -98,7 +98,7 @@ button.big{min-height:40px;padding:0 18px;font-size:14.5px}
 .cselc{width:34px;text-align:center}.tbl tr.sel td{background:var(--sel)}
 .curl{display:flex;gap:6px;align-items:center}.curl code{flex:1;min-width:0;font:12px var(--mono);color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .cstd{min-width:300px}.cst{display:flex;align-items:center;gap:6px}.cst code{flex:1;min-width:0;font:12px var(--mono);color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.cst input{flex:1;min-width:0;font:12px var(--mono)}.cst .badge{flex:none}.cst .more{flex:none}
-.cMode{white-space:nowrap}.ctbl tr.sel td{background:var(--sel)}.cbulk{display:flex;flex-wrap:wrap;gap:8px;align-items:center}.cMode.man{border-color:var(--warn);color:var(--warn)}.ctbl td{padding-top:6px;padding-bottom:6px}.ctbl td:nth-child(4),.ctbl td:nth-child(5){white-space:nowrap}
+.cMode{white-space:nowrap}button.badge{cursor:pointer;font:inherit;font-size:12px;box-shadow:none}button.linkb{color:var(--acc,inherit);text-decoration:underline dotted}button.srcb:hover,button.linkb:hover{background:var(--hover)}.ctbl tr.sel td{background:var(--sel)}.cbulk{display:flex;flex-wrap:wrap;gap:8px;align-items:center}.cMode.man{border-color:var(--warn);color:var(--warn)}.ctbl td{padding-top:6px;padding-bottom:6px}.ctbl td:nth-child(4),.ctbl td:nth-child(5){white-space:nowrap}
 @media(max-width:700px){.cst{flex-wrap:wrap}.cstd{min-width:220px}}
 button.ktile{text-align:left;font:inherit;color:inherit;cursor:pointer;box-shadow:none;display:flex;flex-direction:column;gap:2px}
 button.ktile:hover{border-color:var(--ring);background:var(--panel2)}
@@ -1637,8 +1637,8 @@ function shortUrl(u){try{const x=new URL(u), p=x.pathname.length>28?x.pathname.s
 function cChannels(c){const out=[], seen=new Set(), off=new Set(c.off||[]), urls=c.urls||{}, kid=g=>c.no_adult&&(g==="18+"||String(g).includes("18+"));
   for(const id of c.lists){const L=R.lists.find(x=>x.id===id); if(!L) continue;
     for(const ch of ALL){if(!member(L,ch)||seen.has(ch.k)) continue; const g=effGroup(ch); if(kid(g)) continue; seen.add(ch.k);
-      out.push({k:ch.k,n:dispName(ch),g,kind:"list",from:L.name,src:(ch.u&&ch.u[0]&&ch.u[0][1])||"",srcs:chSrcs(ch)})}
-    for(const f of freeItems(L)){if(seen.has(f.k)||kid(f.g)) continue; seen.add(f.k); out.push({k:f.k,n:f.n,g:f.g,kind:"list",from:L.name,src:""})}}
+      out.push({k:ch.k,n:dispName(ch),g,kind:"list",from:L.name,lid:L.id,src:(ch.u&&ch.u[0]&&ch.u[0][1])||"",srcs:chSrcs(ch)})}
+    for(const f of freeItems(L)){if(seen.has(f.k)||kid(f.g)) continue; seen.add(f.k); out.push({k:f.k,n:f.n,g:f.g,kind:"list",from:L.name,lid:L.id,src:""})}}
   for(const k of c.add||[]){const ch=findC(k); if(!ch||seen.has(k)) continue; const g=effGroup(ch); if(kid(g)) continue; seen.add(k);
     out.push({k,n:dispName(ch),g,kind:"add",from:"добавлен",src:(ch.u&&ch.u[0]&&ch.u[0][1])||"",srcs:chSrcs(ch)})}
   for(const x of c.extra||[]) out.push({k:"x:"+x.id,n:x.name,g:x.group,kind:"own",from:x.src?"файл: "+x.src:"свой",src:x.url,x});
@@ -1656,9 +1656,9 @@ function cChansHtml(c){if(chSelC!==c.id){chSel.clear(); chSelC=c.id}const all=cC
     <td>${q||cManF?"":`<span class="drag" draggable="true" title="Потяните вверх или вниз" aria-label="Перетащить канал ${esc(r.n)}">⠿</span>`}</td>
     <td><label class="switch" title="${r.on?"Выключить канал у клиента":"Включить канал"}"><input type="checkbox" class="cOn" ${r.on?"checked":""} aria-label="Канал ${esc(r.n)} включён"><i></i></label></td>
     <td><b>${esc(r.n)}</b></td><td class="muted">${esc(r.g)}</td>
-    <td><span class="badge${r.kind==="own"?" ok":r.kind==="add"?" warn":""}">${esc(r.from)}</span></td>
+    <td>${r.lid?`<button class="badge linkb" data-openl="${esc(r.lid)}" title="Открыть плейлист «${esc(r.from)}» — «назад» вернёт к клиенту">${esc(r.from)} ↗</button>`:`<span class="badge${r.kind==="own"?" ok":r.kind==="add"?" warn":""}">${esc(r.from)}</span>`}</td>
     <td class="cstd">${ed?`<div class="cst"><input type="text" class="cUrl" spellcheck="false" value="${esc(md.m==="url"||md.m==="own"?md.url:"")}" placeholder="вставьте ссылку на поток" aria-label="Ссылка на поток ${esc(r.n)}"><button class="sm primary" data-cact="urlok" title="Сохранить ссылку (Enter)" aria-label="Сохранить ссылку">✓</button><button class="sm" data-cact="urlno" title="Отмена (Esc)" aria-label="Отмена">✕</button></div>`
-      :`<div class="cst">${md.name?`<span class="badge csrc">${esc(md.name)}</span>`:""}<code title="${esc(md.url||"")}">${esc(md.url?shortUrl(md.url):"—")}</code>${md.st||""}${r.kind==="own"?`<button class="sm" data-cact="seturl" title="Изменить ссылку своего канала">✎</button><button class="sm" data-cact="play" title="Посмотреть в плеере" aria-label="Посмотреть ${esc(r.n)}">▶</button><button class="sm" data-cact="check" title="Проверить поток">Проверить</button>`:`<button class="sm cPlay" data-cact="play" title="Посмотреть в плеере — так, как получит клиент" aria-label="Посмотреть ${esc(r.n)}">▶</button>`+cModeMenu(r,md,rt)}</div>`}</td>
+      :`<div class="cst">${md.name?(r.kind==="own"?`<span class="badge csrc">${esc(md.name)}</span>`:`<button class="badge csrc srcb" data-cact="srcmenu" title="Выбрать, откуда брать поток" aria-label="Источник ${esc(md.name)} — выбрать другой">${esc(md.name)} ▾</button>`):""}<code title="${esc(md.url||"")}">${esc(md.url?shortUrl(md.url):"—")}</code>${md.st||""}${r.kind==="own"?`<button class="sm" data-cact="seturl" title="Изменить ссылку своего канала">✎</button><button class="sm" data-cact="play" title="Посмотреть в плеере" aria-label="Посмотреть ${esc(r.n)}">▶</button><button class="sm" data-cact="check" title="Проверить поток">Проверить</button>`:`<button class="sm cPlay" data-cact="play" title="Посмотреть в плеере — так, как получит клиент" aria-label="Посмотреть ${esc(r.n)}">▶</button>`+cModeMenu(r,md,rt)}</div>`}</td>
     <td class="nw">${r.kind==="list"?"":'<button class="sm danger" data-cact="rm">Убрать</button>'}</td></tr>`}).join("")}</tbody></table></div>
   ${list.length>shown.length?`<div style="margin-top:8px"><button class="sm" id="cChMore">Показать ещё (${list.length-shown.length})</button></div>`:""}`
   :`<div class="empty" style="padding:16px">${all.length?"Ничего не найдено":"Пока пусто: отметьте плейлисты выше или добавьте каналы"}</div>`}`}
@@ -1758,7 +1758,9 @@ $("settings").addEventListener("click",e=>{if(mode!=="client") return; const c=C
     cChRefresh(); if(done) markDirty();
     toast((n?"Только "+n+": ":"Авто: ")+plural(done,"канал","канала","каналов")+(skip?` · у ${skip} этого источника нет — не изменены`:"")+(own?` · своих каналов ${own} — не трогаю`:"")+(done?". Нажмите «Сохранить»":"")); return}
   if(t.id==="cManReset"){const n=Object.keys(c.urls||{}).length; if(!n||!confirm("Вернуть «Авто» (как в плейлисте) всем "+plural(n,"каналу","каналам","каналам")+", настроенным вручную?")) return; c.urls={}; cUrlOpen.clear(); cManF=false; cChRefresh(); markDirty(); toast("Все каналы — как в плейлисте. Нажмите «Сохранить»"); return}
-  const ab=t.closest("[data-cact]"), tr=t.closest("tr[data-ck]"); if(!tr||!ab) return; const k=tr.dataset.ck, act=ab.dataset.cact; closeMenus();
+  const ab=t.closest("[data-cact]"), tr=t.closest("tr[data-ck]"); if(!tr||!ab) return; const k=tr.dataset.ck, act=ab.dataset.cact;
+  if(act==="srcmenu"){e.stopPropagation(); const b=tr.querySelector(".cMode"); if(b) b.click(); return}
+  closeMenus();
   if(act==="auto"){c.urls=c.urls||{}; if(!c.urls[k]) return; delete c.urls[k]; cUrlOpen.delete(k); cChRefresh(); markDirty(); toast("Авто — как в плейлисте. Нажмите «Сохранить»"); return}
   if(act==="src"){const r=cChannels(c).find(x=>x.k===k), x=r&&(r.srcs||[])[+ab.dataset.i]; if(!x) return; c.urls=c.urls||{}; c.urls[k]=x[1]; cUrlOpen.delete(k); cChRefresh(); markDirty(); toast("«"+r.n+"»: только "+x[0]+", без резерва. Нажмите «Сохранить»"); return}
   if(act==="seturl"){cUrlOpen.add(k); cChRefresh(); const i=document.querySelector(`tr[data-ck="${CSS.escape(k)}"] .cUrl`); if(i){i.focus(); i.select()} return}
