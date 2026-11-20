@@ -97,6 +97,9 @@ button.big{min-height:40px;padding:0 18px;font-size:14.5px}
 @media (max-width:760px){.cconn-g{grid-template-columns:1fr}.cqr{width:auto}}
 .cselc{width:34px;text-align:center}.tbl tr.sel td{background:var(--sel)}
 .curl{display:flex;gap:6px;align-items:center}.curl code{flex:1;min-width:0;font:12px var(--mono);color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cstd{min-width:300px}.cst{display:flex;align-items:center;gap:6px}.cst code{flex:1;min-width:0;font:12px var(--mono);color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.cst input{flex:1;min-width:0;font:12px var(--mono)}.cst .badge{flex:none}.cst .more{flex:none}
+.cMode{white-space:nowrap}.cMode.man{border-color:var(--warn);color:var(--warn)}.ctbl td{padding-top:6px;padding-bottom:6px}.ctbl td:nth-child(3),.ctbl td:nth-child(4){white-space:nowrap}
+@media(max-width:700px){.cst{flex-wrap:wrap}.cstd{min-width:220px}}
 button.ktile{text-align:left;font:inherit;color:inherit;cursor:pointer;box-shadow:none;display:flex;flex-direction:column;gap:2px}
 button.ktile:hover{border-color:var(--ring);background:var(--panel2)}
 .ktile.on{border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent);background:var(--accent-soft)}
@@ -1590,8 +1593,35 @@ function cDelF(c){if(!confirm("Удалить клиента «"+c.name+"»? Е�
 // ---------- каналы клиента: его список поверх плейлистов ----------
 let cChQ="", cChLim=150, cAddQ="", cPanel="", cXcOpen=false; const cUrlOpen=new Set();
 function chSrcs(ch){const seen=new Set(), out=[]; for(const [n,u] of (ch&&ch.u)||[]) if(u&&!seen.has(u)){seen.add(u); out.push([n,u])} return out}   // [источник, ссылка] канала
-function srcSel(r){const ss=r.srcs||[], cur=ss.findIndex(([,u])=>u===r.url);   // выбор, откуда клиенту брать поток
-  return `<select class="cSrc" aria-label="Откуда брать поток ${esc(r.n)}" title="Откуда клиент получает этот канал"><option value="">Как в плейлисте${CONF.mode==="hls"?" — через HLS Proxy, с резервом":""}</option>${ss.map(([n,u],i)=>`<option value="${i}" ${i===cur?"selected":""}>Только ${esc(n)} (${esc(shortUrl(u))})</option>`).join("")}<option value="own" ${r.url&&cur<0?"selected":""}>Своя ссылка…</option></select>`}
+const cChk=new Map(); let cManF=false;   // проверки своих ссылок (k → {u,ok,msg,run}); фильтр «только настроенные вручную»
+function srcHealth(n){const x=((ST&&ST.sources)||[]).find(s=>s.name===n); if(!x||x.status==="выключен") return null;   // по последней сборке
+  return String(x.status||"").startsWith("ошибка")||!x.count}
+function cRoute(c){const m=lmClient(c); return {hls:CONF.mode==="hls"&&m==="hls", m,
+  t:m==="hls"&&CONF.mode==="hls"?"клиент получает через HLS Proxy":m==="redirect"?"в плейлисте ссылка сервера, плеер идёт к источнику":m==="direct"?"напрямую — клиент видит ссылку":"зависит от плейлиста"}}
+// что сейчас выбрано у канала клиента: Авто / Только источник / Своя ссылка — и жив ли источник
+function cMode(c,r,rt){const ss=r.srcs||[], built=(ST&&ST.built_at)?" при сборке "+ST.built_at:" при последней сборке";
+  const chk=u=>{const x=cChk.get(r.k); if(!x||x.u!==u) return ""; if(x.run) return '<span class="badge">проверка…</span>';
+    if(!x.ok&&/^проверяются только/.test(x.msg)) return `<span class="badge" title="${esc(x.msg)}">не проверить</span>`;
+    return `<span class="badge ${x.ok?"ok":"bad"}" title="${esc(x.msg)}">${x.ok?"отвечает":"не отвечает"}</span>`};
+  if(r.kind==="own") return {m:"own", name:"свой", url:r.url, st:chk(r.url)};
+  if(!r.url){const u=(ss[0]&&ss[0][1])||r.src, nb=Math.max(ss.length-1,0), bad=ss.filter(([n])=>srcHealth(n));
+    let st=chk(u);
+    if(ss.length&&bad.length===ss.length) st=`<span class="badge bad" title="${esc(bad.map(([n])=>n).join(", "))} не отдал каналы${esc(built)}">источник не отвечает</span>`;
+    else if(ss.length&&srcHealth(ss[0][0])) st=rt.hls&&nb?`<span class="badge warn" title="«${esc(ss[0][0])}» не отдал каналы${esc(built)} — HLS Proxy берёт резерв">основной не отвечает</span>`
+      :`<span class="badge bad" title="«${esc(ss[0][0])}» не отдал каналы${esc(built)}${rt.hls?"":" — резерв работает только через HLS Proxy"}">источник не отвечает</span>`;
+    return {m:"auto", name:ss[0]?ss[0][0]:"", url:u, st, label:"Авто"+(rt.hls&&ss.length?" · "+(nb?plural(nb,"резерв","резерва","резервов"):"без резерва"):"")}}
+  const i=ss.findIndex(([,u])=>u===r.url), tip=CONF.mode==="hls"?ownRoute(c,true):"напрямую — клиент видит эту ссылку";
+  if(i>=0) return {m:"src", name:ss[i][0], url:r.url, label:"Только "+ss[i][0], tip,
+    st:srcHealth(ss[i][0])?`<span class="badge bad" title="«${esc(ss[i][0])}» не отдал каналы${esc(built)} — у этого канала резерва нет">источник не отвечает</span>`:chk(r.url)};
+  return {m:"url", name:"своя", url:r.url, label:"Своя ссылка", tip, st:chk(r.url)}}
+function cModeMenu(r,md,rt){const ss=r.srcs||[], it=(a,t,x="")=>`<button role="menuitem" data-cact="${a}"${x}>${t}</button>`;
+  return `<div class="more"><button class="sm cMode${md.m==="auto"?"":" man"}" data-more aria-haspopup="menu" aria-expanded="false" aria-label="Откуда брать поток ${esc(r.n)}: ${esc(md.label)}" title="${esc(md.tip||(rt.hls?"Как в плейлисте: через HLS Proxy, при сбое — резервный источник":"Как в плейлисте"))}">${esc(md.label)} ▾</button><div class="menu" role="menu" hidden>
+    ${it("auto",(md.m==="auto"?"✓ ":"")+"Авто — как в плейлисте"+(rt.hls?", с резервом":""))}
+    ${ss.length>1?ss.map(([n],i)=>it("src",(md.m==="src"&&md.name===n?"✓ ":"")+"Только "+esc(n)+(srcHealth(n)?" (не отвечает)":""),` data-i="${i}"`)).join(""):""}
+    ${it("seturl",(md.m==="url"?"✓ ":"")+"Своя ссылка…")}<hr>${it("check","Проверить поток")}</div></div>`}
+async function cCheck(k,u){if(!u) return; cChk.set(k,{u,run:true}); cChRefresh(); let r;
+  try{r=await (await fetch("/api/check",{method:"POST",headers:{"Content-Type":"application/json","X-M3U-Editor":"1"},body:JSON.stringify({url:u})})).json()}catch(e){r={ok:false,msg:String(e)}}
+  cChk.set(k,{u,ok:!!r.ok,msg:String(r.msg||"")}); cChRefresh(); return r}
 function shortUrl(u){try{const x=new URL(u), p=x.pathname.length>28?x.pathname.slice(0,12)+"…"+x.pathname.slice(-14):x.pathname; return x.host+p}catch(e){return String(u).slice(0,48)}}   // без токенов в query
 function cChannels(c){const out=[], seen=new Set(), off=new Set(c.off||[]), urls=c.urls||{}, kid=g=>c.no_adult&&(g==="18+"||String(g).includes("18+"));
   for(const id of c.lists){const L=R.lists.find(x=>x.id===id); if(!L) continue;
@@ -1605,18 +1635,18 @@ function cChannels(c){const out=[], seen=new Set(), off=new Set(c.off||[]), urls
   const ORD=new Map((c.order||[]).map((k,i)=>[k,i])); if(ORD.size) out.sort((a,b)=>(ORD.get(a.k)??1e6)-(ORD.get(b.k)??1e6));   // свой порядок (перетаскивание)
   return out}
 function cChansHtml(c){const all=cChannels(c), q=cChQ.toLowerCase(), list=all.filter(r=>!q||(r.n+" "+r.g).toLowerCase().includes(q)), shown=list.slice(0,cChLim);
-  const on=all.filter(r=>r.on).length, own=Object.keys(c.urls||{}).length;
-  return `<div class="muted" style="margin-bottom:8px">${(c.order||[]).length?'<button class="sm" id="cOrdReset" style="float:right">Порядок как в плейлистах</button>':""}${q?"":'Порядок меняется перетаскиванием ⠿ · '}${plural(all.length,"канал","канала","каналов")} · включено ${on}${all.length-on?` · выключено ${all.length-on}`:""}${own?` · своих ссылок ${own}`:""}${(c.extra||[]).length?` · своих каналов ${c.extra.length}`:""}</div>
-  ${list.length?`<div class="twrap"><table class="tbl"><thead><tr><th style="width:28px" title="Перетащите, чтобы поменять порядок">⇅</th><th style="width:52px">Вкл.</th><th>Канал</th><th>Группа</th><th>Откуда</th><th>Ссылка на поток</th><th></th></tr></thead><tbody>${shown.map(r=>`<tr data-ck="${esc(r.k)}"${r.on?"":' style="opacity:.55"'}>
-    <td>${q?"":`<span class="drag" draggable="true" title="Потяните вверх или вниз" aria-label="Перетащить канал ${esc(r.n)}">⠿</span>`}</td>
+  const on=all.filter(r=>r.on).length, man=all.filter(r=>r.kind!=="own"&&r.url).length, rt=cRoute(c);
+  if(cManF&&!man) cManF=false; if(cManF){const keep=list.filter(r=>r.kind!=="own"&&r.url); list.length=0; list.push(...keep); shown.length=0; shown.push(...list.slice(0,cChLim))}
+  return `<div class="muted" style="margin-bottom:8px">${(c.order||[]).length?'<button class="sm" id="cOrdReset" style="float:right">Порядок как в плейлистах</button>':""}${q||cManF?"":'Порядок меняется перетаскиванием ⠿ · '}${plural(all.length,"канал","канала","каналов")} · включено ${on}${all.length-on?` · выключено ${all.length-on}`:""}${(c.extra||[]).length?` · своих каналов ${c.extra.length}`:""}${man?` · <span class="st-warn">настроено вручную: ${man}</span> <button class="sm" id="cManF">${cManF?"Показать все":"Показать только их"}</button> <button class="sm" id="cManReset" title="Всем каналам — как в плейлисте">Все на «Авто»</button>`:""}</div>
+  ${list.length?`<div class="twrap"><table class="tbl ctbl"><thead><tr><th style="width:28px" title="Перетащите, чтобы поменять порядок">⇅</th><th style="width:52px">Вкл.</th><th>Канал</th><th>Группа</th><th>Откуда</th><th>Поток <span class="muted" style="font-weight:400" title="${esc(rt.hls?"Режим «Авто»: поток идёт через ваш сервер (HLS Proxy), клиент настоящую ссылку не видит; если основной источник не отвечает — HLS Proxy берёт резервный (тот же канал у другого источника).":rt.t)}">· ${esc(rt.t)}</span></th><th></th></tr></thead><tbody>${shown.map(r=>{const md=cMode(c,r,rt), ed=cUrlOpen.has(r.k);
+    return `<tr data-ck="${esc(r.k)}"${r.on?"":' style="opacity:.55"'}>
+    <td>${q||cManF?"":`<span class="drag" draggable="true" title="Потяните вверх или вниз" aria-label="Перетащить канал ${esc(r.n)}">⠿</span>`}</td>
     <td><label class="switch" title="${r.on?"Выключить канал у клиента":"Включить канал"}"><input type="checkbox" class="cOn" ${r.on?"checked":""} aria-label="Канал ${esc(r.n)} включён"><i></i></label></td>
     <td><b>${esc(r.n)}</b></td><td class="muted">${esc(r.g)}</td>
     <td><span class="badge${r.kind==="own"?" ok":r.kind==="add"?" warn":""}">${esc(r.from)}</span></td>
-    <td style="min-width:260px">${r.kind==="own"||r.url||cUrlOpen.has(r.k)
-      ?`<input type="text" class="cUrl" spellcheck="false" style="width:100%;font:12px var(--mono)" value="${esc(r.url)}" placeholder="вставьте свою ссылку на поток (пусто — как в плейлисте)" aria-label="Ссылка на поток ${esc(r.n)}">${r.url&&r.kind!=="own"?`<div class="muted" style="font-size:11.5px;margin-top:3px">${(r.srcs||[]).some(([,u])=>u===r.url)?"только источник «"+esc((r.srcs.find(([,u])=>u===r.url)||[""])[0])+"»":"своя ссылка"} — ${esc(CONF.mode==="hls"?ownRoute(c,true):"напрямую — клиент видит эту ссылку")}</div>`:""}`
-      :`<div class="curl" title="${esc(r.src||"")}"><code>${esc(r.src?shortUrl(r.src):"—")}</code><button class="sm" data-cact="seturl" title="Указать для этого клиента другую ссылку на поток">Своя ссылка</button></div><div class="muted" style="font-size:11.5px;margin-top:3px">из плейлиста${CONF.mode==="hls"?" · клиент получает через HLS Proxy":""}</div>`}
-      ${r.kind!=="own"&&(r.srcs||[]).length>1?`<div style="margin-top:6px">${srcSel(r)}</div>`:""}</td>
-    <td class="nw">${r.kind==="list"?(r.url?'<button class="sm" data-cact="reset" title="Вернуть ссылку из плейлиста">Сбросить</button>':""):'<button class="sm danger" data-cact="rm">Убрать</button>'}</td></tr>`).join("")}</tbody></table></div>
+    <td class="cstd">${ed?`<div class="cst"><input type="text" class="cUrl" spellcheck="false" value="${esc(md.m==="url"||md.m==="own"?md.url:"")}" placeholder="вставьте ссылку на поток" aria-label="Ссылка на поток ${esc(r.n)}"><button class="sm primary" data-cact="urlok" title="Сохранить ссылку (Enter)" aria-label="Сохранить ссылку">✓</button><button class="sm" data-cact="urlno" title="Отмена (Esc)" aria-label="Отмена">✕</button></div>`
+      :`<div class="cst">${md.name?`<span class="badge csrc">${esc(md.name)}</span>`:""}<code title="${esc(md.url||"")}">${esc(md.url?shortUrl(md.url):"—")}</code>${md.st||""}${r.kind==="own"?`<button class="sm" data-cact="seturl" title="Изменить ссылку своего канала">✎</button><button class="sm" data-cact="check" title="Проверить поток">Проверить</button>`:cModeMenu(r,md,rt)}</div>`}</td>
+    <td class="nw">${r.kind==="list"?"":'<button class="sm danger" data-cact="rm">Убрать</button>'}</td></tr>`}).join("")}</tbody></table></div>
   ${list.length>shown.length?`<div style="margin-top:8px"><button class="sm" id="cChMore">Показать ещё (${list.length-shown.length})</button></div>`:""}`
   :`<div class="empty" style="padding:16px">${all.length?"Ничего не найдено":"Пока пусто: отметьте плейлисты выше или добавьте каналы"}</div>`}`}
 function cAddHtml(c){const have=new Set(cChannels(c).map(r=>r.k)), q=cAddQ.toLowerCase();
@@ -1670,16 +1700,17 @@ $("settings").addEventListener("input",e=>{if(mode!=="client") return; const t=e
 $("settings").addEventListener("change",e=>{if(mode==="client"&&e.target.id==="cFile") cAddFile(e.target.files[0])});
 $("settings").addEventListener("change",e=>{if(mode!=="client") return; const c=CC(), t=e.target, tr=t.closest("tr[data-ck]"); if(!c||!tr) return; const k=tr.dataset.ck;
   if(t.classList.contains("cOn")){c.off=(c.off||[]).filter(x=>x!==k); if(!t.checked) c.off.push(k); cChRefresh(); markDirty(); return}
-  if(t.classList.contains("cSrc")){const v=t.value, r=cChannels(c).find(x=>x.k===k); c.urls=c.urls||{};
-    if(v==="") {delete c.urls[k]; cUrlOpen.delete(k); toast("Как в плейлисте — нажмите «Сохранить»")}
-    else if(v==="own"){cUrlOpen.add(k); if((r.srcs||[]).some(([,u])=>u===c.urls[k])) delete c.urls[k]; cChRefresh(); const i=document.querySelector(`tr[data-ck="${CSS.escape(k)}"] .cUrl`); if(i) i.focus(); return}
-    else {const x=(r.srcs||[])[+v]; if(!x) return; c.urls[k]=x[1]; toast("«"+r.n+"»: только "+x[0]+", напрямую — нажмите «Сохранить»")}
-    cChRefresh(); markDirty(); return}
-  if(t.classList.contains("cUrl")){const u=t.value.trim();
-    if(u&&!URLRX.test(u)){toast("Нужна ссылка вида http(s)://…, rtmp://, udp://…"); t.value=k.startsWith("x:")?((c.extra||[]).find(x=>"x:"+x.id===k)||{}).url||"":((c.urls||{})[k]||""); return}
-    if(k.startsWith("x:")){const x=(c.extra||[]).find(x=>"x:"+x.id===k); if(x&&u) x.url=u; else if(x&&!u){toast("У своего канала ссылка обязательна"); t.value=x.url; return}}
-    else{c.urls=c.urls||{}; if(u) c.urls[k]=u; else delete c.urls[k]}
-    cChRefresh(); markDirty(); toast(u?"Ссылка канала изменена — нажмите «Сохранить»":"Ссылка как в плейлисте")}});
+});
+function cSaveUrl(c,k,inp){const u=inp.value.trim();
+  if(u&&!URLRX.test(u)){toast("Нужна ссылка вида http(s)://…, rtmp://, udp://…"); inp.focus(); return}
+  if(k.startsWith("x:")){const x=(c.extra||[]).find(x=>"x:"+x.id===k); if(!x) return; if(!u){toast("У своего канала ссылка обязательна"); inp.focus(); return} x.url=u}
+  else{c.urls=c.urls||{}; if(u) c.urls[k]=u; else delete c.urls[k]}
+  cUrlOpen.delete(k); cChRefresh(); markDirty();
+  if(!u){toast("Как в плейлисте — нажмите «Сохранить»"); return}
+  toast("Ссылка изменена — проверяю поток…");
+  cCheck(k,u).then(r=>{if(r&&!r.ok&&!/^проверяются только/.test(r.msg||"")) toast("Ссылка не отвечает: "+(r.msg||"ошибка")+". Она изменена — проверьте адрес; «Сохранить» запишет её как есть"); else if(r&&r.ok) toast("Поток отвечает — нажмите «Сохранить»")})}
+$("settings").addEventListener("keydown",e=>{if(mode!=="client"||!e.target.classList.contains("cUrl")) return; const c=CC(), tr=e.target.closest("tr[data-ck]"); if(!c||!tr) return;
+  if(e.key==="Enter"){e.preventDefault(); cSaveUrl(c,tr.dataset.ck,e.target)} else if(e.key==="Escape"){cUrlOpen.delete(tr.dataset.ck); cChRefresh()}});
 $("settings").addEventListener("click",e=>{if(mode!=="client") return; const c=CC(), t=e.target; if(!c) return;
   if(t.id==="cAddBtn"||t.id==="cOwnBtn"){const p=t.id==="cAddBtn"?"add":"own"; cPanel=cPanel===p?"":p; render(); const f=$(cPanel==="add"?"cAddQ":"cOwnName"); if(f) f.focus(); return}
   if(t.id==="cChMore"){cChLim+=300; cChRefresh(); return}
@@ -1698,10 +1729,17 @@ $("settings").addEventListener("click",e=>{if(mode!=="client") return; const c=C
   if(t.id==="cOwnAdd"){const n=clean($("cOwnName").value), u=$("cOwnUrl").value.trim(), g=clean($("cOwnGroup").value).slice(0,60)||"Мои каналы";
     if(!n){toast("Введите название");return} if(!URLRX.test(u)){toast("Нужна ссылка вида http(s)://…");return}
     c.extra=c.extra||[]; c.extra.push({id:newId(),name:n,group:g,url:u,logo:""}); $("cOwnName").value=""; $("cOwnUrl").value=""; cChRefresh(); markDirty(); toast("Свой канал добавлен — нажмите «Сохранить»"); return}
-  const tr=t.closest("tr[data-ck]"); if(!tr||!t.dataset.cact) return; const k=tr.dataset.ck;
-  if(t.dataset.cact==="reset"){c.urls=c.urls||{}; delete c.urls[k]; cUrlOpen.delete(k); cChRefresh(); markDirty(); return}
-  if(t.dataset.cact==="seturl"){cUrlOpen.add(k); cChRefresh(); const i=document.querySelector(`tr[data-ck="${CSS.escape(k)}"] .cUrl`); if(i) i.focus(); return}
-  if(t.dataset.cact==="rm"){if(k.startsWith("x:")) c.extra=(c.extra||[]).filter(x=>"x:"+x.id!==k); else c.add=(c.add||[]).filter(x=>x!==k); c.off=(c.off||[]).filter(x=>x!==k); if(c.urls) delete c.urls[k]; cChRefresh(); markDirty(); return}});
+  if(t.id==="cManF"){cManF=!cManF; cChRefresh(); return}
+  if(t.id==="cManReset"){const n=Object.keys(c.urls||{}).length; if(!n||!confirm("Вернуть «Авто» (как в плейлисте) всем "+plural(n,"каналу","каналам","каналам")+", настроенным вручную?")) return; c.urls={}; cUrlOpen.clear(); cManF=false; cChRefresh(); markDirty(); toast("Все каналы — как в плейлисте. Нажмите «Сохранить»"); return}
+  const ab=t.closest("[data-cact]"), tr=t.closest("tr[data-ck]"); if(!tr||!ab) return; const k=tr.dataset.ck, act=ab.dataset.cact; closeMenus();
+  if(act==="auto"){c.urls=c.urls||{}; if(!c.urls[k]) return; delete c.urls[k]; cUrlOpen.delete(k); cChRefresh(); markDirty(); toast("Авто — как в плейлисте. Нажмите «Сохранить»"); return}
+  if(act==="src"){const r=cChannels(c).find(x=>x.k===k), x=r&&(r.srcs||[])[+ab.dataset.i]; if(!x) return; c.urls=c.urls||{}; c.urls[k]=x[1]; cUrlOpen.delete(k); cChRefresh(); markDirty(); toast("«"+r.n+"»: только "+x[0]+", без резерва. Нажмите «Сохранить»"); return}
+  if(act==="seturl"){cUrlOpen.add(k); cChRefresh(); const i=document.querySelector(`tr[data-ck="${CSS.escape(k)}"] .cUrl`); if(i){i.focus(); i.select()} return}
+  if(act==="urlok"){const i=tr.querySelector(".cUrl"); if(i) cSaveUrl(c,k,i); return}
+  if(act==="urlno"){cUrlOpen.delete(k); cChRefresh(); return}
+  if(act==="check"){const r=cChannels(c).find(x=>x.k===k); if(!r) return; const md=cMode(c,r,cRoute(c)); if(!md.url){toast("У канала нет ссылки для проверки");return}
+    cCheck(k,md.url).then(x=>toast("«"+r.n+"»: "+(x.ok?"✔ ":"✖ ")+(x.msg||""))); return}
+  if(act==="rm"){if(k.startsWith("x:")) c.extra=(c.extra||[]).filter(x=>"x:"+x.id!==k); else c.add=(c.add||[]).filter(x=>x!==k); c.off=(c.off||[]).filter(x=>x!==k); if(c.urls) delete c.urls[k]; cChRefresh(); markDirty(); return}});
 function renderPlist(){
   const svd=JSON.parse(saved).lists;
   const rows=shared().map(L=>{const st=(LST.lists||{})[L.id], sv=svd.find(x=>x.id===L.id&&x.token===L.token), en=L.enabled!==false;
