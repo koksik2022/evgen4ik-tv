@@ -83,6 +83,31 @@ class Rules(unittest.TestCase):
         self.assertFalse(any(L["id"] == "p1" for L in r2["lists"]))
 
 
+class Notify(unittest.TestCase):
+    def test_events(self):
+        import notify, datetime
+        sent = []
+        notify.send = lambda c, text: sent.append(text)
+        notify.unit_result = lambda u: ("success", "t1")
+        json.dump({"token": "123456:" + "A" * 35, "chat_id": "42"}, open(notify.TG, "w"))
+        exp = (datetime.date.today() + datetime.timedelta(days=2)).isoformat()
+        r = {"clients": [{"id": "aa1", "name": "Жека", "token": "TOKTOKTOKTOKTOKTOK", "expires": exp}]}
+        json.dump(r, open(notify.RULES, "w"), ensure_ascii=False)
+        json.dump({"TOKTOKTOKTOKTOKTOK": {"ip": "1.1.1.1", "last": "x"}}, open(notify.ACT, "w"))
+        json.dump({"sources": [{"name": "Пров", "count": 10, "status": "ok"}], "built_at": "b1"}, open(notify.SNAP, "w"), ensure_ascii=False)
+        if os.path.exists(notify.STATE): os.remove(notify.STATE)
+        notify.main(); self.assertEqual(len(sent), 1, "первый запуск: только срок клиента, IP и источники лишь запоминает")
+        self.assertIn("Жека", sent[0]); self.assertIn("осталось 2 дня", sent[0])
+        notify.main(); self.assertEqual(len(sent), 1, "повторно не шлёт")
+        json.dump({"TOKTOKTOKTOKTOKTOK": {"ip": "2.2.2.2", "last": "y", "ua": "TiviMate"}}, open(notify.ACT, "w"))
+        json.dump({"sources": [{"name": "Пров", "count": 0, "status": "ошибка: 403"}], "built_at": "b2"}, open(notify.SNAP, "w"), ensure_ascii=False)
+        notify.unit_result = lambda u: ("exit-code", "t2")
+        notify.main()
+        txt = "\n".join(sent[1:])
+        self.assertIn("2.2.2.2", txt); self.assertIn("Пров", txt); self.assertIn("с ошибкой", txt)
+        n = len(sent); notify.main(); self.assertEqual(len(sent), n, "о той же ошибке второй раз не пишет")
+
+
 class Build(unittest.TestCase):
     def test_client_files(self):
         r = rules(); r["clients"][0]["link_mode"] = "direct"; r["clients"][1]["link_mode"] = "direct"
@@ -110,6 +135,17 @@ class Build(unittest.TestCase):
         self.assertFalse(os.path.exists(f"{TMP}/pl/vykl-2z.m3u8"), "у выключенного клиента короткой ссылки нет")
         a["slug"] = ""; build(r)
         self.assertFalse(os.path.exists(f"{TMP}/pl/sasha-7x.m3u8"), "убрали короткую — файл удалён")
+
+    def test_epg_shift(self):
+        r = rules(channels={"кино 1": {"shift": 2}, "мульт": {"shift": "x"}})
+        self.assertEqual(r["channels"]["кино 1"]["shift"], 2)
+        self.assertNotIn("мульт", r["channels"], "неправильный сдвиг отброшен")
+        self.assertNotIn("shift", app.validate({"channels": {"a": {"shift": 99}}}).get("channels", {}).get("a", {}))
+        r["clients"][1]["link_mode"] = "direct"
+        b = build(r)["B"]
+        line = [l for l in b.split("\n") if l.endswith(",Кино 1")][0]
+        self.assertIn('tvg-shift="2"', line)
+        self.assertNotIn("tvg-shift", [l for l in b.split("\n") if l.endswith(",Мульт")][0])
 
     def test_no_adult_and_no_clients(self):
         r = rules()
@@ -528,7 +564,7 @@ class AutoCheck(unittest.TestCase):
 
     def test_installer_has_units(self):
         s = open(os.path.join(ROOT, "install.sh"), encoding="utf-8").read()
-        for x in ("autocheck.py e4conf.py", "check.trigger; do", "e4tv-check.path e4tv-check.timer", "Unit=e4tv-check-now.service",
+        for x in ("autocheck.py notify.py e4conf.py", "e4tv-check.timer e4tv-notify.timer", "OnUnitActiveSec=5min", "check.trigger; do", "e4tv-check.path e4tv-check.timer", "Unit=e4tv-check-now.service",
                   "OnCalendar=*-*-* 06:30:00"):
             self.assertIn(x, s)
         self.assertNotIn("telegram", open(os.path.join(SRC, "autocheck.py"), encoding="utf-8").read().lower())   # уведомления убраны по просьбе

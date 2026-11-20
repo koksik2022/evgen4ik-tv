@@ -268,6 +268,7 @@ def load_rules(log):
                                                 "hidden": hd if isinstance(hd, bool) else None,
                                                 "urls": _urls(v.get("urls")),
                                                 "tvg_id": _clean(v["tvg_id"]) if isinstance(v.get("tvg_id"), str) and v["tvg_id"].strip() else None,
+                                                "shift": v["shift"] if isinstance(v.get("shift"), (int, float)) and not isinstance(v.get("shift"), bool) and v["shift"] and -12 <= v["shift"] <= 14 else None,
                                                 "logo": v["logo"].strip() if isinstance(v.get("logo"), str) and URL_RX.match(v["logo"].strip()) else None,
                                                 "merge": [m.lower()[:200] for m in (v.get("merge") or [])[:30] if isinstance(m, str) and m.strip()]}
         for cc in (r.get("custom_channels") or [])[:500]:
@@ -357,6 +358,7 @@ def apply_rules(allc, R):
         if cr.get("rename"): c["name"] = cr["rename"]
         elif R["auto_rules"]: c["name"] = _auto_name(c["name"], R)
         if cr.get("tvg_id"): c["attrs"]["tvg-id"] = cr["tvg_id"]
+        if cr.get("shift"): c["attrs"]["tvg-shift"] = f'{cr["shift"]:g}'   # сдвиг программы передач у этого канала
         if cr.get("logo") == NOLOGO:
             u = nologo_url()
             if u: c["attrs"]["tvg-logo"] = u

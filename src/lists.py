@@ -726,7 +726,7 @@ def build_clients(active, LOUT, head, keep, wgid, st, items=None, fmap=None, LK=
         cex = {m.group(1): ln for n, ln in (cmap or {}).items() for m in [EX_RX.search(n)] if m}   # свои каналы под логином клиента
         out = [head]
         for e in ent:
-            lines = list(e["lines"])
+            lines = list(e["lines"]); lines[0] = with_shift(lines[0], e.get("k"))
             if multi: lines[0] = re.sub(r'\s+tvg-chno="[^"]*"', "", lines[0])   # номера из разных плейлистов совпали бы
             em, kind = emode(e), e.get("kind") or ("ext" if e["free"] else "hls")
             if cmap is not None and kind == "hls" and em == "hls":
@@ -934,8 +934,21 @@ def activity():
     return 0
 
 
+SHIFT = {}   # ключ канала -> сдвиг программы передач (tvg-shift), часов
+
+
+def with_shift(l0, k):
+    """Строка #EXTINF с tvg-shift из правил редактора (HLS Proxy может его не передать — дописываем сами)."""
+    sh = SHIFT.get(k)
+    if sh is None or not l0.startswith("#EXTINF"): return l0
+    l0 = re.sub(r'\s+tvg-shift="[^"]*"', "", l0)
+    return re.sub(r'^(#EXTINF:\s*-?\d+)', lambda mm: f'{mm.group(1)} tvg-shift="{sh:g}"', l0, count=1)
+
+
 def main():
     rules = rj(RULES, {}) or {}
+    SHIFT.clear(); SHIFT.update({str(k): v["shift"] for k, v in (rules.get("channels") or {}).items()
+                                 if isinstance(v, dict) and isinstance(v.get("shift"), (int, float)) and not isinstance(v.get("shift"), bool) and v["shift"]})
     global GMODE, GFB, GLP   # общая настройка «Скрывать ссылки провайдера» (у плейлиста и клиента "" = как у всех)
     GMODE = rules.get("link_mode") if rules.get("link_mode") in LINK_MODES else ""
     GFB, GLP = rules.get("fallback") is not False, rules.get("logo_proxy") is not False
@@ -1031,7 +1044,7 @@ def main():
                 else: sel_items = regroup(sel_items, lambda x: _gt(x[1]["lines"]))
                 FE = rules.get("free_edits") if isinstance(rules.get("free_edits"), dict) else {}
                 for k, it in sel_items:
-                    lines = unmark(list(it["lines"]))
+                    lines = unmark(list(it["lines"])); lines[0] = with_shift(lines[0], k)
                     fe = FE.get(k) if k.startswith("f:") else None
                     if isinstance(fe, dict):   # своя ссылка / логотип у канала отдельного плейлиста
                         lg = fe.get("logo") if isinstance(fe.get("logo"), str) and URLOK.match(fe["logo"]) else None

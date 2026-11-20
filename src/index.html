@@ -61,7 +61,7 @@ button.icon{padding:3px 7px;border-color:transparent;background:transparent;colo
 button.icon:hover{background:var(--hover);color:var(--ink)}
 button.sm{padding:3px 9px;font-size:12.5px}
 :focus-visible{outline:2px solid var(--accent);outline-offset:1px}
-input[type=text],input[type=search],input[type=number],select,textarea{font:inherit;border:1px solid var(--ring);border-radius:8px;padding:6px 10px;background:var(--panel);color:var(--ink)}
+input[type=text],input[type=search],input[type=number],input[type=password],select,textarea{font:inherit;border:1px solid var(--ring);border-radius:8px;padding:6px 10px;background:var(--panel);color:var(--ink)}
 input[type=checkbox],input[type=radio]{accent-color:var(--accent)}
 textarea{font:12.5px/1.5 var(--mono);width:100%;resize:vertical}
 .dirty{color:var(--warn);font-weight:600;font-size:12.5px}
@@ -367,6 +367,7 @@ pre.jlog{font:12px/1.55 var(--mono);white-space:pre-wrap;color:var(--muted);marg
     <h3>Настройки</h3>
     <button data-mode="links"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M16.5 10.5V6.75a4.5 4.5 0 1 0-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 0 0 2.25-2.25v-6.75a2.25 2.25 0 0 0-2.25-2.25H6.75a2.25 2.25 0 0 0-2.25 2.25v6.75a2.25 2.25 0 0 0 2.25 2.25Z"/></svg>Ссылки и логотипы</button>
     <button data-mode="epg"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="5" width="18" height="13" rx="2"/><path d="M7 21h10M8 9h8M8 12.5h5"/></svg>Телегид</button>
+    <button data-mode="notify"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M21.2 4.6 2.9 11.7c-.9.35-.88 1.63.03 1.95l4.57 1.6 1.77 5.4c.25.76 1.2 1 1.77.44l2.55-2.47 4.7 3.45c.67.5 1.63.13 1.8-.69L23.3 6c.2-.98-.77-1.8-1.7-1.4Z"/><path d="m7.5 15.2 9.8-7.4"/></svg>Уведомления</button>
     <button data-mode="filters"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M12 3c2.755 0 5.455.232 8.083.678.533.09.917.556.917 1.096v1.044a2.25 2.25 0 0 1-.659 1.591l-5.432 5.432a2.25 2.25 0 0 0-.659 1.591v2.927a2.25 2.25 0 0 1-1.244 2.013L9.75 21v-6.568a2.25 2.25 0 0 0-.659-1.591L3.659 7.409A2.25 2.25 0 0 1 3 5.818V4.774c0-.54.384-1.006.917-1.096A48.32 48.32 0 0 1 12 3Z"/></svg>Автоскрытие групп</button>
     <button data-mode="rules"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.325.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 0 1 1.37.49l1.296 2.247a1.125 1.125 0 0 1-.26 1.431l-1.003.827c-.293.241-.438.613-.43.992a7.723 7.723 0 0 1 0 .255c-.008.378.137.75.43.991l1.004.827c.424.35.534.955.26 1.43l-1.298 2.247a1.125 1.125 0 0 1-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.47 6.47 0 0 1-.22.128c-.331.183-.581.495-.644.869l-.213 1.281c-.09.543-.56.94-1.11.94h-2.594c-.55 0-1.019-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 0 1-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 0 1-1.369-.49l-1.297-2.247a1.125 1.125 0 0 1 .26-1.431l1.004-.827c.292-.24.437-.613.43-.991a6.932 6.932 0 0 1 0-.255c.007-.38-.138-.751-.43-.992l-1.004-.827a1.125 1.125 0 0 1-.26-1.43l1.297-2.247a1.125 1.125 0 0 1 1.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.086.22-.128.332-.183.582-.495.644-.869l.214-1.28Z"/><path d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z"/></svg>Постоянные правила</button>
     <button data-mode="history"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"/></svg>История и копии</button>
@@ -431,7 +432,7 @@ const clean=s=>String(s||"").replace(/[\x00-\x1f\x7f"]/g," ").trim().slice(0,100
 const URLRX=/^(https?|rtmp|rtsp|udp|rtp):\/\/[^\s"]{1,2000}$/i;
 let EPG_URL="", CONF={}, booted=false;
 let STATUS=null;   // последний ответ /api/status (сборка, HLS Proxy, автопроверка) — для боковой панели, «Обзора» и «Журнала»
-const PAGES={home:"Обзор",check:"Проверка потоков",journal:"Журнал",clients:"Клиенты",client:"Клиент",plist:"Объединённые плейлисты",lists:"Объединённые плейлисты",main:"Группы и каналы",sources:"Источники",filters:"Автоскрытие групп",history:"История и резервные копии",rules:"Постоянные правила",help:"Справка",links:"Ссылки и логотипы",epg:"Телегид"};
+const PAGES={home:"Обзор",check:"Проверка потоков",journal:"Журнал",clients:"Клиенты",client:"Клиент",plist:"Объединённые плейлисты",lists:"Объединённые плейлисты",main:"Группы и каналы",sources:"Источники",filters:"Автоскрытие групп",history:"История и резервные копии",rules:"Постоянные правила",help:"Справка",links:"Ссылки и логотипы",epg:"Телегид",notify:"Уведомления"};
 // ---------- версия и обновление по кнопке ----------
 let VER={}, verPoll=null, verShown=false;
 async function checkVersion(force){try{VER=await (await fetch("/api/version"+(force?"?force=1":""))).json()}catch(e){return} showVer(); if(mode==="home"&&R) renderHome();
@@ -585,6 +586,36 @@ function olCard(){return `<div class="card"><h2>Логотипы</h2><p class="h
 
 // ---------- «Телегид»: источники, сколько дней хранить, обновить сейчас ----------
 const EPG_DEF="http://epg.it999.ru/edem.xml.gz";
+// ---------- уведомления в Telegram (notify.py на сервере, раз в 5 минут) ----------
+let TGI=null, TGC=null;
+const TGEV=[["expire","Заканчивается срок у клиента — за 3 дня, один раз"],["build","Сборка плейлиста завершилась с ошибкой (и когда снова в порядке)"],["source","Источник перестал отдавать каналы (и когда снова работает)"],["newip","Клиент зашёл с нового IP"]];
+async function tgApi(path,body){const r=await fetch(path,body?{method:"POST",headers:{"Content-Type":"application/json","X-M3U-Editor":"1"},body:JSON.stringify(body)}:{}); const j=await r.json().catch(()=>({}));
+  if(!r.ok) throw new Error(j.error||("ошибка "+r.status)); return j}
+async function renderNotify(){if(!TGI){$("settings").innerHTML='<div class="card"><p class="hint">Загружаю…</p></div>'; try{TGI=await tgApi("/api/tg")}catch(e){$("settings").innerHTML=`<div class="card"><p class="hint">Не удалось: ${esc(e.message)}</p></div>`; return} if(mode!=="notify") return}
+  const t=TGI, on=t.token_set&&t.chat_id, last=t.last_run?new Date(t.last_run*1000).toLocaleString("ru-RU"):"";
+  $("settings").innerHTML=`<div class="card"><h2>Уведомления в Telegram</h2>
+    <p class="hint" style="margin-top:0">Сервер раз в 5 минут проверяет события и пишет вашему боту. Токен хранится только на сервере (не в правилах и не в резервных копиях) и здесь не показывается.</p>
+    ${t.timer?"":'<div class="pvwarn" style="margin-bottom:10px">На сервере ещё нет службы уведомлений — обновите Evgen4ik TV (внизу слева «проверить» → «Обновить»).</div>'}
+    <div class="muted" style="margin-bottom:12px">${on?'<span class="badge ok">включены</span>':'<span class="badge warn">не настроены</span>'}${last?" · последняя проверка: "+esc(last):""}${t.last_error?` · <span class="st-bad">ошибка: ${esc(t.last_error)}</span>`:""}</div>
+    <div class="fgrid" style="margin:0">
+     <div><div class="cf"><label for="tgTok">1. Токен бота</label><input type="password" id="tgTok" autocomplete="off" spellcheck="false" placeholder="${t.token_set?"задан ("+esc(t.token_hint)+") — оставьте пустым, чтобы не менять":"123456789:AA…"}"></div>
+       <p class="hint" style="margin:6px 0 0">Telegram → <b>@BotFather</b> → <code>/newbot</code> → имя → скопируйте токен. Лучше отдельный бот: если этим же токеном пользуется другая программа, кнопка «Найти чат» может не сработать.</p></div>
+     <div><div class="cf"><label for="tgChat">2. Куда писать (чат)</label><div class="linkrow"><input type="text" id="tgChat" value="${esc(t.chat_id)}" placeholder="например 123456789" spellcheck="false"><button id="tgFind">Найти чат</button></div></div>
+       <p class="hint" style="margin:6px 0 0">Напишите своему боту любое сообщение (например «/start»), затем нажмите «Найти чат» и выберите себя. Для группы — добавьте бота в группу и напишите там.</p>
+       ${TGC?`<div class="pills" style="margin-top:8px">${TGC.length?TGC.map(x=>`<button class="sm" data-tgchat="${esc(x.id)}">${esc(x.name)} · ${esc(x.id)}</button>`).join(""):'<span class="muted">Сообщений боту не найдено — напишите ему и нажмите ещё раз.</span>'}</div>`:""}</div></div>
+    <h3 style="margin:16px 0 8px;font-size:14px">3. О чём сообщать</h3>
+    ${TGEV.map(([k,txt])=>`<label style="display:flex;align-items:center;gap:8px;min-height:30px"><input type="checkbox" data-tgev="${k}" ${t.events[k]!==false?"checked":""}> ${esc(txt)}</label>`).join("")}
+    <div class="pills" style="margin-top:14px"><button class="primary" id="tgSave">Сохранить</button><button id="tgTest" ${on?"":"disabled"}>Отправить пробное</button>${t.token_set||t.chat_id?'<button class="danger" id="tgOff">Отключить и удалить токен</button>':""}</div>
+    <p class="hint" style="margin:12px 0 0">Сообщения уходят с сервера на api.telegram.org. Если сервер не может до него достучаться, внизу будет «ошибка: нет связи…». Проверить с сервера: <code>e4tv notify-test</code>.</p></div>`}
+$("settings").addEventListener("click",async e=>{if(mode!=="notify") return; const t=e.target;
+  const ch=t.closest("[data-tgchat]"); if(ch){$("tgChat").value=ch.dataset.tgchat; toast("Чат выбран — нажмите «Сохранить»"); return}
+  try{
+    if(t.id==="tgFind"){t.disabled=true; t.textContent="Ищу…"; const r=await tgApi("/api/tg-chats",{token:$("tgTok").value.trim()}); TGC=r.chats; const keep={tok:$("tgTok").value,chat:$("tgChat").value}; renderNotify(); $("tgTok").value=keep.tok; $("tgChat").value=keep.chat; return}
+    if(t.id==="tgSave"){const ev={}; document.querySelectorAll("[data-tgev]").forEach(x=>ev[x.dataset.tgev]=x.checked);
+      TGI=await tgApi("/api/tg",{token:$("tgTok").value.trim(),chat_id:$("tgChat").value.trim(),events:ev}); TGC=null; renderNotify(); toast(TGI.token_set&&TGI.chat_id?"Сохранено — нажмите «Отправить пробное»":"Сохранено"); return}
+    if(t.id==="tgTest"){t.disabled=true; await tgApi("/api/tg-test",{}); toast("Отправлено — проверьте Telegram"); t.disabled=false; return}
+    if(t.id==="tgOff"){if(!confirm("Отключить уведомления и удалить токен бота с сервера?")) return; TGI=await tgApi("/api/tg",{clear:true}); TGC=null; renderNotify(); toast("Уведомления отключены"); return}
+  }catch(err){toast(err.message); if(t.id==="tgFind"){t.disabled=false; t.textContent="Найти чат"} if(t.id==="tgTest") t.disabled=false}});
 function renderEpg(){const s=STATUS||{}, hls=CONF.mode==="hls", h=s.epg_hls||{}, st=s.epg_st||{};
   const cur=(h.sources&&h.sources.length?h.sources:(R.epg_sources.length?R.epg_sources:[EPG_DEF]));
   const stat=s.epg_req?'<span class="st-run">⏳ Запрошено — HLS Proxy начнёт скачивание в течение минуты</span>'
@@ -628,7 +659,7 @@ function allSources(){const n=[...((ST&&ST.builtin_sources)||[]),...R.sources.ma
 function newList(){const lid=Math.random().toString(36).slice(2,10).replace(/[^a-z0-9]/g,"")||"l"+Date.now();
   R.lists.push({id:lid,name:"Новый плейлист "+(R.lists.length+1),token:"",groups:[],channels:[],exclude:[],enabled:true,sources:[],chno:null,all:false,xgroups:[],order:[]});
   curL=lid; go("lists"); toast("Отметьте группы слева и каналы справа, затем «Сохранить» — появится ссылка")}
-function go(m){if(m!=="lists"&&m!=="client") cBack=null; if((m==="clients"||m==="client")&&m!==mode) setTimeout(pollNow,50); mode=m; try{localStorage.setItem("m3uePage",m==="lists"?"plist":m==="client"?"clients":m)}catch(e){} checked.clear(); openU=null; addOpen=false; render(); const c=$("settings"); if(c) c.scrollTop=0}
+function go(m){if(m==="notify"){TGI=null;TGC=null}if(m!=="lists"&&m!=="client") cBack=null; if((m==="clients"||m==="client")&&m!==mode) setTimeout(pollNow,50); mode=m; try{localStorage.setItem("m3uePage",m==="lists"?"plist":m==="client"?"clients":m)}catch(e){} checked.clear(); openU=null; addOpen=false; render(); const c=$("settings"); if(c) c.scrollTop=0}
 function moreMenu(items){return `<div class="more"><button class="sm" data-more aria-haspopup="menu" aria-expanded="false" aria-label="Ещё действия" title="Ещё действия">⋯</button><div class="menu" role="menu" hidden>${items.filter(Boolean).join("")}</div></div>`}
 function closeMenus(){document.querySelectorAll(".more .menu:not([hidden])").forEach(m=>{m.hidden=true; const b=m.previousElementSibling; if(b) b.setAttribute("aria-expanded","false")})}
 document.addEventListener("click",e=>{const b=e.target.closest("[data-more]");
@@ -663,7 +694,7 @@ function render(){buildAll(); snapUndo();
   const fb=$("srcFBar"); if(mode==="main"&&srcF){const ch=ALL.filter(c=>!c.alias&&inSrcF(c)), gN=new Set(ch.map(effGroup)).size;
     fb.innerHTML=`<span style="font-size:16px">🔎</span><b>Источник: ${esc(srcF)}</b><span class="muted">${ch.length} каналов в ${gN} группах — прячьте, переименовывайте, переносите и смотрите ▶ прямо здесь</span><span style="flex:1"></span><button id="srcFClear">✕ Показать все источники</button>`;
     fb.hidden=false} else fb.hidden=true;
-  if(mode==="home") renderHome(); else if(mode==="check") renderCheck(); else if(mode==="journal") renderJournal(); else if(mode==="help") renderHelp(); else if(mode==="links") renderLinks(); else if(mode==="epg") renderEpg();
+  if(mode==="home") renderHome(); else if(mode==="check") renderCheck(); else if(mode==="journal") renderJournal(); else if(mode==="help") renderHelp(); else if(mode==="links") renderLinks(); else if(mode==="epg") renderEpg(); else if(mode==="notify") renderNotify();
   else if(mode==="clients") renderClients(); else if(mode==="client") renderClient(); else if(mode==="plist") renderPlist(); else if(mode==="history") renderHistory(); else if(mode==="rules") renderRules(); else if(mode==="sources"||mode==="filters") renderSettings(mode);
   else if(mode==="lists"&&lsrc!=="main"){renderSrcbar();renderGroupsExt();renderPaneExt();renderMine()}
   else {if(mode==="lists"){renderSrcbar();renderMine()} renderGroups();renderPane()}
@@ -832,10 +863,11 @@ function rowMain(c,opts){const r=chRule(c.k),h=chHidden(c),eg=effGroup(c),lg=log
       <div class="chk-res" id="chkRes"></div>
       <div class="ufields">
         <label for="uEpg">Программа (EPG)</label><input type="text" id="uEpg" list="epgl" spellcheck="false" placeholder="${esc(c.id?"сейчас: "+c.id+" — начните вводить название канала":"начните вводить название канала")}" value="${esc(c.custom?(R.custom_channels[c.ci].tvg_id||""):(r.tvg_id||""))}">
+        <label for="uShift" title="Если программа передач у канала идёт со сдвигом (например, канал +2 или EPG в другом часовом поясе)">Сдвиг программы</label><div style="display:flex;gap:8px;align-items:center"><input type="number" id="uShift" min="-12" max="14" step="0.5" value="${r.shift||""}" placeholder="0" style="width:90px"><span class="muted" style="font-size:12px">часов, например 2 или -1 — передачи в телегиде сдвинутся у этого канала (tvg-shift)</span></div>
         <label for="uLogo">Логотип</label><input type="text" id="uLogo" spellcheck="false" placeholder="${esc(r.logo==="none"?"без логотипа":(c.logo||"ссылка на картинку"))}" value="${esc(c.custom?(c.logo||""):(r.logo==="none"?"":(r.logo||"")))}">
         <span></span><div class="muted" style="font-size:12px">Сейчас: ${esc(lsrcTxt(c))}${!c.custom?` · <button class="sm" data-u="nologo" title="${r.logo==="none"?"Снова показывать логотип":"Не показывать логотип у этого канала, даже если его подставит HLS Proxy или открытая база"}">${r.logo==="none"?"Вернуть логотип":"Без логотипа"}</button>`:""}</div>
       </div>
-      <div class="ubtns"><button data-u="ok" class="primary">Готово</button><button data-u="check">Проверить ссылки</button>${!c.custom&&(r.urls||r.tvg_id||r.logo)?`<button data-u="orig">Вернуть исходные</button>`:""}<button data-u="cancel">Отмена</button>${c.custom?`<button data-u="del" class="danger">Удалить канал</button>`:""}</div></div>`}
+      <div class="ubtns"><button data-u="ok" class="primary">Готово</button><button data-u="check">Проверить ссылки</button>${!c.custom&&(r.urls||r.tvg_id||r.logo||r.shift)?`<button data-u="orig">Вернуть исходные</button>`:""}<button data-u="cancel">Отмена</button>${c.custom?`<button data-u="del" class="danger">Удалить канал</button>`:""}</div></div>`}
   return s}
 function rowL(L,c){const v=visMain(c),on=member(L,c),so=on||srcOk(L,c);
   return `<div class="c lm${on?" in":""}${v?"":" hidden"}${so?"":" off"}" data-k="${esc(c.k)}">
@@ -990,16 +1022,17 @@ $("clist").addEventListener("click",e=>{
   if(ued){const a=e.target.dataset.u; if(!a) return; const c=findC(ued.dataset.k);
     if(a==="cancel"){openU=null;renderPane();return}
     if(a==="nologo"){setCh(c.k,{logo:chRule(c.k).logo==="none"?null:"none"});render();return}
-    if(a==="orig"){setCh(c.k,{urls:null,tvg_id:null,logo:null});openU=null;render();return}
+    if(a==="orig"){setCh(c.k,{urls:null,tvg_id:null,logo:null,shift:null});openU=null;render();return}
     if(a==="check"){checkUrls(ued.querySelector("textarea").value.split(/\n+/).map(x=>x.trim()).filter(Boolean),$("chkRes"));return}
     if(a==="del"){if(!confirm("Удалить канал «"+c.n+"»?")) return; R.custom_channels.splice(c.ci,1); delete R.channels[c.k]; openU=null; render(); return}
     if(a==="ok"){const us=ued.querySelector("textarea").value.split(/\n+/).map(x=>x.trim()).filter(Boolean);
       const bad=us.find(x=>!URLRX.test(x)); if(bad){toast("Неверная ссылка: "+bad.slice(0,80));return}
       if(us.length>10){toast("Не больше 10 ссылок");return}
-      const ep=clean($("uEpg").value), lg=$("uLogo").value.trim();
+      const ep=clean($("uEpg").value), lg=$("uLogo").value.trim(), shv=$("uShift").value.trim(), sh=shv===""?0:Number(shv);
+      if(!(sh>=-12&&sh<=14)||sh*2!==Math.round(sh*2)){toast("Сдвиг программы: от -12 до 14 часов, шаг 0,5");return}
       if(lg&&!URLRX.test(lg)){toast("Ссылка на логотип неверная");return}
-      if(c.custom){if(!us.length){toast("Нужна хотя бы одна ссылка (или удалите канал)");return} const d=R.custom_channels[c.ci]; d.urls=us; d.tvg_id=ep; d.logo=lg}
-      else{const orig=c.u.map(x=>x[1]); setCh(c.k,{urls:!us.length||JSON.stringify(us)===JSON.stringify(orig)?null:us,tvg_id:ep&&ep!==c.id?ep:null,logo:lg&&lg!==c.logo?lg:(!lg&&chRule(c.k).logo==="none"?"none":null)})}
+      if(c.custom){if(!us.length){toast("Нужна хотя бы одна ссылка (или удалите канал)");return} const d=R.custom_channels[c.ci]; d.urls=us; d.tvg_id=ep; d.logo=lg; setCh(c.k,{shift:sh||null})}
+      else{const orig=c.u.map(x=>x[1]); setCh(c.k,{urls:!us.length||JSON.stringify(us)===JSON.stringify(orig)?null:us,tvg_id:ep&&ep!==c.id?ep:null,logo:lg&&lg!==c.logo?lg:(!lg&&chRule(c.k).logo==="none"?"none":null),shift:sh||null})}
       openU=null; render(); return}
     return}
   const row=e.target.closest(".c"); if(!row) return; const k=row.dataset.k, c=findC(k); if(!c) return;

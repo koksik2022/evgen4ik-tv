@@ -139,6 +139,8 @@ def validate(r):
         if isinstance(v.get("hidden"), bool): e["hidden"] = v["hidden"]
         if urls(v.get("urls")): e["urls"] = urls(v["urls"])
         if s(v.get("tvg_id")): e["tvg_id"] = s(v["tvg_id"])
+        sh = v.get("shift")   # сдвиг программы передач (tvg-shift), часов: -12…+14, 0 — не сдвигать
+        if isinstance(sh, (int, float)) and not isinstance(sh, bool) and sh and -12 <= sh <= 14 and float(sh) * 2 == int(float(sh) * 2): e["shift"] = int(sh) if float(sh).is_integer() else float(sh)
         if v.get("logo") == "none" or (isinstance(v.get("logo"), str) and URL_RX.match(v["logo"].strip())): e["logo"] = v["logo"].strip()   # "none" — «Без логотипа»
         mg = [m for m in keys(v.get("merge"), 30) if m != k.lower()]
         if mg: e["merge"] = mg
@@ -664,6 +666,71 @@ def ac_conf():
     return {"auto": bool(n.get("auto")), "workers": w}
 
 
+# ---------- уведомления в Telegram (notify.py, таймер e4tv-notify) ----------
+TG_FILE = f"{DATA}/telegram.json"          # токен бота и чат: права 600, не в rules.json и не в резервных копиях
+NOTIFY_STATE = f"{DATA}/notify-state.json"
+TG_EVENTS = ("expire", "build", "source", "newip")
+
+
+def tg_info():
+    c = read_json(TG_FILE, {}) or {}
+    st = read_json(NOTIFY_STATE, {}) or {}
+    ev = c.get("events") if isinstance(c.get("events"), dict) else {}
+    tok = str(c.get("token") or "")
+    return {"token_set": bool(tok), "token_hint": (tok.split(":")[0] + ":…" + tok[-4:]) if tok else "", "chat_id": str(c.get("chat_id") or ""),
+            "events": {e: ev.get(e) is not False for e in TG_EVENTS}, "last_run": st.get("last_run"), "last_error": st.get("last_error") or "",
+            "timer": os.path.exists("/etc/systemd/system/e4tv-notify.timer")}
+
+
+def tg_save(body):
+    import notify
+    c = read_json(TG_FILE, {}) or {}
+    if body.get("clear"): c = {}
+    else:
+        tok = str(body.get("token") or "").strip()
+        if tok:
+            if not notify.TOKEN_RX.match(tok): raise ValueError("Токен не похож на токен бота: 123456789:AA… (берётся у @BotFather)")
+            c["token"] = tok
+        if "chat_id" in body:
+            ch = str(body.get("chat_id") or "").strip()
+            if ch and not notify.CHAT_RX.match(ch): raise ValueError("Чат: число (например 123456789 или -100…) или @имя_канала")
+            c["chat_id"] = ch
+        if isinstance(body.get("events"), dict): c["events"] = {e: body["events"].get(e) is not False for e in TG_EVENTS}
+    tmp = TG_FILE + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f: json.dump(c, f, ensure_ascii=False)
+    os.chmod(tmp, 0o600); os.replace(tmp, TG_FILE)
+    return tg_info()
+
+
+def tg_chats(body):
+    """Кто писал боту: чтобы выбрать чат без поиска chat_id вручную (getUpdates)."""
+    import notify
+    tok = str(body.get("token") or "").strip() or str((read_json(TG_FILE, {}) or {}).get("token") or "")
+    if not notify.TOKEN_RX.match(tok): raise ValueError("Сначала укажите токен бота")
+    try:
+        with urllib.request.urlopen(urllib.request.Request(f"https://api.telegram.org/bot{tok}/getUpdates?limit=100",
+                                                           headers={"User-Agent": "Evgen4ik-TV"}), timeout=20) as r: j = json.load(r)
+    except urllib.error.HTTPError as e:
+        raise ValueError("Telegram: " + ("токен не подходит" if e.code in (401, 404) else "бот занят другой программой (getUpdates)" if e.code == 409 else f"HTTP {e.code}"))
+    except Exception as e:
+        raise ValueError(f"нет связи с api.telegram.org: {getattr(e, 'reason', e)}")
+    out = {}
+    for u in j.get("result") or []:
+        m = u.get("message") or u.get("channel_post") or u.get("my_chat_member") or {}
+        ch = m.get("chat") or {}
+        if "id" in ch: out[str(ch["id"])] = ch.get("title") or " ".join(x for x in (ch.get("first_name"), ch.get("last_name")) if x) or ch.get("username") or str(ch["id"])
+    return {"chats": [{"id": k, "name": v} for k, v in out.items()]}
+
+
+def tg_test(body):
+    import notify
+    ok, c, _ = notify.conf()
+    if not ok: raise ValueError("Сохраните токен бота и чат")
+    try: notify.send(c, "✅ Evgen4ik TV: уведомления работают. Сюда придут: срок клиентов, ошибки сборки, источники, новые IP.")
+    except Exception as e: raise ValueError(f"Не отправилось: {e}")
+    return {"ok": True}
+
+
 def autocheck_info():
     return {"result": read_json(AC_RESULT, {}) or {}, "trigger_ready": os.path.exists(CTRIGGER), "conf": ac_conf()}
 
@@ -1173,6 +1240,8 @@ class H(BaseHTTPRequestHandler):
             return self._send(200, now_watching())
         if self.path == "/api/status":
             return self._send(200, prep_status())
+        if self.path == "/api/tg":
+            return self._send(200, tg_info())
         if self.path == "/api/autocheck":
             return self._send(200, autocheck_info())
         if path.startswith("/api/provicon/") and re.fullmatch(r"[a-z0-9]{1,16}", path[14:]):   # значок провайдера (картинка)
@@ -1235,6 +1304,11 @@ class H(BaseHTTPRequestHandler):
         if self.path == "/api/rebuild":   # кнопка «Пересобрать» в боковой панели: сборка без сохранения правил
             with open(TRIGGER, "w") as f: f.write(str(time.time()))
             return self._send(200, {"ok": True})
+        if self.path in ("/api/tg", "/api/tg-chats", "/api/tg-test"):
+            try:
+                return self._send(200, {"/api/tg": tg_save, "/api/tg-chats": tg_chats, "/api/tg-test": tg_test}[self.path](body if isinstance(body, dict) else {}))
+            except ValueError as e:
+                return self._send(400, {"error": str(e)})
         if self.path == "/api/autocheck-conf":
             try:
                 return self._send(200, save_ac_conf(body))
