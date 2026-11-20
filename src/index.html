@@ -567,6 +567,15 @@ function lmCards(name,sel){return `<div class="lmo-g" role="radiogroup">${["hls"
 // у клиента: свой режим или режимы его плейлистов (null — по-разному)
 function lmClient(c){if(c.link_mode&&LMK[c.link_mode]) return lmFix(c.link_mode);
   const ms=[...new Set(c.lists.map(id=>R.lists.find(L=>L.id===id)).filter(Boolean).map(lmList))]; return ms.length>1?null:(ms[0]||lmAll())}
+// как дойдёт до клиента своя ссылка / выбранный источник — по настройке «Ссылки провайдера» у клиента
+function ownRoute(c,short){const m=lmClient(c);
+  if(m==="hls") return short?"через ваш сервер (HLS Proxy) — клиент ссылку не видит, лимит работает; без резерва"
+    :" Канал со своей ссылкой или с выбранным источником тоже идёт через ваш сервер (HLS Proxy): клиент настоящую ссылку не видит, лимит каналов работает, но резерва нет."+(R.fallback!==false?" Если HLS Proxy поток не примет (например, udp/rtmp) — ссылка скрывается только в файле.":" Если HLS Proxy поток не примет — канал к клиенту не попадёт.");
+  if(m==="redirect") return short?"в плейлисте — ссылка сервера, плеер идёт к источнику напрямую; без лимита и резерва"
+    :" Канал со своей ссылкой: в плейлисте ссылка вашего сервера, а плеер идёт к источнику напрямую — лимит каналов на него не действует.";
+  if(m==="direct") return short?"напрямую — клиент видит эту ссылку; без лимита и резерва"
+    :" Канал со своей ссылкой идёт напрямую: клиент видит ссылку, лимит каналов на него не действует.";
+  return short?"зависит от плейлиста: у плейлистов клиента разные «Ссылки провайдера»":" Как пойдёт канал со своей ссылкой, зависит от плейлиста: у плейлистов клиента разные настройки «Ссылки провайдера»."}
 function lmBadge(m,own){return (m==="redirect"?'<span class="badge" title="Ссылки провайдера скрыты только в файле: видео идёт напрямую от провайдера">📄 только в файле</span>'
   :m==="direct"?'<span class="badge bad" title="В плейлисте ссылки провайдера">🔓 не скрыто</span>':m===null?'<span class="badge" title="У плейлистов клиента разные настройки">ссылки: по-разному</span>':"")+(own?' <span class="badge" title="Своя настройка ссылок, не как у всех">особая</span>':"")}
 // карточка общей настройки (страницы «Клиенты» и «Объединённые плейлисты»)
@@ -1582,7 +1591,7 @@ function cDelF(c){if(!confirm("Удалить клиента «"+c.name+"»? Е�
 let cChQ="", cChLim=150, cAddQ="", cPanel="", cXcOpen=false; const cUrlOpen=new Set();
 function chSrcs(ch){const seen=new Set(), out=[]; for(const [n,u] of (ch&&ch.u)||[]) if(u&&!seen.has(u)){seen.add(u); out.push([n,u])} return out}   // [источник, ссылка] канала
 function srcSel(r){const ss=r.srcs||[], cur=ss.findIndex(([,u])=>u===r.url);   // выбор, откуда клиенту брать поток
-  return `<select class="cSrc" aria-label="Откуда брать поток ${esc(r.n)}" title="Откуда клиент получает этот канал"><option value="">Как в плейлисте${CONF.mode==="hls"?" — через HLS Proxy, с резервом":""}</option>${ss.map(([n,u],i)=>`<option value="${i}" ${i===cur?"selected":""}>Только ${esc(n)} — напрямую (${esc(shortUrl(u))})</option>`).join("")}<option value="own" ${r.url&&cur<0?"selected":""}>Своя ссылка…</option></select>`}
+  return `<select class="cSrc" aria-label="Откуда брать поток ${esc(r.n)}" title="Откуда клиент получает этот канал"><option value="">Как в плейлисте${CONF.mode==="hls"?" — через HLS Proxy, с резервом":""}</option>${ss.map(([n,u],i)=>`<option value="${i}" ${i===cur?"selected":""}>Только ${esc(n)} (${esc(shortUrl(u))})</option>`).join("")}<option value="own" ${r.url&&cur<0?"selected":""}>Своя ссылка…</option></select>`}
 function shortUrl(u){try{const x=new URL(u), p=x.pathname.length>28?x.pathname.slice(0,12)+"…"+x.pathname.slice(-14):x.pathname; return x.host+p}catch(e){return String(u).slice(0,48)}}   // без токенов в query
 function cChannels(c){const out=[], seen=new Set(), off=new Set(c.off||[]), urls=c.urls||{}, kid=g=>c.no_adult&&(g==="18+"||String(g).includes("18+"));
   for(const id of c.lists){const L=R.lists.find(x=>x.id===id); if(!L) continue;
@@ -1604,7 +1613,7 @@ function cChansHtml(c){const all=cChannels(c), q=cChQ.toLowerCase(), list=all.fi
     <td><b>${esc(r.n)}</b></td><td class="muted">${esc(r.g)}</td>
     <td><span class="badge${r.kind==="own"?" ok":r.kind==="add"?" warn":""}">${esc(r.from)}</span></td>
     <td style="min-width:260px">${r.kind==="own"||r.url||cUrlOpen.has(r.k)
-      ?`<input type="text" class="cUrl" spellcheck="false" style="width:100%;font:12px var(--mono)" value="${esc(r.url)}" placeholder="вставьте свою ссылку на поток (пусто — как в плейлисте)" aria-label="Ссылка на поток ${esc(r.n)}">${r.url&&r.kind!=="own"?`<div class="muted" style="font-size:11.5px;margin-top:3px">${(r.srcs||[]).some(([,u])=>u===r.url)?"только источник «"+esc((r.srcs.find(([,u])=>u===r.url)||[""])[0])+"»":"своя ссылка"} — идёт напрямую, мимо HLS Proxy, без резерва</div>`:""}`
+      ?`<input type="text" class="cUrl" spellcheck="false" style="width:100%;font:12px var(--mono)" value="${esc(r.url)}" placeholder="вставьте свою ссылку на поток (пусто — как в плейлисте)" aria-label="Ссылка на поток ${esc(r.n)}">${r.url&&r.kind!=="own"?`<div class="muted" style="font-size:11.5px;margin-top:3px">${(r.srcs||[]).some(([,u])=>u===r.url)?"только источник «"+esc((r.srcs.find(([,u])=>u===r.url)||[""])[0])+"»":"своя ссылка"} — ${esc(CONF.mode==="hls"?ownRoute(c,true):"напрямую — клиент видит эту ссылку")}</div>`:""}`
       :`<div class="curl" title="${esc(r.src||"")}"><code>${esc(r.src?shortUrl(r.src):"—")}</code><button class="sm" data-cact="seturl" title="Указать для этого клиента другую ссылку на поток">Своя ссылка</button></div><div class="muted" style="font-size:11.5px;margin-top:3px">из плейлиста${CONF.mode==="hls"?" · клиент получает через HLS Proxy":""}</div>`}
       ${r.kind!=="own"&&(r.srcs||[]).length>1?`<div style="margin-top:6px">${srcSel(r)}</div>`:""}</td>
     <td class="nw">${r.kind==="list"?(r.url?'<button class="sm" data-cact="reset" title="Вернуть ссылку из плейлиста">Сбросить</button>':""):'<button class="sm danger" data-cact="rm">Убрать</button>'}</td></tr>`).join("")}</tbody></table></div>
@@ -1616,7 +1625,7 @@ function cAddHtml(c){const have=new Set(cChannels(c).map(r=>r.k)), q=cAddQ.toLow
   return res.length?res.map(ch=>`<div class="srow" style="grid-template-columns:1fr auto auto"><b>${esc(dispName(ch))}</b><span class="muted">${esc(effGroup(ch))}</span><button class="sm primary" data-addk="${esc(ch.k)}">Добавить</button></div>`).join("")
     :'<div class="muted">Не найдено (или канал уже есть у клиента)</div>'}
 function cChCard(c){const hls=CONF.mode==="hls";
-  return `<div class="card"><h2>Каналы клиента</h2><p class="hint">Его личный список: каналы отмеченных плейлистов плюс ваши правки. Правки действуют только на этого клиента — сами плейлисты не меняются.${hls?" Канал со своей ссылкой идёт напрямую, мимо HLS Proxy: лимит каналов клиента на него не действует.":""}</p>
+  return `<div class="card"><h2>Каналы клиента</h2><p class="hint">Его личный список: каналы отмеченных плейлистов плюс ваши правки. Правки действуют только на этого клиента — сами плейлисты не меняются.${hls?ownRoute(c):""}</p>
     <div class="pills" style="margin-bottom:10px"><input type="search" id="cChQ" placeholder="Поиск канала у клиента" aria-label="Поиск канала у клиента" value="${esc(cChQ)}" style="flex:1 1 220px">
       <button id="cAddBtn"${cPanel==="add"?' class="pill on"':""}>+ Из основного плейлиста</button><button id="cOwnBtn"${cPanel==="own"?' class="pill on"':""}>+ Свой канал по ссылке</button><button id="cFileBtn" title="Файл .m3u / .m3u8 с компьютера — каналы станут своими каналами клиента">+ Из файла с ПК</button><input type="file" id="cFile" accept=".m3u,.m3u8,.txt,audio/x-mpegurl,application/vnd.apple.mpegurl" hidden>
       <button id="cAllOn" title="Включить все выключенные">Включить все</button></div>
