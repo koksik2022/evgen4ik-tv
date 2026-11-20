@@ -97,6 +97,20 @@ class Build(unittest.TestCase):
         self.assertNotIn("Новости 24", out["B"], "личный плейлист A не достаётся B")
         self.assertIsNone(out["Выкл"]); self.assertIsNone(out["Старый"])
 
+    def test_client_short_link(self):
+        r = rules(lists=[{"id": "b2", "name": "Дети", "groups": ["Детские", "Кино"], "slug": "deti-1x"}])
+        r["clients"][0]["slug"] = "sasha-7x"; r["clients"][1]["slug"] = "deti-1x"; r["clients"][2]["slug"] = "vykl-2z"
+        r = app.validate(r)
+        a, b = r["clients"][0], r["clients"][1]
+        self.assertEqual(a["slug"], "sasha-7x")
+        self.assertEqual(b["slug"], "", "короткая уже занята плейлистом")
+        self.assertEqual(app.validate(dict(r, clients=[dict(a, slug="BAD SLUG")]))["clients"][0]["slug"], "")
+        a["link_mode"] = "direct"; build(r)
+        self.assertEqual(open(f"{TMP}/pl/sasha-7x.m3u8", encoding="utf-8").read(), open(f"{TMP}/pl/{a['token']}.m3u8", encoding="utf-8").read())
+        self.assertFalse(os.path.exists(f"{TMP}/pl/vykl-2z.m3u8"), "у выключенного клиента короткой ссылки нет")
+        a["slug"] = ""; build(r)
+        self.assertFalse(os.path.exists(f"{TMP}/pl/sasha-7x.m3u8"), "убрали короткую — файл удалён")
+
     def test_no_adult_and_no_clients(self):
         r = rules()
         r["clients"][1]["no_adult"] = True; r["clients"][1]["add"] = ["взрослый"]

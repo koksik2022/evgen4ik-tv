@@ -248,6 +248,8 @@ def validate(r):
                                "lists": [x for x in dict.fromkeys(str(x) for x in lst(c.get("lists"))[:50]) if x in lids],
                                "streams": st if isinstance(st, int) and not isinstance(st, bool) and 0 <= st <= 50 else 1,
                                "no_adult": c.get("no_adult") is True, "token": tok, "hls_pw": hp,
+                               # короткая ссылка /pl/<slug>.m3u8 (вторая, к длинной); уникальность — ниже, вместе с плейлистами
+                               "slug": c["slug"] if isinstance(c.get("slug"), str) and re.fullmatch(r"[a-z0-9][a-z0-9-]{2,31}", c["slug"]) else "",
                                "link_mode": c["link_mode"] if c.get("link_mode") in LINK_MODES else "",   # "" — как у плейлиста
                                # свой список поверх плейлистов: выключенные каналы, добавленные из основного, свои ссылки и свои каналы
                                "off": keys(c.get("off"), 5000), "add": keys(c.get("add"), 3000),
@@ -293,10 +295,10 @@ def validate(r):
     out["epg_days"] = ed if isinstance(ed, int) and not isinstance(ed, bool) and 1 <= ed <= 14 else None
     out["open_logos"] = r.get("open_logos") is True   # логотипы из открытых баз (it999, iptv-org, tv-logos) каналам без картинки
     out["stream_format"] = r["stream_format"] if r.get("stream_format") in ("hls", "ts") else ""   # формат потока HLS Proxy для плееров; "" — как настроено в нём
-    seen_slug = set()
-    for L in out["lists"]:
-        if L["slug"] in seen_slug: L["slug"] = ""
-        if L["slug"]: seen_slug.add(L["slug"])
+    seen_slug = {L["token"] for L in out["lists"]} | {c["token"] for c in out.get("clients", [])}   # короткая не совпадает ни с чьей длинной
+    for x in out["lists"] + out.get("clients", []):
+        if x.get("slug") in seen_slug: x["slug"] = ""
+        if x.get("slug"): seen_slug.add(x["slug"])
     return out
 
 

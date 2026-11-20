@@ -655,7 +655,8 @@ def write_acl(clients):
         if not nets or not TOK.match(str(x.get("token", ""))) or not re.fullmatch(r"[a-z0-9]{1,16}", str(x.get("id", ""))): continue
         v = f"$e4tv_ip_{x['id']}"
         geo.append(f"geo $remote_addr {v} {{ default 0; " + " ".join(f"{n} 1;" for n in nets) + " }")
-        mp.append('    "~^/pl/' + x["token"] + r'\.m3u8?$" ' + v + ';')
+        for nm in [x["token"]] + ([x["slug"]] if SLUG.match(str(x.get("slug") or "")) else []):   # и для короткой ссылки
+            mp.append('    "~^/pl/' + nm + r'\.m3u8?$" ' + v + ';')
     txt = ("# Evgen4ik TV: разрешённые IP клиентов. Файл пишет lists.py — правки вручную будут перезаписаны.\n" + "\n".join(geo) + ("\n" if geo else "")
            + "map $uri $e4tv_acl {\n    default 1;\n" + "".join(l + "\n" for l in mp) + "}\n")
     try: old = open(ACL, encoding="utf-8").read()
@@ -738,9 +739,10 @@ def build_clients(active, LOUT, head, keep, wgid, st, items=None, fmap=None, LK=
                 via[how] = via.get(how, 0) + 1
                 if not lines: continue
             out += lines
-        fn = f"{OUTDIR}/{x['token']}.m3u8"; tmp = fn + ".tmp"
-        with open(tmp, "w", encoding="utf-8") as f: f.write("\n".join(out) + "\n")
-        os.chown(tmp, 0, wgid); os.chmod(tmp, 0o640); os.replace(tmp, fn); keep.add(fn)
+        for nm in [x["token"]] + ([x["slug"]] if SLUG.match(str(x.get("slug") or "")) else []):   # длинная и короткая ссылка — один и тот же файл
+            fn = f"{OUTDIR}/{nm}.m3u8"; tmp = fn + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as f: f.write("\n".join(out) + "\n")
+            os.chown(tmp, 0, wgid); os.chmod(tmp, 0o640); os.replace(tmp, fn); keep.add(fn)
         st["clients"][cid] = {"channels": sum(1 for l in out if l.startswith("#EXTINF")), "missing": miss, "via": via,
                               "mode": LK.mode(cm) if (LK and cm) else ""}
         XCCH[cid] = xc_channels(out)
@@ -906,6 +908,8 @@ def activity():
     except OSError: return 0
     off = pos.get("off", 0) if pos.get("ino") == stt.st_ino and pos.get("off", 0) <= stt.st_size else 0   # журнал сменился — с начала
     rx = re.compile(r"^/pl/([A-Za-z0-9_-]{3,64})\.m3u8?(?:\?|$)")
+    rules = rj(RULES, {}) or {}   # заходы по короткой ссылке клиента считаем под его длинной (токеном)
+    smap = {str(c["slug"]): str(c.get("token")) for c in (rules.get("clients") or []) if isinstance(c, dict) and SLUG.match(str(c.get("slug") or ""))}
     with open(ALOG, "rb") as f:
         f.seek(off)
         for raw in f:
@@ -914,7 +918,7 @@ def activity():
             m = rx.match(p[3])
             if not m: continue
             day = p[0][:10]
-            a = act.setdefault(m.group(1), {"days": {}})
+            a = act.setdefault(smap.get(m.group(1), m.group(1)), {"days": {}})
             if p[0][:19] >= a.get("last", ""): a.update({"last": p[0][:19], "ip": p[1][:64], "ua": ua_name(p[4].strip('"'))})
             a["days"][day] = a["days"].get(day, 0) + 1
         off = f.tell()
