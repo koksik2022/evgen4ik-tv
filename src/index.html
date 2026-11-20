@@ -231,7 +231,7 @@ main.three{grid-template-columns:270px minmax(0,1fr) minmax(300px,380px)}
 .ptools input[type=search]{width:240px;max-width:100%}
 .bulk{display:flex;flex-wrap:wrap;gap:6px;align-items:center;padding:7px 14px;background:var(--sel);border-bottom:1px solid var(--line)}
 .clist{overflow:auto;flex:1}
-.c{display:grid;grid-template-columns:22px 34px 1fr auto auto auto auto auto;align-items:center;gap:8px;padding:6px 14px;border-bottom:1px solid var(--line)}
+.c{display:grid;grid-template-columns:22px 34px 1fr auto auto auto auto auto auto;align-items:center;gap:8px;padding:6px 14px;border-bottom:1px solid var(--line)}
 .c.lm{grid-template-columns:22px 34px 1fr auto}
 .icon.play,.icon.pvplay{color:var(--accent);font-size:13px}
 .plbox{position:fixed;inset:0;background:rgba(0,0,0,.62);display:grid;place-items:center;z-index:60;padding:16px}
@@ -341,7 +341,7 @@ pre.jlog{font:12px/1.55 var(--mono);white-space:pre-wrap;color:var(--muted);marg
   main,main.three{margin:0 16px 16px;grid-template-columns:1fr;grid-template-rows:40vh 1fr;min-height:80vh}
   .mine{border-left:0;border-top:1px solid var(--line);min-height:50vh}
   .groups{border-right:0;border-bottom:1px solid var(--line)}
-  .c{grid-template-columns:22px 28px 1fr auto auto}.c .mv,.c .ren{display:none}.ued{padding-left:14px}
+  .c{grid-template-columns:22px 28px 1fr auto auto auto auto}.c .mv,.c .ren{display:none}.ued{padding-left:14px}
   .srow{grid-template-columns:1fr 1fr}.srcfbar{margin:0 16px 12px}.pvgrid{grid-template-columns:1fr;height:auto}.pvgrid>div:first-child{max-height:150px}.ufields{grid-template-columns:1fr}
 }
 </style>
@@ -780,7 +780,7 @@ function renderGroups(){
   document.querySelectorAll(".gin").forEach(x=>{const s=+x.dataset.st;x.checked=s===2;x.indeterminate=s===1});
 }
 const normName=n=>n.toLowerCase().replace(/\b(hd|fhd|uhd|sd|4k|8k|orig|original|premium|hevc|h265|h264|50|\+1|\+2|\+4|\+7)\b/g," ").replace(/[^a-zа-яё0-9]+/g," ").replace(/\s+/g," ").trim();
-const FLT={"":"Все каналы",dead:"Не отвечают (автопроверка)",noepg:"Без программы (EPG)",nologo:"Без логотипа",edited:"С моими правками",hidden:"Скрытые",merged:"Склеенные",similar:"Похожие названия"};
+const FLT={"":"Все каналы",dead:"Не отвечают (автопроверка)",noepg:"Без программы (EPG)",nologo:"Без логотипа",edited:"С моими правками",hidden:"Скрытые и удалённые",merged:"Склеенные",similar:"Похожие названия"};
 function fltList(){let l;
   if(flt==="dead") l=ALL.filter(c=>!c.alias&&acDeadOf(c));
   else if(flt==="noepg") l=ALL.filter(c=>visMain(c)&&!c.id&&!chRule(c.k).tvg_id&&!(c.custom&&R.custom_channels[c.ci].tvg_id));
@@ -870,7 +870,7 @@ function rowMain(c,opts){const r=chRule(c.k),h=chHidden(c),eg=effGroup(c),lg=log
       <button class="icon play" title="Смотреть канал">▶</button>
       <button class="icon url" title="Ссылки на поток, программа передач (EPG), логотип">🔗</button>
       <button class="icon ren" title="Переименовать">✎</button>
-      <button class="icon eye" title="${h?"Показать":"Скрыть"}">${h?"🚫":"👁"}</button></div>`;
+      <button class="icon eye" title="${h?"Показать":"Скрыть"}">${h?"🚫":"👁"}</button>${h?"":'<button class="icon del" title="Удалить канал отовсюду: основной плейлист, объединённые плейлисты, клиенты">🗑</button>'}</div>`;
   if(openU===c.k){const us=curUrls(c);
     s+=`<div class="ued" data-k="${esc(c.k)}">
       <div class="uhint">Ссылки на поток — по одной в строке. Первая — основная, остальные — резерв: HLS Proxy переключится на них, если основная не отвечает. Изменение вступит в силу после «Сохранить и применить».</div>
@@ -885,20 +885,35 @@ function rowMain(c,opts){const r=chRule(c.k),h=chHidden(c),eg=effGroup(c),lg=log
         <label for="uLogo">Логотип</label><input type="text" id="uLogo" spellcheck="false" placeholder="${esc(r.logo==="none"?"без логотипа":(c.logo||"ссылка на картинку"))}" value="${esc(c.custom?(c.logo||""):(r.logo==="none"?"":(r.logo||"")))}">
         <span></span><div class="muted" style="font-size:12px">Сейчас: ${esc(lsrcTxt(c))}${!c.custom?` · <button class="sm" data-u="nologo" title="${r.logo==="none"?"Снова показывать логотип":"Не показывать логотип у этого канала, даже если его подставит HLS Proxy или открытая база"}">${r.logo==="none"?"Вернуть логотип":"Без логотипа"}</button>`:""}</div>
       </div>
-      <div class="ubtns"><button data-u="ok" class="primary">Готово</button><button data-u="check">Проверить ссылки</button>${!c.custom&&(r.urls||r.tvg_id||r.logo||r.shift||r.primary)?`<button data-u="orig">Вернуть исходные</button>`:""}<button data-u="cancel">Отмена</button>${c.custom?`<button data-u="del" class="danger">Удалить канал</button>`:""}</div></div>`}
+      <div class="ubtns"><button data-u="ok" class="primary">Готово</button><button data-u="check">Проверить ссылки</button>${!c.custom&&(r.urls||r.tvg_id||r.logo||r.shift||r.primary)?`<button data-u="orig">Вернуть исходные</button>`:""}<button data-u="cancel">Отмена</button><button data-u="del" class="danger">Удалить канал</button></div></div>`}
   return s}
 function rowL(L,c){const v=visMain(c),on=member(L,c),so=on||srcOk(L,c);
   return `<div class="c lm${on?" in":""}${v?"":" hidden"}${so?"":" off"}" data-k="${esc(c.k)}">
       <input type="checkbox" class="lin" ${on?"checked":""} ${v?"":"disabled"} aria-label="В плейлисте">
       ${logoOf(c)?`<img loading="lazy" src="${esc(logoOf(c))}" alt="" onerror="this.style.visibility='hidden'">`:"<span></span>"}
       <span class="cn" title="${esc(c.n)}">${nameHtml(c,effGroup(c))}${v?"":`<small>скрыт в основном плейлисте</small>`}${so?"":`<small>нет в выбранных источниках</small>`}</span></div>`}
+// ---------- удаление каналов: канал провайдера скрывается насовсем (вернуть — фильтр «Скрытые и удалённые»),
+// свой канал удаляется; ключи вычищаются из объединённых плейлистов и у клиентов ----------
+function delChannels(keys,ask){const cs=[...new Set(keys)].map(findC).filter(Boolean); if(!cs.length) return 0;
+  const own=cs.filter(c=>c.custom), prov=cs.filter(c=>!c.custom), n=plural(cs.length,"канал","канала","каналов");
+  if(ask!==false&&!confirm((cs.length===1?"Удалить канал «"+dispName(cs[0])+"»?":"Удалить "+n+"?")+"\n\nОн пропадёт из основного плейлиста, всех объединённых плейлистов и у всех клиентов."
+    +(prov.length?"\nКаналы провайдера можно вернуть: «Группы и каналы» → фильтр «Скрытые и удалённые» → 👁.":"")+(own.length?"\nСвои каналы удаляются насовсем.":"")+"\nВступит в силу после «Сохранить и применить».")) return 0;
+  const ks=new Set(cs.map(c=>c.k));
+  for(const c of prov) setCh(c.k,{hidden:true});
+  for(const i of own.map(c=>c.ci).sort((a,b)=>b-a)) R.custom_channels.splice(i,1);
+  for(const c of own) delete R.channels[c.k];
+  for(const L of R.lists){if(L.channels) L.channels=L.channels.filter(k=>!ks.has(k)); if(L.order) L.order=L.order.filter(k=>!ks.has(k))}
+  for(const c of R.clients){for(const f of ["add","order","off"]) if(c[f]) c[f]=c[f].filter(k=>!ks.has(k)); if(c.urls) for(const k of ks) delete c.urls[k]}
+  for(const k of ks) checked.delete(k); if(ks.has(openU)) openU=null;
+  if(own.length) buildAll();
+  toast("Удалено: "+n+" — нажмите «Сохранить и применить»"); return cs.length}
 function renderBulk(opts){
   const b=$("bulk"); if(!checked.size||mode!=="main"){b.hidden=true;return}
   b.hidden=false;
   const sel2=[...checked].map(findC).filter(c=>c&&!c.alias);
   if(mergeOpen&&sel2.length>1){b.innerHTML=`<b>Склеить в один канал.</b> Основной:${sel2.map((c,i)=>`<label style="margin-left:8px"><input type="radio" name="mmain" value="${esc(c.k)}" ${i===0?"checked":""}> ${esc(dispName(c))}</label>`).join("")}
     <span class="muted">— остальные станут его резервными потоками</span><button data-b="mok" class="primary">Склеить</button><button data-b="mcancel">Отмена</button>`; return}
-  b.innerHTML=`<b>Выбрано: ${checked.size}</b>${sel2.length>1?`<button data-b="merge" title="Объединить варианты одного канала: один основной, остальные — резерв">Склеить…</button>`:""}<button data-b="hide">Скрыть</button><button data-b="show">Показать</button>
+  b.innerHTML=`<b>Выбрано: ${checked.size}</b>${sel2.length>1?`<button data-b="merge" title="Объединить варианты одного канала: один основной, остальные — резерв">Склеить…</button>`:""}<button data-b="hide">Скрыть</button><button data-b="show">Показать</button><button data-b="del" class="danger" title="Убрать выбранные каналы отовсюду: основной плейлист, объединённые плейлисты, клиенты">Удалить…</button>
     <select id="bMove"><option value="">Переместить в…</option>${opts}</select><button data-b="reset" title="Убрать все правки у выбранных каналов">↺ Сбросить</button><button data-b="none">Снять выбор</button>`;
 }
 /* ---------- события ---------- */
@@ -1042,7 +1057,7 @@ $("clist").addEventListener("click",e=>{
     if(a==="nologo"){setCh(c.k,{logo:chRule(c.k).logo==="none"?null:"none"});render();return}
     if(a==="orig"){setCh(c.k,{urls:null,tvg_id:null,logo:null,shift:null,primary:null});openU=null;render();return}
     if(a==="check"){checkUrls(ued.querySelector("textarea").value.split(/\n+/).map(x=>x.trim()).filter(Boolean),$("chkRes"));return}
-    if(a==="del"){if(!confirm("Удалить канал «"+c.n+"»?")) return; R.custom_channels.splice(c.ci,1); delete R.channels[c.k]; openU=null; render(); return}
+    if(a==="del"){if(delChannels([c.k])) render(); return}
     if(a==="ok"){const us=ued.querySelector("textarea").value.split(/\n+/).map(x=>x.trim()).filter(Boolean);
       const bad=us.find(x=>!URLRX.test(x)); if(bad){toast("Неверная ссылка: "+bad.slice(0,80));return}
       if(us.length>10){toast("Не больше 10 ссылок");return}
@@ -1058,6 +1073,7 @@ $("clist").addEventListener("click",e=>{
   if(e.target.classList.contains("lin")){const L=LL(); if(L){setIn(L,c,e.target.checked); render()} return}
   if(e.target.classList.contains("chk")){e.target.checked?checked.add(k):checked.delete(k);renderBulk(groupsOrdered().map(g=>`<option value="${esc(g)}">${esc(dispG(g))}</option>`).join(""));return}
   if(e.target.classList.contains("eye")){setCh(k,{hidden:chHidden(c)?null:true});render();return}
+  if(e.target.classList.contains("del")){if(delChannels([k])) render();return}
   if(e.target.classList.contains("url")){openU=openU===k?null:k;renderPane();if(openU)loadEpg();return}
   if(e.target.classList.contains("ren")){
     const span=row.querySelector(".cn"); const cur=dispName(c);
@@ -1090,6 +1106,7 @@ $("bulk").addEventListener("click",e=>{
     for(const k of ks){ if(k===mk) continue; mg.add(k); for(const x of (chRule(k).merge||[])) mg.add(x); setCh(k,{merge:null}) }
     mg.delete(mk); setCh(mk,{merge:[...mg]}); mergeOpen=false; checked.clear(); render();
     toast("Склеено каналов: "+(mg.size+1)+" — «Сохранить и применить»"); return}
+  if(a==="del"){if(delChannels([...checked])) render(); return}
   for(const k of checked){ if(a==="hide") setCh(k,{hidden:true}); if(a==="show") setCh(k,{hidden:null}); if(a==="reset") delete R.channels[k]; }
   if(a==="none"||a==="reset"||a==="hide"||a==="show"){ if(a!=="hide"&&a!=="show") checked.clear(); render(); }
 });
@@ -1958,19 +1975,22 @@ function renderAC(){const el=$("acCard"); if(!el||!AC) return;
   const grps=[...new Set(bad.map(x=>x.group||"без группы"))].sort((a,b)=>a.localeCompare(b,"ru")); if(acGrp&&!grps.includes(acGrp)) acGrp="";
   const shown=bad.filter(x=>!acGrp||(x.group||"без группы")===acGrp), canHide=shown.filter(x=>{const c=acFind(x); return c&&!chHidden(c)}).length;
   lc.innerHTML=`<div class="thead"><b>Не отвечают — ${shown.length}${acGrp?" из "+bad.length:""}</b><select id="acGrpSel"><option value="">Все группы</option>${grps.map(g=>`<option value="${esc(g)}"${g===acGrp?" selected":""}>${esc(g)}</option>`).join("")}</select>
-    <span class="sp"></span><button id="acShow" title="Открыть «Группы и каналы» с фильтром «Не отвечают»">Показать в «Группах и каналах» ›</button><button id="acHide" ${canHide?"":"disabled"} title="Скрыть эти каналы в основном плейлисте (вступит в силу после «Сохранить и применить»)">Скрыть неработающие${canHide?" ("+canHide+")":""}</button></div>
+    <span class="sp"></span><button id="acShow" title="Открыть «Группы и каналы» с фильтром «Не отвечают»">Показать в «Группах и каналах» ›</button><button id="acHide" ${canHide?"":"disabled"} class="danger" title="Убрать эти каналы отовсюду: основной плейлист, объединённые плейлисты, клиенты (после «Сохранить и применить»)">Удалить нерабочие${canHide?" ("+canHide+")":""}…</button></div>
     <div class="twrap"><table class="tbl"><thead><tr><th>Канал</th><th>Группа</th><th>Ответ</th><th></th></tr></thead><tbody>${shown.slice(0,500).map((x,i)=>{const c=acFind(x);
       return `<tr data-ai="${bad.indexOf(x)}"><td>${esc(x.name)}${c&&chHidden(c)?' <span class="badge">скрыт</span>':""}${c&&chRule(c.k).urls?' <span class="badge">ссылка заменена</span>':""}</td><td class="muted">${esc(x.group||"—")}</td><td class="muted">${esc(x.msg||"")}</td>
-      <td><div class="acts">${c?`<button class="icon play" data-k="${esc(c.k)}" title="Посмотреть канал">▶</button><button class="sm" data-aact="fix">Заменить ссылку</button><button class="sm" data-aact="find">Найти</button>`:'<span class="muted">нет в редакторе</span>'}</div></td></tr>${c&&fixK===c.k?`<tr class="fixrow"><td colspan="4">${fixBox(c)}</td></tr>`:""}`}).join("")}</tbody></table></div>
+      <td><div class="acts">${c?`<button class="icon play" data-k="${esc(c.k)}" title="Посмотреть канал">▶</button><button class="sm" data-aact="fix">Заменить ссылку</button><button class="sm danger" data-aact="del" ${chHidden(c)?"disabled":""}>Удалить</button><button class="sm" data-aact="find">Найти</button>`:'<span class="muted">нет в редакторе</span>'}</div></td></tr>${c&&fixK===c.k?`<tr class="fixrow"><td colspan="4">${fixBox(c)}</td></tr>`:""}`}).join("")}</tbody></table></div>
     ${shown.length>500?'<div class="empty">показаны первые 500 — выберите группу</div>':""}`}
 $("settings").addEventListener("change",e=>{if(mode==="check"&&e.target.id==="acGrpSel"){acGrp=e.target.value; renderAC()}});
 $("settings").addEventListener("click",async e=>{const t=e.target;
   if(t.dataset&&t.dataset.go2){go(t.dataset.go2); return}
   if(mode!=="check") return;
   if(t.id==="acShow"){flt="dead"; q=""; srcF=null; go("main"); return}
-  if(t.id==="acHide"){const bad=((AC&&AC.result)||{}).bad||[]; let n=0;
-    for(const x of bad){if(acGrp&&(x.group||"без группы")!==acGrp) continue; const c=acFind(x); if(c&&!chHidden(c)){setCh(c.k,{hidden:true}); n++}}
-    render(); toast("Скрыто каналов: "+n+" — нажмите «Сохранить и применить»"); return}
+  if(t.id==="acHide"){const bad=((AC&&AC.result)||{}).bad||[], ks=[];
+    for(const x of bad){if(acGrp&&(x.group||"без группы")!==acGrp) continue; const c=acFind(x); if(c&&!chHidden(c)) ks.push(c.k)}
+    if(!ks.length) return; const names=ks.slice(0,15).map(k=>"• "+dispName(findC(k))).join("\n")+(ks.length>15?"\n… и ещё "+(ks.length-15):"");
+    if(!confirm("Не отвечают при проверке "+(((AC&&AC.result)||{}).at||"")+":\n"+names+"\n\nКанал мог отвалиться ненадолго — сначала можно нажать ▶ и проверить.")) return;
+    if(delChannels(ks,false)){render()} return}
+  const trd=t.closest("tr[data-ai]"); if(trd&&t.dataset.aact==="del"){const x=(((AC&&AC.result)||{}).bad||[])[+trd.dataset.ai], c=x&&acFind(x); if(c&&delChannels([c.k])) render(); return}
   const tr=t.closest("tr[data-ai]"); if(tr&&t.dataset.aact==="fix"){const x=(((AC&&AC.result)||{}).bad||[])[+tr.dataset.ai], c=x&&acFind(x); if(c){fixK=fixK===c.k?null:c.k; renderAC()} return}
   if(tr&&t.dataset.aact==="find"){const x=(((AC&&AC.result)||{}).bad||[])[+tr.dataset.ai], c=x&&acFind(x); if(c){q=dispName(c).toLowerCase(); flt=""; srcF=null; sel=effGroup(c); go("main")} return}
   if(t.id!=="acSave"&&t.id!=="acRun") return;
