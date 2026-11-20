@@ -86,6 +86,15 @@ button.big{min-height:40px;padding:0 18px;font-size:14.5px}
 .more .menu hr{border:0;border-top:1px solid var(--line);margin:4px 2px}
 .tbl .acts button.main{color:var(--accent);border-color:var(--accent-soft);background:var(--accent-soft);font-weight:600}
 /* плитки-фильтры */
+.cconn{border-color:rgba(245,158,11,.35)}
+.cconn-g{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:18px;align-items:start}
+.clab{font-weight:600;margin-bottom:6px;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.cnote{margin-top:6px;font-size:12.5px}
+.cmain{border-color:var(--accent)!important;font-weight:600}
+.badge.acc{background:rgba(245,158,11,.15);color:var(--accent);border-color:transparent;font-weight:500}
+.cqr{text-align:center;width:150px}.cqr #cQrBox{width:150px;height:150px;background:#fff;border-radius:10px;padding:6px;box-sizing:border-box}.cqr #cQrBox svg{width:100%;height:100%}
+.cxc{margin-top:12px;padding-top:12px;border-top:1px solid var(--line)}
+@media (max-width:760px){.cconn-g{grid-template-columns:1fr}.cqr{width:auto}}
 button.ktile{text-align:left;font:inherit;color:inherit;cursor:pointer;box-shadow:none;display:flex;flex-direction:column;gap:2px}
 button.ktile:hover{border-color:var(--ring);background:var(--panel2)}
 .ktile.on{border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent);background:var(--accent-soft)}
@@ -1286,7 +1295,8 @@ function renderClients(){if(CONF.mode&&Date.now()-nowT>15000) setTimeout(pollNow
     const soonX=d!==null&&d<=7&&en;
     const menu=moreMenu([`<button role="menuitem" data-act="edit">Изменить</button>`,`<button role="menuitem" data-act="msg">Скопировать сообщение с инструкцией</button>`,
       soonX?"":`<button role="menuitem" data-act="ext">Продлить на месяц</button>`,en?"":`<button role="menuitem" data-act="tog">Включить</button>`,
-      en?`<hr><button role="menuitem" class="danger" data-act="tog">Выключить…</button>`:""]);
+      `<button role="menuitem" data-act="dup">Сделать копию</button>`,
+      en?`<hr><button role="menuitem" class="danger" data-act="tog">Выключить…</button>`:"<hr>",`<button role="menuitem" class="danger" data-act="del">Удалить…</button>`]);
     const lb=lmBadge(lmClient(c),!!(c.link_mode&&LMK[c.link_mode]));
     return `<tr data-cid="${esc(c.id)}"><td><button class="name" data-act="edit">${esc(c.name)}</button>${c.no_adult?' <span class="badge">без 18+</span>':""}${lb?" "+lb:""}<div class="muted">${esc([c.contact,c.note].filter(Boolean).join(" · "))}</div></td>
       <td>${c.lists.filter(lname).map(id=>`<button class="badge blink" data-act="openl" data-lid="${esc(id)}" title="Открыть плейлист для редактирования">${(R.lists.find(x=>x.id===id)||{}).owner?"личный: ":""}${esc(lname(id))} ›</button>`).join(" ")||`<div class="pills" style="gap:6px;flex-wrap:nowrap">${(c.extra||[]).length?`<span class="badge ok" title="Свои каналы клиента (из файла или по ссылке)">свои: ${c.extra.length}</span>`:""}<select class="cPick" aria-label="Выбрать плейлист для ${esc(c.name)}" style="max-width:190px"><option value="">+ выбрать плейлист…</option>${shared().filter(L=>!L.no_clients).map(L=>`<option value="${esc(L.id)}">${esc(L.name)}</option>`).join("")}<option value="__new">＋ новый личный (пустой)</option></select><button class="sm" data-act="file" title="Каналы из файла .m3u с компьютера">Из файла…</button></div>`}</td>
@@ -1314,7 +1324,29 @@ function renderClient(){const c=CC(); if(!c){go("clients");return} if(Date.now()
   const sv=cSaved(c), d=daysLeft(c), [seen,ua]=seenText(c), a=sv?cAct(c):{}, hls=CONF.mode==="hls", st=(LST.clients||{})[c.id], er=(LST.clients_err||{})[c.id];
   const days=[]; for(let i=6;i>=0;i--){const iso=isoLocal(Date.now()-i*864e5); days.push({iso,n:(a.days||{})[iso]||0,w:["вс","пн","вт","ср","чт","пт","сб"][new Date(iso+"T00:00:00").getDay()]})}
   const mx=Math.max(1,...days.map(x=>x.n)), en=c.enabled!==false;
-  $("settings").innerHTML=`<div class="fgrid">
+  $("settings").innerHTML=`<div class="card cconn"><h2>Подключение</h2>
+   <div class="muted" style="margin:-4px 0 12px">${(()=>{const [bc,bt]=cState(c); return `<span class="badge ${bc}">${esc(bt)}</span>`})()} ${c.expires?"до "+ruDate(c.expires):"бессрочно"} · последний заход: ${esc(seen)}${ua?" · "+esc(ua):""}${hls&&nowConns(c)?' · <span style="color:var(--ok)">▶ смотрит</span>':""}</div>
+   <div class="cconn-g"><div style="min-width:0">
+    ${c.slug?`<div class="clab">Короткая ссылка <span class="badge acc">главная · её отправляем клиенту</span></div>
+      <div class="linkrow"><input type="text" readonly class="cmain" value="${esc(cShort(c))}" aria-label="Короткая ссылка клиента">${cSlugSaved(c)?`<button id="cCopyS">Копировать</button>`:""}</div>
+      <div class="muted cnote">${cSlugSaved(c)?"":"заработает после сохранения · "}имя: <input type="text" id="cSlug" value="${esc(c.slug)}" maxlength="32" aria-label="Имя короткой ссылки" style="font:inherit;width:150px;padding:2px 6px"> <button class="sm" id="cSlugGen" title="Придумать из имени (с парой случайных знаков, чтобы не угадали)">Предложить</button> <button class="sm" id="cSlugDel" title="Убрать короткую ссылку — останется длинная">Убрать</button></div>`
+     :`<div class="clab">Короткая ссылка <span class="muted" style="font-weight:400">— нет</span></div>
+      <div class="linkrow"><input type="text" id="cSlug" value="" placeholder="например ${esc(slugify(c.name).replace(/-[a-z0-9]+$/,""))}-7x" maxlength="32" style="font:inherit" aria-label="Имя короткой ссылки"><button id="cSlugGen" class="primary" title="Придумать из имени (с парой случайных знаков, чтобы не угадали)">Предложить</button></div>
+      <div class="muted cnote">Короткую удобно продиктовать или набрать на телевизоре. Пока её нет, клиенту отправляется длинная.</div>`}
+    <div class="clab" style="margin-top:12px">Длинная ссылка <span class="muted" style="font-weight:400">— ${c.slug?"запасная, тоже работает":"главная"}</span></div>
+    ${sv?`<div class="linkrow"><input type="text" readonly value="${esc(cLink(c))}" aria-label="Длинная ссылка клиента"><button id="cCopy">Копировать</button></div>`:`<p class="hint" style="margin:4px 0 0">Ссылка появится после сохранения.</p>`}
+    <div class="muted cnote">EPG: ${esc(EPG_URL||"—")} ${EPG_URL?'<button class="sm" id="cCopyEpg">Копировать</button>':""}</div>
+    <div class="pills" style="margin-top:12px"><button class="primary" id="cMsgCopy" ${sv?"":"disabled"}>Копировать сообщение</button><button id="cXcT" aria-expanded="${cXcOpen}">Xtream Codes ${cXcOpen?"▴":"▾"}</button><button id="cRegen" ${sv?"":"disabled"} title="Старая ссылка (и короткая) перестанет работать после сохранения — на случай, если ссылку кому-то переслали">Новая ссылка</button>
+     ${moreMenu([`<button role="menuitem" data-cact="dup">Сделать копию клиента</button>`,`<hr><button role="menuitem" class="danger" data-cact="del">Удалить клиента…</button>`])}</div>
+    ${cXcOpen?`<div class="cxc"><p class="hint" style="margin:0 0 8px">Для TiviMate, IPTV Smarters, OTT Navigator и других: в плеере выберите «Xtream Codes» и введите эти данные вместо ссылки. Каналы те же, что в ссылке клиента; срок, выключение и разрешённые IP тоже действуют.</p>
+    ${sv&&c.xc_user&&c.xc_pw?`<div class="linkrow"><span class="badge">Сервер</span><input type="text" readonly value="${esc(XC_SERVER())}" aria-label="Сервер Xtream"><button data-copy="${esc(XC_SERVER())}">Копировать</button></div>
+      <div class="linkrow" style="margin-top:8px"><span class="badge">Логин</span><input type="text" readonly value="${esc(c.xc_user)}" aria-label="Логин Xtream"><button data-copy="${esc(c.xc_user)}">Копировать</button></div>
+      <div class="linkrow" style="margin-top:8px"><span class="badge">Пароль</span><input type="text" readonly value="${esc(c.xc_pw)}" aria-label="Пароль Xtream"><button data-copy="${esc(c.xc_pw)}">Копировать</button><button id="cXcNew" title="Старый пароль перестанет работать после сохранения">Новый пароль</button></div>
+      <p class="hint" style="margin:8px 0 0">Если канал не включается — в настройках плеера поставьте формат потока «HLS» (m3u8).</p>`
+     :`<p class="hint">Логин и пароль появятся после сохранения.</p>`}</div>`:""}
+   </div>
+   <div class="cqr">${sv?`<div id="cQrBox" title="QR ${c.slug&&cSlugSaved(c)?"короткой":"длинной"} ссылки — наведите камеру телефона"></div><div class="muted" style="font-size:12px">QR ${cSlugSaved(c)?"короткой":"ссылки"} · <a href="#" id="cQrBig">крупнее</a></div>`:""}</div></div></div>
+  <div class="fgrid">
    <div class="card"><h2>Кто это</h2>
      <div class="cf"><label for="cName">Имя</label><input type="text" id="cName" maxlength="80" value="${esc(c.name)}"></div>
      <div class="cf"><label for="cContact">Связь (Telegram, телефон)</label><input type="text" id="cContact" maxlength="80" value="${esc(c.contact)}" placeholder="@telegram или телефон"></div>
@@ -1342,29 +1374,17 @@ function renderClient(){const c=CC(); if(!c){go("clients");return} if(Date.now()
       :`<button class="sm" data-openl="${esc(L.id)}" title="Общий плейлист — изменения коснутся всех, у кого он отмечен">«${esc(L.name)}» (общий) ›</button><button class="sm primary" data-mkp="${esc(L.id)}" title="Сделать копию только для этого клиента и поставить вместо общего">Сделать личным</button>`).join("")}</div>`:""}
     ${st&&sv?`<div class="muted" style="margin-top:10px">Сейчас в ссылке клиента ${plural(st.channels,"канал","канала","каналов")}${st.missing?` · ${st.missing} не нашлись в HLS Proxy под его логином (подождите минуту после сохранения)`:""}.</div>`:""}${er&&sv?`<div style="margin-top:8px;color:var(--bad)">✖ ${esc(er)}</div>`:""}</div>
   ${cChCard(c)}
-  <div class="fgrid">
-   <div class="card"><h2>Ссылка клиента</h2>
-     ${sv?`<div class="linkrow"><span class="badge">M3U</span><input type="text" readonly value="${esc(cLink(c))}" aria-label="Ссылка клиента"><button id="cCopy">Копировать</button><button id="cQr">QR</button></div>
-       <div class="linkrow" style="margin-top:8px"><span class="badge">EPG</span><input type="text" readonly value="${esc(EPG_URL)}" aria-label="Ссылка на программу передач"><button id="cCopyEpg">Копировать</button></div>`
-      :`<p class="hint">Ссылка появится после сохранения.</p>`}
-     <div class="linkrow" style="margin-top:8px"><span class="badge">Коротко</span><input type="text" id="cSlug" value="${esc(c.slug||"")}" placeholder="например sasha-7x" maxlength="32" style="font:inherit" aria-label="Короткая ссылка клиента: имя"><button id="cSlugGen" title="Придумать из имени (с парой случайных знаков, чтобы не угадали)">Предложить</button>${cSlugSaved(c)?`<button id="cCopyS">Копировать</button><button id="cQrS">QR</button>`:""}</div>
-     <div class="muted" style="margin-top:4px;font-size:12.5px;word-break:break-all">${c.slug?`${esc(cShort(c))}${cSlugSaved(c)?" — работает вместе с длинной":" — заработает после сохранения"}`:"Необязательно: вторая, короткая ссылка — удобно продиктовать или набрать на телевизоре. Длинная тоже продолжит работать."}</div>
-     <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;align-items:center"><button id="cRegen" ${sv?"":"disabled"}>Новая ссылка</button><span class="muted">старая перестанет работать после сохранения — на случай, если ссылку кому-то переслали</span></div></div>
    <div class="card"><h2>Сообщение клиенту</h2><p class="hint">Готовый текст: скопируйте и отправьте в Telegram или WhatsApp.</p>
      <div class="cmsg">${esc(cMsg(c))}</div>
-     <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap"><button class="primary" id="cMsgCopy">Копировать текст</button><button id="cTpl">Изменить шаблон</button></div>
+     <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap"><button id="cMsgCopy2">Копировать текст</button><button id="cTpl">Изменить шаблон</button></div>
      <div id="cTplBox" hidden style="margin-top:10px"><textarea id="cTplText" rows="7" aria-label="Шаблон сообщения">${esc(R.client_msg||DEF_MSG())}</textarea>
-       <p class="hint" style="margin:6px 0 0">Подстановки: {ИМЯ}, {СРОК}, {ССЫЛКА}, {EPG}${hls?", {ПОТОКИ}":""}, а для Xtream — {СЕРВЕР}, {ЛОГИН}, {ПАРОЛЬ}. Шаблон общий для всех клиентов.</p><button class="sm" id="cTplReset" style="margin-top:6px">Вернуть стандартный</button></div></div></div>
-  <div class="card"><h2>Вход через Xtream Codes</h2><p class="hint">Для TiviMate, IPTV Smarters, OTT Navigator и других: в плеере выберите «Xtream Codes» и введите эти данные вместо ссылки. Каналы те же, что в ссылке клиента; срок, выключение и разрешённые IP тоже действуют.</p>
-    ${sv&&c.xc_user&&c.xc_pw?`<div class="linkrow"><span class="badge">Сервер</span><input type="text" readonly value="${esc(XC_SERVER())}" aria-label="Сервер Xtream"><button data-copy="${esc(XC_SERVER())}">Копировать</button></div>
-      <div class="linkrow" style="margin-top:8px"><span class="badge">Логин</span><input type="text" readonly value="${esc(c.xc_user)}" aria-label="Логин Xtream"><button data-copy="${esc(c.xc_user)}">Копировать</button></div>
-      <div class="linkrow" style="margin-top:8px"><span class="badge">Пароль</span><input type="text" readonly value="${esc(c.xc_pw)}" aria-label="Пароль Xtream"><button data-copy="${esc(c.xc_pw)}">Копировать</button><button id="cXcNew" title="Старый пароль перестанет работать после сохранения">Новый пароль</button></div>
-      <p class="hint" style="margin:8px 0 0">Если канал не включается — в настройках плеера поставьте формат потока «HLS» (m3u8).</p>`
-     :`<p class="hint">Логин и пароль появятся после сохранения.</p>`}</div>
+       <p class="hint" style="margin:6px 0 0">Подстановки: {ИМЯ}, {СРОК}, {ССЫЛКА}, {EPG}${hls?", {ПОТОКИ}":""}, а для Xtream — {СЕРВЕР}, {ЛОГИН}, {ПАРОЛЬ}. Шаблон общий для всех клиентов.</p><button class="sm" id="cTplReset" style="margin-top:6px">Вернуть стандартный</button></div></div>
   <div class="card"><h2>Активность за 7 дней</h2>${hls?`<div id="cNow" style="margin-bottom:10px">${nowHtml(c)}</div>`:""}
     <div class="cbars" role="img" aria-label="Заходы по дням за неделю">${days.map(x=>`<div class="cbar"><i class="${x.n?"":"z"}" style="height:${x.n?Math.max(8,Math.round(70*x.n/mx)):4}px" title="${ruDate(x.iso)}: ${x.n}"></i>${x.w}</div>`).join("")}</div>
     <div class="muted" style="margin-top:8px">Последний заход: ${esc(seen)}${ua?" · "+esc(ua):""}${a.ip?" · IP "+esc(a.ip):""}. Считается, когда плеер скачивает плейлист (обычно при запуске и раз в несколько часов), а не просмотр каналов.</div></div>
-  <div style="display:flex;gap:8px;flex-wrap:wrap"><button id="cDup">Сделать копию клиента</button><button class="danger" id="cDel">Удалить клиента</button></div>`}
+  <div style="display:flex;gap:8px;flex-wrap:wrap"><button id="cDup">Сделать копию клиента</button><button class="danger" id="cDel">Удалить клиента</button></div>`; fillCQr(c)}
+async function fillCQr(c){const b=$("cQrBox"); if(!b) return; const text=cShare(c);   // QR прямо на странице клиента
+  try{const q=await loadQr(); const g=q(0,"M"); g.addData(text); g.make(); if($("cQrBox")===b&&CC()===c) b.innerHTML=g.createSvgTag({cellSize:3,margin:2,scalable:true})}catch(e){b.textContent="QR не загрузился"}}
 $("settings").addEventListener("click",e=>{if(mode!=="clients") return; const t=e.target;
   if(t.id==="cNew"||t.id==="cNew2"){newClient();return}
   if(t.id==="cCsv"){csvClients();return}
@@ -1376,6 +1396,8 @@ $("settings").addEventListener("click",e=>{if(mode!=="clients") return; const t=
   if(act==="copy"){copyText(cShare(c),"Ссылка «"+c.name+"» скопирована");return}
   if(act==="qr"){showQr(cShare(c),c.name);return}
   if(act==="msg"){copyText(cMsg(c),"Сообщение для «"+c.name+"» скопировано");return}
+  if(act==="dup"){cDupF(c); return}
+  if(act==="del"){cDelF(c); return}
   if(act==="tog"&&c.enabled!==false&&!confirm("Выключить «"+c.name+"»? После сохранения его ссылка перестанет работать. Включить обратно можно в любой момент.")) return;
   if(act==="tog"){c.enabled=c.enabled===false; render(); toast("«"+c.name+"» "+(c.enabled?"включён":"выключен")+" — нажмите «Сохранить»");return}
   if(act==="ext"){addMonths(c,1); c.enabled=true; render(); toast("«"+c.name+"»: до "+ruDate(c.expires)+" — нажмите «Сохранить»");return}});
@@ -1424,14 +1446,20 @@ $("settings").addEventListener("click",e=>{if(mode!=="client") return; const c=C
   if(t.id==="cQr"){showQr(cLink(c),c.name);return}
   if(t.id==="cCopyEpg"){copyText(EPG_URL,"Ссылка на EPG скопирована");return}
   if(t.id==="cRegen"){if(!confirm("Сделать новую ссылку для «"+c.name+"»? Старая перестанет работать после сохранения."+(c.slug?" Короткая ссылка тоже будет удалена — придумайте новую.":""))) return; c.token=""; c.hls_pw=""; c.slug=""; render(); toast("Сохраните — появится новая ссылка (старые файлы плейлиста тоже перестанут показывать)"); return}
-  if(t.id==="cMsgCopy"){copyText(cMsg(c),"Сообщение скопировано");return}
+  if(t.id==="cMsgCopy"||t.id==="cMsgCopy2"){copyText(cMsg(c),"Сообщение скопировано");return}
+  if(t.id==="cXcT"){cXcOpen=!cXcOpen; render(); return}
+  if(t.id==="cSlugDel"){c.slug=""; render(); toast("Короткая ссылка убрана — нажмите «Сохранить»"); return}
+  if(t.id==="cQrBig"){e.preventDefault(); showQr(cShare(c),c.name); return}
+  if(t.dataset.cact==="dup"||t.id==="cDup"){cDupF(c); return}
+  if(t.dataset.cact==="del"||t.id==="cDel"){cDelF(c); return}
   if(t.id==="cTpl"){const b=$("cTplBox"); b.hidden=!b.hidden; return}
   if(t.id==="cTplReset"){R.client_msg=""; render(); $("cTplBox").hidden=false; return}
-  if(t.id==="cDup"){const n=JSON.parse(JSON.stringify(c)); Object.assign(n,{id:newId(),name:(c.name+" (копия)").slice(0,80),token:"",slug:"",hls_pw:"",xc_user:"",xc_pw:"",created:todayISO()}); n.lists=n.lists.map(id=>{const L=R.lists.find(x=>x.id===id); if(!L||!L.owner) return id; const d=JSON.parse(JSON.stringify(L)); Object.assign(d,{id:newId(),token:"",owner:n.id,name:(L.name+" (копия)").slice(0,80)}); R.lists.push(d); return d.id});
-    R.clients.push(n); curC=n.id; render(); toast("Копия создана — поменяйте имя и сохраните"); return}
-  if(t.id==="cDel"){if(!confirm("Удалить клиента «"+c.name+"»? Его ссылка перестанет работать после сохранения."+(R.lists.some(L=>L.owner===c.id)?" Его личные плейлисты тоже удалятся.":""))) return; R.clients=R.clients.filter(x=>x!==c); R.lists=R.lists.filter(L=>L.owner!==c.id); curC=null; go("clients")}});
+});
+function cDupF(c){const n=JSON.parse(JSON.stringify(c)); Object.assign(n,{id:newId(),name:(c.name+" (копия)").slice(0,80),token:"",slug:"",hls_pw:"",xc_user:"",xc_pw:"",created:todayISO()}); n.lists=n.lists.map(id=>{const L=R.lists.find(x=>x.id===id); if(!L||!L.owner) return id; const d=JSON.parse(JSON.stringify(L)); Object.assign(d,{id:newId(),token:"",owner:n.id,name:(L.name+" (копия)").slice(0,80)}); R.lists.push(d); return d.id});
+    R.clients.push(n); curC=n.id; go("client"); toast("Копия создана — поменяйте имя и сохраните"); }
+function cDelF(c){if(!confirm("Удалить клиента «"+c.name+"»? Его ссылка перестанет работать после сохранения."+(R.lists.some(L=>L.owner===c.id)?" Его личные плейлисты тоже удалятся.":""))) return; R.clients=R.clients.filter(x=>x!==c); R.lists=R.lists.filter(L=>L.owner!==c.id); curC=null; go("clients")}
 // ---------- каналы клиента: его список поверх плейлистов ----------
-let cChQ="", cChLim=150, cAddQ="", cPanel="";
+let cChQ="", cChLim=150, cAddQ="", cPanel="", cXcOpen=false;
 function cChannels(c){const out=[], seen=new Set(), off=new Set(c.off||[]), urls=c.urls||{}, kid=g=>c.no_adult&&(g==="18+"||String(g).includes("18+"));
   for(const id of c.lists){const L=R.lists.find(x=>x.id===id); if(!L) continue;
     for(const ch of ALL){if(!member(L,ch)||seen.has(ch.k)) continue; const g=effGroup(ch); if(kid(g)) continue; seen.add(ch.k);
