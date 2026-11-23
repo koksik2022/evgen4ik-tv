@@ -352,6 +352,11 @@ class GroupOrder(unittest.TestCase):
         got = [x["n"] for x in lists.regroup(seq, lambda it: lists._gt(it["lines"]))]
         self.assertEqual(got, ["A", "F", "B", "D", "E", "C"])
 
+    def test_sources_limit_30(self):   # до 30 источников (несколько своих ключей одного провайдера)
+        srcs = [{"name": f"Key {i}", "url": f"http://e.tv/iptv/KEY{i}/playlist.m3u8"} for i in range(31)]
+        out = rules(sources=srcs)
+        self.assertEqual(len(out["sources"]), 30)
+
     def test_brand_adult_genres(self):   # кинозалы (регистр/кириллица), 18+ по имени, словарь genres.txt
         import build as B
         self.assertEqual(B.brand("минимакс-боевик"), "MiniMax")       # кириллица

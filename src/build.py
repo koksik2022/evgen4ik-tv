@@ -322,7 +322,7 @@ def load_rules(log):
             out["custom_channels"].append({"name": _clean(nm), "group": _clean(gr), "urls": us,
                                            "logo": lg if URL_RX.match(lg) else "", "tvg_id": _clean(cc.get("tvg_id") or "")})
         names = {n for n, _ in SRC}
-        for x in (r.get("sources") or [])[:10]:
+        for x in (r.get("sources") or [])[:30]:
             if not isinstance(x, dict): continue
             nm, u, sid = x.get("name"), x.get("url"), str(x.get("id") or "")
             if not (isinstance(nm, str) and nm.strip() and isinstance(u, str) and (URL_RX.match(u.strip()) or FILE_RX.match(u.strip())) and re.fullmatch(r"[a-z0-9]{1,16}", sid)): continue

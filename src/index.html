@@ -1927,7 +1927,7 @@ function addProvEpg(url,manual){if(!url) return false;   // телегид пр�
   R.epg_sources.push(url); markDirty(); if(manual)toast("Телегид добавлен — он в разделе «Телегид». Сохраните, чтобы применить"); return true}
 function addSource(url,name,prov,auto){name=clean(name).slice(0,40); if(!name){toast("Введите название");return false}
   if(new Set([...allSources(),"Свой"]).has(name)){toast("Источник «"+name+"» уже есть — дайте другое название");return false}
-  if(R.sources.length>=10){toast("Своих источников не больше 10");return false}
+  if(R.sources.length>=30){toast("Своих источников не больше 30");return false}
   R.sources.push({id:Math.random().toString(36).slice(2,10).replace(/[^a-z0-9]/g,"")||"s"+Date.now(),name,url,enabled:true,...(prov?{prov}:{}),...(prov&&auto?{pa:true}:{})}); galSel=null; galHosts=null;
   const p=PROV.find(x=>x.id===prov); let extra="";
   if(p&&p.epg&&addProvEpg(p.epg)) extra+=" Телегид "+p.name+" добавлен в «Телегид» — у этого провайдера свои коды каналов.";

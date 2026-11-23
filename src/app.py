@@ -160,7 +160,7 @@ def validate(r):
         out["custom_channels"].append({"name": s(c["name"]), "group": s(c["group"]), "urls": urls(c["urls"]),
                                        "logo": lg if URL_RX.match(lg) else "", "tvg_id": s(c.get("tvg_id")) or ""})
     sids = set()
-    for x in (r.get("sources") or [])[:10]:
+    for x in (r.get("sources") or [])[:30]:   # до 30 источников (например, несколько своих ключей одного провайдера)
         if not isinstance(x, dict) or not s(x.get("name"), 40) or not isinstance(x.get("url"), str) or not (URL_RX.match(x["url"].strip()) or FILE_RX.match(x["url"].strip())): continue
         sid = str(x.get("id") or "")
         if not re.fullmatch(r"[a-z0-9]{1,16}", sid) or sid in sids: sid = secrets.token_hex(4)
