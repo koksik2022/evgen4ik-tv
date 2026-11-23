@@ -9,7 +9,7 @@
 # Повторный запуск обновляет программу и сохраняет настройки.
 set -uo pipefail
 
-E4_VER="3.20"
+E4_VER="3.21"
 HLSP_VER="8.4.8"
 HLSP_URL="https://www.hls-proxy.com/downloads/${HLSP_VER}/hls-proxy-${HLSP_VER}.linux-x64.zip"
 HLSP_SHA256="96a2faad73df375e2ce1b92466f21f4389e07b79a038435343659c984e16b587"   # SHA-256 архива 8.4.8 (сверено 16.11.2026); пусто — не сверяется
@@ -256,6 +256,7 @@ install_files() {
   install -d -m 700 "$DATA/build" "$DATA/free"
   install -d -m 750 -o root -g www-data "$PL" "$PL/auth"
   for f in app.py build.py lists.py autocheck.py notify.py e4conf.py catchup.py index.html login.html; do install -m 644 "$SRC/$f" "$APP/$f"; done
+  install -m 644 "$SRC/genres.txt" "$APP/genres.txt"
   install -d -m 755 "$APP/lib"; install -m 644 "$SRC"/lib/* "$APP/lib/"   # плееры hls.js и mpegts.js (Apache-2.0)
   install -m 755 "$SRC/e4tv" /usr/local/bin/e4tv
   for t in apply.trigger lists.trigger update.trigger check.trigger domain.request; do [ -f "$DATA/editor/$t" ] || install -m 640 -o e4tv -g e4tv /dev/null "$DATA/editor/$t"; done

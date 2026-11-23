@@ -352,6 +352,21 @@ class GroupOrder(unittest.TestCase):
         got = [x["n"] for x in lists.regroup(seq, lambda it: lists._gt(it["lines"]))]
         self.assertEqual(got, ["A", "F", "B", "D", "E", "C"])
 
+    def test_brand_adult_genres(self):   # кинозалы (регистр/кириллица), 18+ по имени, словарь genres.txt
+        import build as B
+        self.assertEqual(B.brand("минимакс-боевик"), "MiniMax")       # кириллица
+        self.assertEqual(B.brand("LIBERTY СКАЗКИ"), "Liberty")        # верхний регистр
+        self.assertEqual(B.brand("TEAM RuKino"), "TEAM")
+        self.assertEqual(B.brand("Kernel TV Доктор"), "Kernel")
+        self.assertEqual(B.brand("Clarity4K Anime"), "Clarity4K")
+        self.assertIsNone(B.brand("Первый канал"))
+        self.assertTrue(B.ADULT_RX.search("Fap TV Anal"))
+        self.assertTrue(B.ADULT_RX.search("Big Ass Adult TV"))
+        self.assertTrue(B.ADULT_RX.search("HUSTLER HD"))
+        self.assertFalse(B.ADULT_RX.search("Adult Swim"))             # мультики — не 18+
+        self.assertFalse(B.ADULT_RX.search("Первый канал"))
+        self.assertGreater(len(B.GENRES), 100)                        # словарь загрузился (genres.txt рядом с build.py)
+
     def test_shift_channels_sorted_by_hours(self):
         import build
         self.assertEqual(int(build.SHIFT_RX.search("Пятый канал (+4)").group(1)), 4)
