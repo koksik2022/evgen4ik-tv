@@ -11,6 +11,7 @@ import json, os, re, subprocess, time, glob, secrets, ssl, urllib.request, urlli
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from e4conf import C as E4
+import catchup
 
 HOST, PORT = E4["listen"], int(E4["port"])
 DATA = E4["editor_dir"]
@@ -1168,18 +1169,21 @@ class H(BaseHTTPRequestHandler):
         if locked_for(ip): return self._send(429, {"user_info": {"auth": 0}})
         q = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
         stream = path.startswith(("/live/", "/timeshift/")) or path == "/streaming/timeshift.php"   # ответ — переадресация на поток
-        ts_start = None   # архив: время начала (секунды UTC)
+        ts_start = ts_dur = None   # архив: время начала (секунды UTC) и длительность (секунды, если плеер её дал)
         if path.startswith("/live/"):   # /live/<логин>/<пароль>/<номер>.<ts|m3u8> -> ссылка на поток
             m = re.fullmatch(r"/live/([^/]{1,32})/([^/]{1,64})/(\d{1,6})(?:\.(?:ts|m3u8|m3u))?", path)
             if not m: return self._send(404, "not found", "text/plain")
+            utc = (q.get("utc") or [""])[0]   # M3U из get.php: плеер просит архив как ?utc=<начало>&lutc=<сейчас>
+            if utc.isdigit() and 0 < time.time() - int(utc) < 60 * 86400: ts_start = int(utc)
             q = {"username": [urllib.parse.unquote(m.group(1))], "password": [urllib.parse.unquote(m.group(2))]}; sid = m.group(3)
         elif stream:   # архив Xtream: /timeshift/<логин>/<пароль>/<минут>/<ГГГГ-ММ-ДД:ЧЧ-ММ>/<номер>.ts или /streaming/timeshift.php?…
             m = re.fullmatch(r"/timeshift/([^/]{1,32})/([^/]{1,64})/(\d{1,5})/(\d{4}-\d{2}-\d{2}:\d{2}-\d{2})/(\d{1,6})(?:\.(?:ts|m3u8|m3u))?", path)
-            if m: q, start, sid = {"username": [urllib.parse.unquote(m.group(1))], "password": [urllib.parse.unquote(m.group(2))]}, m.group(4), m.group(5)
-            else: start, sid = (q.get("start") or [""])[0], (q.get("stream") or [""])[0].split(".")[0]
+            if m: q, start, sid, mins = {"username": [urllib.parse.unquote(m.group(1))], "password": [urllib.parse.unquote(m.group(2))]}, m.group(4), m.group(5), m.group(3)
+            else: start, sid, mins = (q.get("start") or [""])[0], (q.get("stream") or [""])[0].split(".")[0], (q.get("duration") or [""])[0]
             try: ts_start = int(time.mktime(time.strptime(start, "%Y-%m-%d:%H-%M")))   # время — в поясе сервера (server_info.timezone)
             except (ValueError, OverflowError): return self._send(404, "not found", "text/plain")
             if not sid.isdigit() or not 0 < time.time() - ts_start < 60 * 86400: return self._send(404, "not found", "text/plain")
+            if str(mins).isdigit() and 0 < int(mins) <= 1440: ts_dur = int(mins) * 60
         c, why = xc_user(q, ip)
         if not c:
             if why == "auth": add_fail(ip)
@@ -1194,9 +1198,13 @@ class H(BaseHTTPRequestHandler):
             i = int(sid) - 1
             if st != "Active" or not (0 <= i < len(chans)): return self._send(404, "not found", "text/plain")
             xc_note(c["user"], ip, ua, chans[i]["name"])
-            if ts_start is not None:   # архив: как плееры с M3U — ?utc=<начало>&lutc=<сейчас> (HLS Proxy передаёт это провайдеру)
+            if ts_start is not None and path.startswith("/live/") and "cu" not in chans[i]: ts_start = None   # как раньше: ?utc&lutc уйдут дальше как есть
+            if ts_start is not None:   # архив: как плееры с M3U — ?utc=<начало>&lutc=<сейчас> (HLS Proxy и «перенаправление» передают дальше)
                 if not chans[i].get("arch"): return self._send(404, "no archive", "text/plain")
-                u = chans[i]["url"]; return self._redirect(u + ("&" if "?" in u else "?") + f"utc={ts_start}&lutc={int(time.time())}")
+                u = chans[i]["url"]
+                if "cu" in chans[i]:   # ссылка прямо на провайдера — сразу в его формате архива (flussonic, свой catchup-source…)
+                    return self._redirect(catchup.archive_url(u, chans[i]["cu"], ts_start, int(time.time()), ts_dur))
+                return self._redirect(u + ("&" if "?" in u else "?") + f"utc={ts_start}&lutc={int(time.time())}")
             u = chans[i]["url"]
             if path.endswith(".ts") and "/index.m3u8" in u:   # HLS Proxy отдаёт HLS, а плеер Xtream просил .ts — просим у него MPEG-TS
                 u += ("&" if "?" in u else "?") + "output=ts"
@@ -1246,6 +1254,12 @@ class H(BaseHTTPRequestHandler):
         if m:   # перенаправление: код должен быть в карте именно этого плейлиста (выключенный клиент — ссылки перестают работать)
             d = links(); u = (d.get("u") or {}).get(m.group(2))
             if not u or m.group(2) not in d.get("t", {}).get(m.group(1), ()): return self._send(404, "not found", "text/plain")
+            sp = (d.get("c") or {}).get(m.group(2))
+            if isinstance(sp, dict):   # архив провайдера не «?utc&lutc» (flussonic и т. п.): переводим запрос плеера в его формат
+                q = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
+                utc, lutc = (q.get("utc") or [""])[0], (q.get("lutc") or [""])[0]
+                if utc.isdigit() and 0 < time.time() - int(utc) < 60 * 86400:
+                    return self._redirect(catchup.archive_url(u, sp, int(utc), int(lutc) if lutc.isdigit() else int(time.time())))
             return self._redirect(add_query(u, self.path))   # архив: плеер дописывает ?utc=…&lutc=… — передаём провайдеру
         m = re.fullmatch(r"/live/_logo/([0-9a-f]{16})", path)
         r = logo_get(m.group(1)) if m else ((BLANK_PNG, "image/png") if path == "/live/_logo/none" else None)   # «Без логотипа» — пустая картинка

@@ -9,6 +9,7 @@
 import json, os, re, ssl, sys, time, urllib.request, urllib.parse, glob, grp, hashlib, hmac, base64, datetime
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from e4conf import C as E4
+import catchup
 
 RULES = E4["editor_dir"] + "/rules.json"
 FINAL = E4["editor_dir"] + "/final.json"
@@ -463,7 +464,14 @@ def _base():
     return re.sub(r"/pl$", "", b) if re.match(r"^https?://", b) else ""
 
 
-ARCH_RX = re.compile(r'\s+(?:tvg-rec|timeshift|catchup|catchup-days|catchup-type|catchup-source|catchup-correction)="[^"]*"')
+ARCH_RX = re.compile(r'\s+(?:tvg-rec|timeshift|catchup|catchup-days|catchup-type|catchup-source|catchup-correction|catchup-minutes|catchup-record-source)="[^"]*"')
+
+
+def arch_utc(l0, days):
+    """Метки архива «как у всех»: плеер допишет ?utc=…&lutc=… к нашей ссылке, сервер переведёт в формат провайдера."""
+    a = f' tvg-rec="{days}" catchup="append" catchup-days="{days}" catchup-source="?utc={{utc}}&lutc={{lutc}}"'
+    l0 = ARCH_RX.sub("", l0)
+    return re.sub(r"^(#EXTINF:\s*-?\d+)", lambda m: m.group(1) + a, l0, count=1)
 
 
 def arch_days(l0):
@@ -497,17 +505,20 @@ class Links:
         self.own = {urllib.parse.urlsplit(x).hostname for x in (self.base, E4.get("hls_url") or "", E4.get("public_base") or "") if x} - {None}
         self.orig = {}   # имя канала (как в общем списке) -> исходная ссылка провайдера: для «перенаправления» и «напрямую»
         self.arc = {}    # имя канала -> дней архива у ОСНОВНОГО источника (первая ссылка; ей HLS Proxy и шлёт запрос архива)
+        self.cu = {}     # имя канала -> правило архива провайдера (catchup.spec) для «перенаправления»
+        self.c = {}      # код перенаправления -> правило архива (links.json "c"): ?utc&lutc от плеера -> формат провайдера
         self.arch_off = 0
         try:
             for it in parse(open(E4["combined"], encoding="utf-8", errors="replace").read())[1]:
                 if EX_RX.search(it["name"]): continue
                 i = _url_idx(it["lines"])
                 if i is not None and it["name"].lower() not in self.orig:
-                    self.orig[it["name"].lower()] = it["lines"][i].strip(); self.arc[it["name"].lower()] = arch_days(it["lines"][0])
+                    k = it["name"].lower()
+                    self.orig[k] = it["lines"][i].strip(); self.arc[k] = arch_days(it["lines"][0]); self.cu[k] = catchup.spec(it["lines"][0])
         except OSError: pass
         for k, v in list(self.orig.items()):   # HLS Proxy отрезает HD/FHD/UHD/4K в конце названия
             q = QUAL_RX.sub("", k)
-            if q not in self.orig: self.orig[q] = v; self.arc[q] = self.arc[k]
+            if q not in self.orig: self.orig[q] = v; self.arc[q] = self.arc[k]; self.cu[q] = self.cu.get(k)
         self.ex = {}     # код своего канала -> строки из HLS Proxy (общий логин), если он уже там
         for it in items or []:
             m = EX_RX.search(it["name"])
@@ -516,8 +527,10 @@ class Links:
     def h(self, url):
         return hmac.new(self.salt, url.encode(), hashlib.sha256).hexdigest()[:16]
 
-    def redirect(self, tok, url):
+    def redirect(self, tok, url, sp=None):
+        """sp — правило архива провайдера (catchup.spec). Запоминаем, только если архив у него не обычный ?utc&lutc."""
         hx = self.h(url); self.u[hx] = url; self.t.setdefault(tok, set()).add(hx)
+        if catchup.kind(url, sp) != "shift": self.c[hx] = sp or {"t": catchup.kind(url, None)}
         return f"{self.base}/live/_r/{tok}/{hx}"
 
     def logo(self, l0):
@@ -559,7 +572,12 @@ class Links:
                 elif fb and self.base: lines[i] = self.redirect(tok, cur); via = "redirect"
                 else: return None, "drop"
         elif m == "redirect":
-            if src: lines[i] = self.redirect(tok, src)
+            if src:
+                sp = (self.cu.get(key, self.cu.get(QUAL_RX.sub("", key))) if kind == "hls" and E4["mode"] == "hls"
+                      else catchup.spec(lines[0]))
+                lines[i] = self.redirect(tok, src, sp)
+                d = arch_days(lines[0])   # архив не «?utc&lutc» (flussonic и т. п.): плеер не должен переделывать нашу ссылку сам
+                if d and catchup.kind(src, sp) != "shift": lines[0] = arch_utc(lines[0], d)
             else: via = "hls"   # исходная ссылка неизвестна — остаётся ссылка сервера
         else:
             if src: lines[i] = src
@@ -568,7 +586,7 @@ class Links:
         return lines, via
 
     def save(self, wgid):
-        d = {"u": self.u, "t": {k: sorted(v) for k, v in self.t.items()}, "l": self.l}
+        d = {"u": self.u, "t": {k: sorted(v) for k, v in self.t.items()}, "l": self.l, "c": self.c}
         tmp = LINKS_FILE + ".tmp"
         with open(tmp, "w", encoding="utf-8") as f: json.dump(d, f)
         try: os.chown(tmp, 0, grp.getgrnam(E4.get("editor_group", "e4tv")).gr_gid)
@@ -610,17 +628,29 @@ class Links:
 XCCH = {}   # id клиента -> каналы для Xtream Codes
 
 
-def xc_channels(lines):
-    """Строки M3U -> [{name, group, logo, tvg_id, url}] для входа через Xtream Codes."""
+def xc_own():
+    """Адреса самого сервера (редактор, HLS Proxy, домен, IP): ссылки на них — не «прямо на провайдера»."""
+    hs = {urllib.parse.urlsplit(x).hostname for x in (_base(), E4.get("hls_url") or "", E4.get("public_base") or "") if x}
+    hs |= {str(h) for h in (E4.get("hosts") or []) if h} | ({str(E4["host"])} if E4.get("host") else set()) | ({str(E4["domain"])} if E4.get("domain") else set())
+    return hs - {None, ""}
+
+
+def xc_channels(lines, own=()):
+    """Строки M3U -> [{name, group, logo, tvg_id, url}] для входа через Xtream Codes.
+    Ссылка прямо на провайдера (не наш сервер / HLS Proxy) с архивом -> "cu": правило архива провайдера (catchup.spec, {} — обычный)."""
     out, cur = [], None
     for l in lines:
         if l.startswith("#EXTINF"):
             a = dict(re.findall(r'([\w-]+)="([^"]*)"', l))
             m = INF.match(l)
             cur = {"name": (m.group(1).strip() if m else "") or a.get("tvg-name", "") or "Канал", "group": a.get("group-title") or "Без группы",
-                   "logo": a.get("tvg-logo", ""), "tvg_id": a.get("tvg-id", ""), "arch": arch_days(l)}
+                   "logo": a.get("tvg-logo", ""), "tvg_id": a.get("tvg-id", ""), "arch": arch_days(l), "_l0": l}
         elif l.startswith("#") or not l.strip(): continue
-        elif cur: cur["url"] = l.strip(); out.append(cur); cur = None
+        elif cur:
+            cur["url"] = l.strip(); l0 = cur.pop("_l0")
+            if cur["arch"] and re.match(r"^https?://", cur["url"]) and urllib.parse.urlsplit(cur["url"]).hostname not in own:
+                cur["cu"] = catchup.spec(l0) or {}
+            out.append(cur); cur = None
     return out
 
 
@@ -745,7 +775,7 @@ def build_clients(active, LOUT, head, keep, wgid, st, items=None, fmap=None, LK=
             os.chown(tmp, 0, wgid); os.chmod(tmp, 0o640); os.replace(tmp, fn); keep.add(fn)
         st["clients"][cid] = {"channels": sum(1 for l in out if l.startswith("#EXTINF")), "missing": miss, "via": via,
                               "mode": LK.mode(cm) if (LK and cm) else ""}
-        XCCH[cid] = xc_channels(out)
+        XCCH[cid] = xc_channels(out, (LK.own if LK else set()) | xc_own())
 
 
 # ---------- активность: кто открывал плейлисты (журнал nginx /var/log/nginx/e4tv-pl.log) ----------

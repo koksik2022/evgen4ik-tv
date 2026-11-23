@@ -528,6 +528,64 @@ class Archive(unittest.TestCase):
         code, h, _ = self.get(f"/live/mama_tv/{self.pw}/{sid}.ts?utc=5&lutc=6")
         self.assertTrue(h["Location"].endswith("utc=5&lutc=6"), "Xtream /live/ передаёт архив дальше")
 
+    def test_catchup_formats(self):   # архив в формате провайдера (catchup.py)
+        import catchup as C
+        S, N = 1700000000, 1700003600
+        sp = C.spec
+        self.assertIsNone(sp('#EXTINF:-1 tvg-rec="7",A'))                                   # обычный ?utc&lutc — правило не нужно
+        self.assertIsNone(sp('#EXTINF:-1 catchup="shift" catchup-days="3",A'))
+        self.assertEqual(sp('#EXTINF:0 catchup-type="flussonic-ts" catchup-days="6",A'), {"t": "flussonic-ts", "s": ""})
+        self.assertEqual(sp('#EXTINF:-1 catchup="append" catchup-source="?offset=-${offset}",A'), {"t": "append", "s": "?offset=-${offset}"})
+        au = C.archive_url
+        self.assertEqual(au("http://e.tv/iptv/KEY/204/index.m3u8", None, S, N), f"http://e.tv/iptv/KEY/204/index.m3u8?utc={S}&lutc={N}")   # Edem/iLook
+        self.assertEqual(au("http://v.tv/1.m3u8?t=1", None, S, N), f"http://v.tv/1.m3u8?t=1&utc={S}&lutc={N}")
+        self.assertEqual(au("https://am01.spr24.net/128/mpegts?token=abc", {"t": "flussonic-ts", "s": ""}, S, N),
+                         f"https://am01.spr24.net/128/timeshift_abs-{S}.ts?token=abc")                                          # Sharavoz
+        self.assertEqual(au("https://am01.spr24.net/128/mpegts?token=abc", None, S, N), f"https://am01.spr24.net/128/timeshift_abs-{S}.ts?token=abc",
+                         "Sharavoz без меток — по адресу")
+        self.assertEqual(au("http://f.tv/ch/index.m3u8?token=x", {"t": "flussonic", "s": ""}, S, N), "http://f.tv/ch/timeshift_rel-3600.m3u8?token=x")
+        self.assertEqual(au("http://s1.troya.one:8080/ch/mono.m3u8?token=x", None, S, N), "http://s1.troya.one:8080/ch/mono-timeshift_rel-3600.m3u8?token=x")   # TVTeam
+        self.assertEqual(au("http://f.tv/ch", {"t": "flussonic", "s": ""}, S, N), f"http://f.tv/ch?utc={S}&lutc={N}", "непонятный адрес — как обычно")
+        self.assertEqual(au("http://w.tv/CH_1/index.m3u8?a=1", {"t": "append", "s": "?offset=-${offset}"}, S, N), "http://w.tv/CH_1/index.m3u8?a=1&offset=-3600")   # Wink
+        self.assertEqual(au("http://z.tv/x.m3u8", {"t": "append", "s": "?utcstart=${start}&utcend=${end}"}, S, N, 1800), f"http://z.tv/x.m3u8?utcstart={S}&utcend={S + 1800}")
+        self.assertEqual(au("http://a.tv/1", {"t": "default", "s": "http://arc.tv/1/{Y}{m}{d}-{H}{M}.m3u8?s={utc}&e={lutc}"}, S, N),
+                         f"http://arc.tv/1/20231114-2213.m3u8?s={S}&e={N}")
+        self.assertEqual(lists.arch_utc('#EXTINF:0 catchup-type="flussonic-ts" catchup-days="6" group-title="G",A', 6),
+                         '#EXTINF:0 tvg-rec="6" catchup="append" catchup-days="6" catchup-source="?utc={utc}&lutc={lutc}" group-title="G",A')
+
+    def test_redirect_flussonic(self):   # «перенаправление»: плеер шлёт ?utc&lutc, сервер отдаёт формат провайдера
+        lk = lists.Links([]); lk.base = "http://tv.test"
+        l, how = lk.apply(['#EXTINF:0 catchup-type="flussonic-ts" catchup-days="6",Шара', "https://am01.spr24.net/128/mpegts?token=abc"], "ext", "redirect", "tokX", lp=False)
+        self.assertEqual(how, "redirect"); self.assertIn('catchup="append"', l[0]); self.assertNotIn("flussonic", l[0])
+        hx = l[1].rsplit("/", 1)[1]
+        self.assertEqual(lk.c[hx], {"t": "flussonic-ts", "s": ""})
+        l2, _ = lk.apply(['#EXTINF:-1 tvg-rec="7",Едем', "http://e.tv/iptv/K/1/index.m3u8"], "ext", "redirect", "tokX", lp=False)
+        self.assertEqual(l2[0], '#EXTINF:-1 tvg-rec="7",Едем', "обычный архив — метки не трогаем"); self.assertEqual(len(lk.c), 1)
+        d = json.load(open(app.LINKS_FILE))
+        d["u"][hx] = lk.u[hx]; d["t"].setdefault("tokX", []).append(hx); d.setdefault("c", {})[hx] = lk.c[hx]
+        json.dump(d, open(app.LINKS_FILE, "w")); os.utime(app.LINKS_FILE, (time.time() + 5, time.time() + 5))
+        s = int(time.time()) - 3600
+        code, h, _ = self.get(f"/live/_r/tokX/{hx}?utc={s}&lutc={s + 3600}")
+        self.assertEqual((code, h["Location"]), (302, f"https://am01.spr24.net/128/timeshift_abs-{s}.ts?token=abc"))
+        self.assertEqual(self.get(f"/live/_r/tokX/{hx}")[1]["Location"], "https://am01.spr24.net/128/mpegts?token=abc", "без utc — прямой эфир")
+
+    def test_xtream_direct_flussonic(self):   # Xtream со ссылкой прямо на провайдера: /timeshift/ сразу в его формате
+        p = f"{TMP}/data/editor/xc.json"; orig = open(p).read(); d = json.loads(orig)
+        ch = d["mama_tv"]["channels"]; ch.append({"name": "Шара", "group": "G", "logo": "", "tvg_id": "", "arch": 6,
+                                                  "url": "https://am01.spr24.net/128/mpegts?token=abc", "cu": {"t": "flussonic-ts", "s": ""}})
+        json.dump(d, open(p, "w"))
+        try:
+            sid = len(ch); t = time.strftime("%Y-%m-%d:%H-%M", time.localtime(time.time() - 3600)); s = int(time.mktime(time.strptime(t, "%Y-%m-%d:%H-%M")))
+            code, h, _ = self.get(f"/timeshift/mama_tv/{self.pw}/60/{t}/{sid}.ts")
+            self.assertEqual((code, h["Location"]), (302, f"https://am01.spr24.net/128/timeshift_abs-{s}.ts?token=abc"))
+            code, h, _ = self.get(f"/live/mama_tv/{self.pw}/{sid}.ts?utc={s}&lutc={s + 60}")
+            self.assertEqual(h["Location"], f"https://am01.spr24.net/128/timeshift_abs-{s}.ts?token=abc", "M3U из get.php: ?utc -> формат провайдера")
+            self.assertEqual(self.get(f"/live/mama_tv/{self.pw}/{sid}.ts")[1]["Location"], "https://am01.spr24.net/128/mpegts?token=abc")
+        finally:
+            open(p, "w").write(orig)
+        own = lists.xc_channels(['#EXTINF:-1 tvg-rec="3",A', "http://tv.test/pl/x", '#EXTINF:-1 tvg-rec="3",B', "http://prov/1", '#EXTINF:-1,C', "http://prov/2"], {"tv.test"})
+        self.assertEqual([("cu" in c, c.get("cu")) for c in own], [(False, None), (True, {}), (False, None)])
+
     def test_merged_archive_mark(self):
         lk = lists.Links([]); lk.arc = {"канал": 0, "другой": 3}; lk.orig = {"канал": "http://a/1", "другой": "http://b/1"}
         l, _ = lk.apply(['#EXTINF:-1 tvg-rec="7" catchup="shift" group-title="G",Канал', "http://srv/ch/1"], "hls", "hls", "t", lp=False)
