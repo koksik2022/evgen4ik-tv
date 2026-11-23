@@ -30,8 +30,19 @@ UA = {"User-Agent": "VLC/3.0.20 LibVLC/3.0.20"}
 COUNTRY = {"UK":"Великобритания","GB":"Великобритания","US":"США","DE":"Германия","AT":"Австрия","CH":"Швейцария","FR":"Франция","ES":"Испания","PT":"Португалия","IT":"Италия","NL":"Нидерланды","BE":"Бельгия","PL":"Польша","CZ":"Чехия","SK":"Словакия","HU":"Венгрия","RO":"Румыния","BG":"Болгария","GR":"Греция","TR":"Турция","IL":"Израиль","AE":"ОАЭ","QA":"Катар","SA":"Саудовская Аравия","EG":"Египет","IN":"Индия","PK":"Пакистан","CN":"Китай","JP":"Япония","KR":"Корея","SE":"Швеция","NO":"Норвегия","DK":"Дания","FI":"Финляндия","EE":"Эстония","LV":"Латвия","LT":"Литва","BY":"Беларусь","UA":"Украина","MD":"Молдова","GE":"Грузия","AM":"Армения","AZ":"Азербайджан","KZ":"Казахстан","UZ":"Узбекистан","KG":"Киргизия","TJ":"Таджикистан","TM":"Туркменистан","RS":"Сербия","HR":"Хорватия","BA":"Босния","SI":"Словения","MK":"Северная Македония","ME":"Черногория","AL":"Албания","XK":"Косово","CY":"Кипр","IE":"Ирландия","BR":"Бразилия","AR":"Аргентина","MX":"Мексика","CA":"Канада","AU":"Австралия","NZ":"Новая Зеландия","IR":"Иран","IQ":"Ирак","AF":"Афганистан","BD":"Бангладеш","TH":"Таиланд","VN":"Вьетнам","ID":"Индонезия","PH":"Филиппины","MY":"Малайзия","ZA":"ЮАР","NG":"Нигерия","MA":"Марокко","LB":"Ливан","JO":"Иордания","SY":"Сирия","KW":"Кувейт","CL":"Чили","CO":"Колумбия","PE":"Перу","IS":"Исландия","LU":"Люксембург","MT":"Мальта"}
 # бренды «кинозалов» (пакеты тематических каналов по фильмам/сериалам) -> «Кинозал: <бренд>». Префиксы в нижнем регистре, сверяются без учёта регистра.
 BRANDS = [("vf ","VF"),("mm ","MiniMax"),("минимакс","MiniMax"),("minimax","MiniMax"),("bcu","BCU"),("box ","BOX"),("liberty","Liberty"),("sky high","Sky High"),("skycam","SkyCam"),("yosso","Yosso"),("cineman ","CineMan"),("velilla","Velilla"),("veles ","VeleS"),("tvplay ","TVPlay"),("venera.tv","Venera.TV"),("strahtv","StrahTV"),("tviksel","Tviksel"),("z!","Z!"),("kinoliving","KinoLiving"),("filmbox","FilmBox"),("team ","TEAM"),("kernel","Kernel"),("kli ","KLI"),("kbc","KBC"),("gold line","Gold Line"),("gl ","GL"),("play-x","Play-x"),("oasis ","Oasis"),("clarity4k","Clarity4K"),("arlekino","Arlekino")]
-# 18+ по названию, когда провайдер не отметил группу (Fap TV, Big Ass/Dick/Tits и т. п.). «Adult Swim» (мультики) не трогаем — поэтому без голого "adult".
-ADULT_RX = re.compile(r"\bfap\b|\bxxx\b|\bporn|эроти|\banal\b|\bbbw\b|\bmilf\b|hentai|brazzers|playboy|hustler|penthouse|big ass|big dick|big tits|\bsex\b", re.I)
+# 18+ по названию, когда провайдер не отметил группу. «Adult Swim» (мультики) не трогаем — поэтому без голого "adult".
+ADULT_RX = re.compile(
+    r"\bfap\b|\bxxx\b|\bporn|эроти|erotic|\banal\b|\bbbw\b|\b(?:milf|mylf)\b|hentai|brazzers|playboy|hustler|penthouse"
+    r"|big ass|big dick|big tits|\bsex\b|sextury|naughty america|evil angel|digital playground|fake taxi|mia khalifa"
+    r"|bang ?bros|nubiles|cherry pimps|cum ?louder|\bcum\dk\b|dorcel|lesbea|tushy|vixen|blacked|femjoy|\bhard ?x\b|\bholed\b"
+    r"|monsters of cock|hands on hardcore|lethal hardcore|deep lush|dad crush|daughter swap|bratty sis|gangbang|cuckold"
+    r"|threesome|club 17|\bddf\b|private tv|balkan erotic|banana fever|hitzefrei|got mylf|hot guys fuck|girls rimming"
+    r"|house of fyre|japan hdv|jerk off|little asians|princess cum|true amateurs|we live together|white boxxx|amateur boxxx"
+    r"|interracial|rough adult|visit-?x|xpanded|sinematica|trans angels|public agent|\brk (?:prime|tv)\b|cento x cento"
+    r"|\btaboo\b|(?:adult|red) tv\s*$", re.I)
+# код страны в квадратных скобках: «WDR [DE]», «TVP Rozrywka [PL]», «TV3 [LT]». country() ищет только суффикс-код.
+BR_CC = {"BALTIC": "Прибалтика", "BL": "Беларусь", "ENG": "Великобритания", "GER": "Германия", "POL": "Польша", "UKR": "Украина"}
+BRACKET_RX = re.compile(r"\[([A-Za-z]{2,6})\]")
 FED =["первый канал","россия 1","матч!","матч тв","нтв","пятый канал","россия к","россия-культура","россия культура","культура","россия 24","карусель","отр","тв центр","тв-центр","твц","рен тв","спас","стс","домашний","тв-3","тв3","пятница!","пятница","звезда","мир","тнт","муз-тв","муз тв","суббота!","суббота","ю","че","2x2","2х2","солнце","тнт4","тнт 4","стс love","ru.tv","мир 24","че!","ю тв","нтв мир","первый канал европа","тв центр international","тв центр международный","звезда плюс","рт","rt"]
 ADULT = {"взрослые","xxx (18+)","18+","для взрослых"}
 SRCMAP = {"новости":"Новости","кино":"Кино и сериалы","музыка":"Музыка","музыкальные":"Музыка","познавательные":"Познавательные","детские":"Детские","развлекательные":"Развлекательные","спорт":"Спорт","общие":"Эфирные"}
@@ -221,9 +232,9 @@ def brand(n):
     return None
 
 
-def _load_genres():
-    """Словарь «базовое имя канала -> группа» (genres.txt рядом с build.py). Запасной слой перед «Разное»."""
-    p = os.path.join(os.path.dirname(os.path.abspath(__file__)), "genres.txt")
+def _load_dict(fn):
+    """Словарь «базовое имя канала -> значение» (файл рядом с build.py, ключ<TAB>значение). Ключ может начинаться с #."""
+    p = os.path.join(os.path.dirname(os.path.abspath(__file__)), fn)
     d = {}
     try:
         for l in open(p, encoding="utf-8"):
@@ -233,7 +244,19 @@ def _load_genres():
     except OSError: pass
     return d
 
-GENRES = _load_genres()
+GENRES = _load_dict("genres.txt")      # базовое имя -> жанровая группа (запас перед «Разное»)
+FOREIGN = _load_dict("foreign.txt")    # базовое имя -> «Страна: X» для иностранных без кода страны в названии
+
+
+def foreign_country(n):
+    """RU-название страны по ЯВНОЙ метке [XX]/[Baltic] или суффиксу-коду в названии (надёжно). Иначе None."""
+    m = BRACKET_RX.search(n)
+    if m:
+        t = m.group(1).upper()
+        c = COUNTRY.get(t) or BR_CC.get(t)
+        if c and c != "Россия": return c
+    c = country(n)
+    return COUNTRY[c] if c and c != "RU" else None
 
 def kw_genre(n):
     s = n.lower().replace("ё", "е")
@@ -554,17 +577,17 @@ def main():
     fedset = set(FED)
     for c in allc:
         n, sg = c["name"], c["grp"].lower()
-        cc = country(n); b = brand(n); g0 = SRCMAP.get(sg)
+        fc = foreign_country(n); b = brand(n); g0 = SRCMAP.get(sg)
         genre = g0 if g0 and g0 != "Эфирные" else (known.get(base(n)) or kw_genre(n))
         if sg in ADULT or ADULT_RX.search(n): grp = "18+"
-        elif cc and cc != "RU":
-            grp = "Спорт: зарубежный" if (genre == "Спорт" or kw_genre(n) == "Спорт") else f"Страна: {COUNTRY[cc]}"
+        elif fc:
+            grp = "Спорт: зарубежный" if (genre == "Спорт" or kw_genre(n) == "Спорт") else f"Страна: {fc}"
         elif b:
             grp = "Спорт" if kw_genre(n) == "Спорт" else f"Кинозал: {b}"
         elif region(n) and base(n) not in fedset: grp = "Региональные"
         elif base(n) in fedset or sg == "общие": grp = "Эфирные: часовые пояса" if re.search(r"\+\d", n) else "Эфирные"
         elif sg.startswith("кинозал "): grp = "Кинозал: " + c["grp"][8:]
-        else: grp = genre or GENRES.get(base(n)) or "Разное"
+        else: grp = genre or FOREIGN.get(base(n)) or GENRES.get(base(n)) or "Разное"
         c["new"] = grp
         if not c["attrs"].get("tvg-id"):
             tid = ids.get(n.lower())

@@ -363,9 +363,19 @@ class GroupOrder(unittest.TestCase):
         self.assertTrue(B.ADULT_RX.search("Fap TV Anal"))
         self.assertTrue(B.ADULT_RX.search("Big Ass Adult TV"))
         self.assertTrue(B.ADULT_RX.search("HUSTLER HD"))
+        self.assertTrue(B.ADULT_RX.search("Bang Bros UHD"))
+        self.assertTrue(B.ADULT_RX.search("Interracial Red TV"))
+        self.assertTrue(B.ADULT_RX.search("Naughty America"))
         self.assertFalse(B.ADULT_RX.search("Adult Swim"))             # мультики — не 18+
+        self.assertFalse(B.ADULT_RX.search("Red Bull TV"))            # не заканчивается на «Red TV»
         self.assertFalse(B.ADULT_RX.search("Первый канал"))
         self.assertGreater(len(B.GENRES), 100)                        # словарь загрузился (genres.txt рядом с build.py)
+        self.assertGreater(len(B.FOREIGN), 100)                       # foreign.txt рядом с build.py
+        self.assertEqual(B.foreign_country("WDR HD Siegen [DE]"), "Германия")   # код страны в [скобках]
+        self.assertEqual(B.foreign_country("TV3 [LT]"), "Литва")
+        self.assertEqual(B.foreign_country("Kidzone [Baltic]"), "Прибалтика")
+        self.assertEqual(B.foreign_country("Матч ТВ"), None)          # российский — не иностранный
+        self.assertEqual(B.foreign_country("CNN US"), "США")         # суффикс-код
 
     def test_shift_channels_sorted_by_hours(self):
         import build
