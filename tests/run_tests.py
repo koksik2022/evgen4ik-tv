@@ -623,6 +623,57 @@ class AutoCheck(unittest.TestCase):
         with self.assertRaises(urllib.error.HTTPError) as e: urllib.request.urlopen(rq, timeout=10)   # без заголовка — CSRF-защита
         self.assertEqual(e.exception.code, 403)
 
+    def test_progress_pause_stop(self):   # ход проверки, пауза и остановка по autocheck.ctl
+        pp, ctl = f"{TMP}/data/editor/p-test.json", f"{TMP}/data/editor/ctl-test"
+        open(ctl, "w").write("stop")                                       # старая «стоп» сбрасывается при старте
+        chs = [{"name": f"K{i}", "group": "", "url": f"http://x/{i}"} for i in range(6)]
+        seen = []
+        def fake(u, timeout=10):
+            seen.append(u); time.sleep(0.05); return (u != "http://x/5" or timeout > 10), "ok"
+        prog = self.ac.Progress(len(chs), pp, ctl, every=0.05).start()
+        self.assertEqual(open(ctl).read(), "")
+        res = self.ac.run_check(chs, 1, fake, prog); prog.finish()
+        p = json.load(open(pp))
+        self.assertEqual([r["ok"] for r in res], [True] * 6)
+        self.assertEqual((p["running"], p["stopped"], p["done"], p["total"], p["phase"], p["again_total"], p["again_done"]),
+                         (False, False, 6, 6, "again", 1, 1))
+        # пауза: новые каналы не берутся; продолжить — доделывает
+        seen.clear(); open(ctl, "w").write("pause")
+        prog = self.ac.Progress(len(chs), pp, ctl, every=0.05)
+        prog.thread.start(); prog.poll()                                   # без start(): ctl не сбрасываем
+        out = {}
+        t = threading.Thread(target=lambda: out.update(r=self.ac.run_check(chs, 2, fake, prog))); t.start()
+        time.sleep(0.4)
+        self.assertEqual(seen, []); self.assertTrue(json.load(open(pp))["paused"])
+        open(ctl, "w").write(""); t.join(5)
+        self.assertEqual(len(out["r"]), 6); prog.finish()
+        # остановка: run_check -> None, остальные каналы не проверяются
+        seen.clear()
+        prog = self.ac.Progress(len(chs), pp, ctl, every=0.02).start()
+        def slow(u, timeout=10):
+            seen.append(u)
+            if len(seen) == 2: open(ctl, "w").write("stop")
+            time.sleep(0.1); return True, "ok"
+        self.assertIsNone(self.ac.run_check(chs, 1, slow, prog)); prog.finish(stopped=True)
+        self.assertLess(len(seen), 6); self.assertTrue(json.load(open(pp))["stopped"]); self.assertEqual(open(ctl).read(), "")
+
+    def test_progress_api(self):
+        open(app.CTRIGGER, "w").close()
+        if os.path.exists(app.AC_PROGRESS): os.remove(app.AC_PROGRESS)
+        self.assertEqual(self.api("/api/autocheck-ctl", {"cmd": "pause"})[0], 400)   # не идёт — нечего ставить на паузу
+        json.dump({"running": True, "upd": int(time.time()), "done": 3, "total": 10}, open(app.AC_PROGRESS, "w"))
+        self.assertEqual(self.api("/api/autocheck")[1]["progress"]["done"], 3)
+        self.assertEqual(self.api("/api/autocheck-run", {})[0], 409)                 # вторая проверка поверх первой
+        self.assertEqual(self.api("/api/autocheck-ctl", {"cmd": "rm -rf"})[0], 400)
+        self.assertEqual(self.api("/api/autocheck-ctl", {"cmd": "pause"})[0], 200); self.assertEqual(open(app.AC_CTL).read(), "pause")
+        self.assertEqual(self.api("/api/autocheck-ctl", {"cmd": "resume"})[0], 200); self.assertEqual(open(app.AC_CTL).read(), "")
+        self.assertEqual(self.api("/api/autocheck-ctl", {"cmd": "stop"})[0], 200); self.assertEqual(open(app.AC_CTL).read(), "stop")
+        json.dump({"running": True, "upd": int(time.time()) - 600}, open(app.AC_PROGRESS, "w"))   # процесс умер
+        p = self.api("/api/autocheck")[1]["progress"]
+        self.assertEqual((p["running"], p["stale"]), (False, True))
+        self.assertEqual(self.api("/api/autocheck-run", {})[0], 200); self.assertEqual(open(app.AC_CTL).read(), "")   # старая «стоп» сброшена
+        os.remove(app.AC_PROGRESS)
+
     def test_installer_has_units(self):
         s = open(os.path.join(ROOT, "install.sh"), encoding="utf-8").read()
         for x in ("autocheck.py notify.py e4conf.py", "e4tv-check.timer e4tv-notify.timer", "OnUnitActiveSec=5min", "check.trigger domain.request; do", "e4tv-check.path e4tv-check.timer", "Unit=e4tv-check-now.service",

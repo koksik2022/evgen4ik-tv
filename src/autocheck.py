@@ -9,10 +9,16 @@
   autocheck.py              — проверить сейчас
   autocheck.py --scheduled  — то же, но только если в редакторе включена «проверка по расписанию»
 Результат: <data>/editor/autocheck.json (без ссылок). Настройки: <data>/editor/autocheck-conf.json (пишет редактор).
+Ход проверки: <data>/editor/autocheck-progress.json (раз в секунду). Пауза и остановка: редактор пишет
+«pause» или «stop» в <data>/editor/autocheck.ctl (пусто — продолжать). Остановленная проверка прежний итог не меняет.
 Только стандартная библиотека Python.
 """
-import json, os, re, socket, ssl, sys, time, urllib.error, urllib.request
+import json, os, re, socket, ssl, sys, threading, time, urllib.error, urllib.request
 from concurrent.futures import ThreadPoolExecutor
+try:
+    import fcntl
+except ImportError:   # не Linux (тесты на Windows) — без защиты от двух проверок сразу
+    fcntl = None
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from e4conf import C as E4
@@ -20,7 +26,10 @@ from e4conf import C as E4
 DATA = E4["editor_dir"]
 RESULT = f"{DATA}/autocheck.json"
 CONF = f"{DATA}/autocheck-conf.json"
-UA = "VLC/3.0.20 LibVLC/3.0.20"
+PROGRESS = f"{DATA}/autocheck-progress.json"
+CTL = f"{DATA}/autocheck.ctl"
+LOCK = f"{DATA}/autocheck.lock"
+UA ="VLC/3.0.20 LibVLC/3.0.20"
 READ_MAX = 65536
 TIMEOUT = 10
 # auto — проверять по расписанию (иначе таймер ничего не делает); workers — одновременных проверок
@@ -92,16 +101,107 @@ def probe(u, timeout=TIMEOUT):
         return False, str(getattr(e, "reason", e))[:120]
 
 
-def run_check(chs, workers=2, probe_fn=None):
+def clear_ctl(path):
+    """Сбросить паузу/остановку. Файл не создаём: его пишет редактор (пользователь e4tv),
+    созданный от root он уже не смог бы изменить."""
+    if os.path.exists(path):
+        try:
+            with open(path, "w"): pass
+        except OSError: pass
+
+
+class Progress:
+    """Ход проверки для редактора + пауза/остановка по файлу autocheck.ctl.
+    Фоновый поток раз в секунду читает команду и пишет autocheck-progress.json."""
+    def __init__(self, total, path=PROGRESS, ctl=CTL, every=1.0):
+        self.path, self.ctl, self.every = path, ctl, every
+        self.total, self.done, self.phase = total, 0, "first"
+        self.again_total = self.again_done = 0
+        self.started = time.time(); self.paused_s = 0.0; self.pause_at = None
+        self.state = ""   # "" — идёт, "pause", "stop"
+        self.lock = threading.Lock(); self.end = threading.Event()
+        self.thread = threading.Thread(target=self._loop, daemon=True)
+
+    def start(self):
+        clear_ctl(self.ctl); self.write(); self.thread.start(); return self
+
+    def _loop(self):
+        while not self.end.wait(self.every):
+            self.poll(); self.write()
+
+    def poll(self):
+        try:
+            with open(self.ctl, encoding="utf-8") as f: v = f.read().strip()
+        except OSError: v = ""
+        v = v if v in ("pause", "stop") else ""
+        with self.lock:
+            if self.state == "stop": return            # остановку не отменить
+            now = time.time()
+            if v == "pause" and self.state != "pause": self.pause_at = now
+            if v != "pause" and self.pause_at: self.paused_s += now - self.pause_at; self.pause_at = None
+            self.state = v
+
+    def gate(self):
+        """Перед каждой проверкой канала: на паузе ждёт, при остановке — False."""
+        while True:
+            with self.lock: st = self.state
+            if st == "stop": return False
+            if st != "pause": return True
+            time.sleep(0.5)
+
+    def again(self, n):
+        with self.lock: self.phase, self.again_total = "again", n
+
+    def tick(self):
+        with self.lock:
+            if self.phase == "again": self.again_done += 1
+            else: self.done += 1
+
+    def snapshot(self):
+        with self.lock:
+            now = time.time()
+            active = now - self.started - self.paused_s - (now - self.pause_at if self.pause_at else 0)
+            n = self.done + self.again_done
+            left = (self.total - self.done) + (self.again_total - self.again_done)
+            return {"running": True, "pid": os.getpid(), "upd": int(now), "started": int(self.started),
+                    "total": self.total, "done": self.done, "phase": self.phase,
+                    "again_total": self.again_total, "again_done": self.again_done,
+                    "paused": self.state == "pause", "stopping": self.state == "stop",
+                    "elapsed": int(active), "eta": int(active / n * left) if n and left else None}
+
+    def write(self, **extra):
+        try: write_json_atomic(self.path, {**self.snapshot(), **extra})
+        except OSError: pass
+
+    def finish(self, stopped=False):
+        self.end.set()
+        if self.thread.is_alive(): self.thread.join(5)
+        self.write(running=False, stopped=stopped, ended=int(time.time()))
+        clear_ctl(self.ctl)
+
+
+def run_check(chs, workers=2, probe_fn=None, prog=None):
     """Проверка в несколько потоков; не ответившие проверяются ещё раз с таймаутом 20 с —
-    провайдер иногда долго «поднимает» канал, и с первого раза это выглядит как сбой."""
+    провайдер иногда долго «поднимает» канал, и с первого раза это выглядит как сбой.
+    prog — Progress (ход, пауза, остановка). Остановили — None."""
     probe_fn = probe_fn or probe
+    gate = prog.gate if prog else (lambda: True)
+
+    def one(u, timeout=TIMEOUT):
+        if not gate(): return "stop", ""
+        r = probe_fn(u) if timeout == TIMEOUT else probe_fn(u, timeout)
+        if prog: prog.tick()
+        return r
+
     res = []
     with ThreadPoolExecutor(max_workers=workers) as ex:
-        for ch, (ok, msg) in zip(chs, ex.map(lambda c: probe_fn(c["url"]), chs)):
+        for ch, (ok, msg) in zip(chs, ex.map(lambda c: one(c["url"]), chs)):
             res.append({"name": ch["name"], "group": ch["group"], "ok": ok, "msg": msg})
+        if any(r["ok"] == "stop" for r in res): return None
         again = [i for i, r in enumerate(res) if r["ok"] is False]
-        for i, (ok, msg) in zip(again, ex.map(lambda i: probe_fn(chs[i]["url"], 2 * TIMEOUT), again)):
+        if prog: prog.again(len(again))
+        for i, (ok, msg) in zip(again, ex.map(lambda i: one(chs[i]["url"], 2 * TIMEOUT), again)):
+            if ok == "stop": return None
             res[i].update(ok=ok, msg=msg)
     return res
 
@@ -137,8 +237,22 @@ def main(argv):
     if chs is None:
         prev.update(error="общий плейлист ещё не собран", at=time.strftime("%d.%m.%Y %H:%M"))
         write_json_atomic(RESULT, prev); print(prev["error"]); return 1
-    res = summarize(run_check(chs, s["workers"]), prev)
+    lk = None
+    if fcntl:   # таймер и кнопка — разные службы: вторая проверка, пока идёт первая, не нужна
+        lk = open(LOCK, "a")
+        try: fcntl.flock(lk, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            print("Проверка уже идёт — вторую не запускаю"); return 0
+    prog = Progress(len(chs)).start()
+    try:
+        raw = run_check(chs, s["workers"], prog=prog)
+    except BaseException:
+        prog.finish(stopped=True); raise
+    if raw is None:
+        prog.finish(stopped=True); print("Проверка остановлена в редакторе — прежний итог не меняю"); return 0
+    res = summarize(raw, prev)
     write_json_atomic(RESULT, res)
+    prog.finish()
     print(f"Проверено {res['total']}: работают {res['ok']}, не отвечают {len(res['bad'])}, не http {res['skipped']}")
     return 0
 

@@ -29,6 +29,8 @@ EPG = f"{DATA}/epg.json"
 AC_RESULT = f"{DATA}/autocheck.json"     # итог автопроверки потоков (пишет autocheck.py от root)
 AC_CONF = f"{DATA}/autocheck-conf.json"  # автопроверка: по расписанию или нет, сколько проверок одновременно
 CTRIGGER = f"{DATA}/check.trigger"       # кнопка «Проверить сейчас» -> e4tv-check.path
+AC_PROGRESS = f"{DATA}/autocheck-progress.json"   # ход проверки (пишет autocheck.py раз в секунду)
+AC_CTL = f"{DATA}/autocheck.ctl"         # пауза / остановка проверки: pause, stop или пусто
 PUBLIC_BASE = E4["public_base"]
 LINK_MODES = ("hls", "redirect", "direct")   # «Ссылки на каналы» у плейлиста/клиента (lists.py)
 URL_RX = re.compile(r"^(https?|rtmp|rtsp|udp|rtp)://[^\s\"]{1,2000}$", re.I)
@@ -799,8 +801,25 @@ def tg_test(body):
     return {"ok": True}
 
 
+def ac_progress():
+    """Ход проверки. Файл не обновлялся полторы минуты — процесс умер (перезагрузка, kill): не «идёт»."""
+    p = read_json(AC_PROGRESS, {}) or {}
+    if not isinstance(p, dict): return {}
+    if p.get("running") and time.time() - (p.get("upd") or 0) > 90: p.update(running=False, stale=True)
+    return p
+
+
 def autocheck_info():
-    return {"result": read_json(AC_RESULT, {}) or {}, "trigger_ready": os.path.exists(CTRIGGER), "conf": ac_conf()}
+    return {"result": read_json(AC_RESULT, {}) or {}, "trigger_ready": os.path.exists(CTRIGGER), "conf": ac_conf(),
+            "progress": ac_progress()}
+
+
+def ac_ctl(cmd):
+    """Кнопки «Пауза», «Продолжить», «Остановить» во время проверки."""
+    if cmd not in ("pause", "resume", "stop"): raise ValueError("неизвестная команда")
+    if not ac_progress().get("running"): raise ValueError("проверка сейчас не идёт")
+    with open(AC_CTL, "w") as f: f.write("" if cmd == "resume" else cmd)
+    return autocheck_info()
 
 
 def save_ac_conf(body):
@@ -1467,8 +1486,15 @@ class H(BaseHTTPRequestHandler):
             return self._send(200, {"hidden": he_hide(body.get("items"), bool(body.get("unhide")))})
         if self.path == "/api/autocheck-run":   # служба e4tv-check-now (root) проверит потоки
             if not os.path.exists(CTRIGGER): return self._send(400, {"error": "автопроверка не настроена на сервере — обновите Evgen4ik TV"})
+            if ac_progress().get("running"): return self._send(409, {"error": "проверка уже идёт"})
+            with open(AC_CTL, "w"): pass   # прежняя «стоп» не должна остановить новую проверку
             with open(CTRIGGER, "w") as f: f.write(str(time.time()))
             return self._send(200, {"ok": True})
+        if self.path == "/api/autocheck-ctl":
+            try:
+                return self._send(200, ac_ctl(body.get("cmd") if isinstance(body, dict) else None))
+            except ValueError as e:
+                return self._send(400, {"error": str(e)})
         if self.path == "/api/rules":
             try:
                 rules = validate(body.get("rules"))

@@ -124,6 +124,10 @@ button.htile:hover{background:var(--panel2);border-color:var(--ring)}
 .hbar i{display:block;width:100%;border-radius:6px 6px 3px 3px;background:var(--accent)}.hbar i.z{background:var(--line);border-radius:3px}
 .hbar .hn{font-size:12px;font-weight:600}.hbar .hw{font-size:12px;color:var(--muted)}.hbar .hw.on{color:var(--ink);font-weight:600}
 .hempty{display:flex;flex-direction:column;align-items:center;gap:6px;padding:18px 0;text-align:center}
+.acprog{border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin:0 0 10px;background:var(--panel2)}
+.acbar{height:8px;border-radius:999px;background:var(--line);overflow:hidden;margin:8px 0 6px}
+.acbar i{display:block;height:100%;background:var(--accent);border-radius:999px;transition:width .6s}
+.acprog.paused .acbar i{opacity:.45}
 .hfoot{border-top:1px solid var(--line);margin-top:12px;padding-top:10px;display:flex;flex-direction:column;gap:6px;font-size:13px}
 .hsrc{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,2fr) 60px;gap:10px 14px;align-items:center;font-size:13.5px}
 .hsrc>b{text-align:right;font-variant-numeric:tabular-nums}.hsrc .dot{display:inline-block;margin-right:7px;vertical-align:1px}
@@ -2054,7 +2058,9 @@ function renderAC(){const el=$("acCard"); if(!el||!AC) return;
     :'<p class="hint">Проверок ещё не было. Нажмите «Проверить сейчас» — на 1000 каналов уходит около 40 минут.</p>';
   const chg=(r.new_bad||[]).length||(r.recovered||[]).length?`<p class="hint" style="margin:0 0 8px">С прошлой проверки: ${(r.new_bad||[]).length?`перестали работать <b>${r.new_bad.length}</b>${r.new_bad.length<=10?" ("+esc(r.new_bad.join(", "))+")":""}`:""}${(r.new_bad||[]).length&&(r.recovered||[]).length?"; ":""}${(r.recovered||[]).length?`снова работают <b>${r.recovered.length}</b>${r.recovered.length<=10?" ("+esc(r.recovered.join(", "))+")":""}`:""}</p>`:"";
   const down=r.source_down?'<p class="hint" style="margin:0 0 8px">⚠️ Не отвечает больше половины каналов — похоже, недоступен сам источник или провайдер не пускает сервер.</p>':"";
+  const p=AC.progress||{}, run=!!p.running; acPollSet(run);
   el.innerHTML=`<h2>Автопроверка потоков</h2>
+    ${run?acProgBox(p):p.stopped&&p.ended&&Date.now()/1000-p.ended<3600?'<p class="hint" style="margin:0 0 8px">⏹ Проверка остановлена — итог ниже прежний.</p>':p.stale?'<p class="hint" style="margin:0 0 8px">⚠️ Прошлая проверка прервалась (сервер перезагружали или служба остановлена) — итог ниже прежний.</p>':""}
     <p class="hint">Сервер проверяет первую ссылку каждого канала у провайдера — только начало ответа, без видео. Не ответившие проверяются ещё раз через 20 секунд. Неработающие отмечаются ✖ в «Группах и каналах».</p>
     ${AC.trigger_ready?"":'<p class="hint">⚠️ На сервере нет службы автопроверки — обновите Evgen4ik TV (кнопка версии внизу слева или <code>e4tv update</code>).</p>'}
     ${down}${res}${chg}
@@ -2062,7 +2068,7 @@ function renderAC(){const el=$("acCard"); if(!el||!AC) return;
       <label><input type="checkbox" id="acAuto" ${n.auto?"checked":""}> Проверять по расписанию — раз в сутки, утром после сборки</label>
       <label style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">Одновременных проверок <input type="number" id="acW" min="1" max="6" value="${esc(String(n.workers||2))}" style="width:70px"> <span class="muted">больше — быстрее, но провайдер может счесть это подозрительным</span></label>
     </div>
-    <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap"><button id="acSave" class="primary" title="Сохраняется сразу, без «Сохранить и применить»">Сохранить настройки проверки</button><button id="acRun">Проверить сейчас</button></div>`;
+    <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap"><button id="acSave" class="primary" title="Сохраняется сразу, без «Сохранить и применить»">Сохранить настройки проверки</button><button id="acRun" ${run?'disabled title="Проверка уже идёт"':""}>Проверить сейчас</button></div>`;
   const lc=$("acList"); if(!lc) return; lc.hidden=!bad.length; if(!bad.length) return;
   const grps=[...new Set(bad.map(x=>x.group||"без группы"))].sort((a,b)=>a.localeCompare(b,"ru")); if(acGrp&&!grps.includes(acGrp)) acGrp="";
   const shown=bad.filter(x=>!acGrp||(x.group||"без группы")===acGrp), canHide=shown.filter(x=>{const c=acFind(x); return c&&!chHidden(c)}).length;
@@ -2072,6 +2078,23 @@ function renderAC(){const el=$("acCard"); if(!el||!AC) return;
       return `<tr data-ai="${bad.indexOf(x)}"><td>${esc(x.name)}${c&&chHidden(c)?' <span class="badge">скрыт</span>':""}${c&&chRule(c.k).urls?' <span class="badge">ссылка заменена</span>':""}</td><td class="muted">${esc(x.group||"—")}</td><td class="muted">${esc(x.msg||"")}</td>
       <td><div class="acts">${c?`<button class="icon play" data-k="${esc(c.k)}" title="Посмотреть канал">▶</button><button class="sm" data-aact="fix">Заменить ссылку</button><button class="sm danger" data-aact="del" ${chHidden(c)?"disabled":""}>Удалить</button><button class="sm" data-aact="find">Найти</button>`:'<span class="muted">нет в редакторе</span>'}</div></td></tr>${c&&fixK===c.k?`<tr class="fixrow"><td colspan="4">${fixBox(c)}</td></tr>`:""}`}).join("")}</tbody></table></div>
     ${shown.length>500?'<div class="empty">показаны первые 500 — выберите группу</div>':""}`}
+// ход проверки: счётчик, оставшееся время, пауза/стоп; пока идёт и открыт раздел — опрос раз в 3 с
+var acPollT=null;
+function acPollSet(on){if(!on||mode!=="check"){if(acPollT){clearTimeout(acPollT); acPollT=null} return}
+  if(!acPollT) acPollT=setTimeout(()=>{acPollT=null; if(mode==="check") loadAC()},3000)}
+function acDur(s){s=Math.max(0,Math.round(+s||0)); const h=Math.floor(s/3600), m=Math.floor(s%3600/60);
+  return h?h+" ч "+m+" мин":m?m+" мин":"меньше минуты"}
+function acProgBox(p){const ag=p.phase==="again", d=ag?p.again_done:p.done, t=ag?p.again_total:p.total, pct=t?Math.min(100,Math.round(d*100/t)):0;
+  const what=ag?`повторно (с таймаутом 20 с) — не ответившие с первого раза: <b>${d}</b> из ${t}`:`проверено <b>${d}</b> из ${t}`;
+  const st=p.stopping?" — останавливаю…":p.paused?" — на паузе":"";
+  return `<div class="acprog${p.paused?" paused":""}"><div><b>Идёт проверка${st}</b> · ${what} · ${pct}%</div>
+    <div class="acbar"><i style="width:${pct}%"></i></div>
+    <div class="muted" style="font-size:12.5px">прошло ${acDur(p.elapsed)}${p.paused||p.stopping?"":p.eta!=null?" · осталось примерно "+acDur(p.eta)+(ag?"":" (плюс повторная проверка не ответивших)"):" · считаю, сколько осталось…"}</div>
+    ${p.stopping?"":`<div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">${p.paused?'<button class="sm primary" data-acc="resume">▶ Продолжить</button>':'<button class="sm" data-acc="pause" title="Каналы, которые уже проверяются, допроверятся; новые ждут">⏸ Пауза</button>'}<button class="sm danger" data-acc="stop" title="Итог останется от прошлой проверки">⏹ Остановить</button></div>`}</div>`}
+$("settings").addEventListener("click",async e=>{const a=e.target.dataset&&e.target.dataset.acc; if(!a||mode!=="check") return; e.stopPropagation();
+  if(a==="stop"&&!confirm("Остановить проверку? Уже проверенное не сохранится — итог останется от прошлой проверки.")) return;
+  try{AC=await acApi("/api/autocheck-ctl",{cmd:a}); AC._t=Date.now();
+    AC.progress={...(AC.progress||{}),paused:a==="pause",stopping:a==="stop"}; renderAC()}catch(err){toast(err.message)}},true);
 $("settings").addEventListener("change",e=>{if(mode==="check"&&e.target.id==="acGrpSel"){acGrp=e.target.value; renderAC()}});
 $("settings").addEventListener("click",async e=>{const t=e.target;
   if(t.dataset&&t.dataset.go2){go(t.dataset.go2); return}
@@ -2088,8 +2111,8 @@ $("settings").addEventListener("click",async e=>{const t=e.target;
   if(t.id!=="acSave"&&t.id!=="acRun") return;
   try{
     if(t.id==="acSave"){AC=await acApi("/api/autocheck-conf",{auto:$("acAuto").checked,workers:parseInt($("acW").value,10)||2}); AC._t=Date.now(); renderAC(); toast("Сохранено"); return}
-    await acApi("/api/autocheck-run",{}); toast("Проверка запущена — итог появится здесь, когда закончится (на 1000 каналов около 40 минут)");
-    setTimeout(loadAC,60000)
+    await acApi("/api/autocheck-run",{}); toast("Проверка запущена — ход виден здесь");
+    setTimeout(loadAC,2500)
   }catch(err){toast(err.message)}});
 /* ---------- боковая панель: состояние, счётчики, быстрые кнопки ---------- */
 // сколько каналов не отвечает по последней автопроверке; null — проверки не было или в тот момент каналов не было (0 из 0 — не «всё хорошо»)
