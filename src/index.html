@@ -1810,10 +1810,11 @@ function copyText(t,msg){const ok=()=>toast(msg||"Скопировано");
 /* ---------- шаблоны провайдеров ---------- */
 // шаги — по описанию личных кабинетов (tv-ch.ru); формат личных ссылок провайдеры не публикуют, поэтому ссылку вставляют целиком
 const PROV=[
- {id:"sharavoz",site:"https://sharavoz.tv",tg:"https://t.me/+UYr6eQahIFFiYTYy",m:{h:["plink-pile.ch"]},lim:2,limNote:"2 устройства одновременно. При третьем просмотр блокируется на всех устройствах на 15 минут. Лишние устройства докупаются в кабинете со скидкой",name:"Sharavoz TV",ab:"SH",c:"#dc2626",steps:["Войдите в личный кабинет Sharavoz TV","Пройдите шаги настройки плейлиста до «Шаг 4»","Скопируйте ссылку: https — для новых устройств, http — для старых"]},
+ {id:"sharavoz",site:"https://sharavoz.tv",tg:"https://t.me/+UYr6eQahIFFiYTYy",m:{h:["plink-pile.ch"]},lim:2,limNote:"2 устройства одновременно. При третьем просмотр блокируется на всех устройствах на 15 минут. Лишние устройства докупаются в кабинете со скидкой",epg:"http://iptv-content.rv77.pw/guide-lite.xml",name:"Sharavoz TV",ab:"SH",c:"#dc2626",steps:["Войдите в личный кабинет Sharavoz TV","Пройдите шаги настройки плейлиста до «Шаг 4»","Скопируйте ссылку: https — для новых устройств, http — для старых"]},
  {id:"tvteam",lim:2,limNote:"2 устройства одновременно, можно докупить (до 20)",name:"TV Team",ab:"TT",c:"#0891b2",steps:["Войдите в личный кабинет TV Team","Откройте список плейлистов","Нажмите «Копировать в буфер ссылку на плейлист m3u8»"]},
  {id:"glanz",lim:3,limNote:"3 устройства одновременно",name:"Glanz TV",ab:"GL",c:"#ca8a04",steps:["Войдите в личный кабинет Glanz TV","Нажмите «Настройки»","Скопируйте персональную ссылку на плейлист"]},
- {id:"viplime",lim:2,limNote:"2 устройства одновременно, бесплатно",name:"VipLime",ab:"VL",c:"#16a34a",steps:["Активируйте доступ (тест — через Telegram-бота провайдера)","Откройте личный кабинет","Скопируйте индивидуальную ссылку на плейлист"]},
+ {id:"viplime",lim:2,limNote:"2 устройства одновременно, бесплатно",epg:"http://epg.cdntv.online/full.xml.gz",name:"VipLime",ab:"VL",c:"#16a34a",steps:["Активируйте доступ (тест — через Telegram-бота провайдера)","Откройте личный кабинет","Скопируйте индивидуальную ссылку на плейлист"]},
+ {id:"myott",m:{h:["ott.watch"]},lim:null,limNote:"Число устройств уточните в кабинете MyOTT и впишите у источника",epg:"https://epg.ottservice.org/download/epg.xml.gz",name:"MyOTT",ab:"MO",c:"#be185d",steps:["Войдите в личный кабинет MyOTT","Откройте раздел с плейлистом (формат M3U)","Скопируйте ссылку на плейлист"]},
  {id:"antifriz",site:"https://antifriz.tv",lim:2,limNote:"2 устройства и только с одного IP (одна домашняя сеть). Для другого адреса нужна отдельная подписка",name:"AntiFriz TV",ab:"AF",c:"#0284c7",steps:["Войдите в личный кабинет AntiFriz TV","Нажмите «Плейлист и настройки»","Скопируйте ссылку на ваш плейлист"]},
  {id:"iptvbest",lim:2,limNote:"2 устройства (по одному обзору, не проверено)",name:"ip-tv.best",ab:"IB",c:"#db2777",steps:["Войдите в личный кабинет ip-tv.best","Откройте «Скачать плейлист»: страна, сервер, формат m3u","Скопируйте ссылку"]},
  {id:"edem",m:{u:[/zatikov\.net\//i],w:[/\/playlists\/uplist\/[^\/]+\/playlist\.m3u8/i]},lim:2,limNote:"2 устройства одновременно (семейство Edem/iLook), с третьего возможно отключение. Если ссылкой пользуется кто-то чужой — смените ключ: «Плейлист» → «Настройки» → «Сменить»",name:"EDEM",ab:"ED",c:"#2563eb",steps:["Войдите в личный кабинет EDEM", "Откройте раздел «Плейлист»", "Скопируйте ссылку на плейлист — вида http://….zatikov.net/playlists/uplist/…/playlist.m3u8 (домен у каждого может быть свой)"]},
@@ -1876,7 +1877,8 @@ function renderGallery(bs){
   else if(prov||galSel==="m3u") form=`<div class="card" style="margin-top:14px;background:var(--panel2)"><h2>${esc(prov?prov.name:"Любая M3U-ссылка")}</h2>
     ${prov?`<div class="muted">Где взять ссылку:</div><ol class="steps">${prov.steps.map(x=>`<li>${esc(x)}</li>`).join("")}</ol>
     <p class="hint" style="margin:6px 0 0">⚠️ <b>Лимит провайдера:</b> ${esc(prov.limNote)}. ${!prov.lim?"Число каналов одновременно задайте сами ниже, в «Сколько каналов одновременно».":CONF.mode==="hls"?"HLS Proxy будет держать не больше "+prov.lim+" каналов одновременно — это можно поменять ниже, в «Сколько каналов одновременно».":"Без HLS Proxy каждый телевизор подключается к провайдеру сам — следите, чтобы одновременно смотрели не больше "+prov.lim+"."} <span class="muted">Данные из обзоров на ноябрь 2026, точно — в кабинете провайдера.</span></p>
-    ${prov.media?`<p class="hint" style="margin:6px 0 0">🎬 <b>Медиатека:</b> ${esc(prov.media)}.</p>`:""}`:""}
+    ${prov.media?`<p class="hint" style="margin:6px 0 0">🎬 <b>Медиатека:</b> ${esc(prov.media)}.</p>`:""}
+    ${prov.epg?`<p class="hint" style="margin:6px 0 0">📺 <b>Телегид:</b> у ${esc(prov.name)} свои коды каналов — чтобы программа совпала, добавьте его телегид (можно вместе с it999). ${R.epg_sources.includes(prov.epg)?'<span class="badge ok">уже в «Телегиде»</span>':`<button class="sm" data-pepg="${esc(prov.epg)}">Добавить телегид ${esc(prov.name)}</button>`}</p>`:""}`:""}
     <div class="fgrid" style="margin-top:10px"><div class="field"><span>Ссылка на плейлист</span><input type="text" id="gUrl" placeholder="${prov?"вставьте ссылку из личного кабинета":"https://…/playlist.m3u"}" spellcheck="false"></div>
     <div class="field"><span>Название в редакторе</span><input type="text" id="gName" value="${esc(uniqName(prov?prov.name:"Мой плейлист"))}" maxlength="40"></div></div>
     <div style="display:flex;gap:8px;margin-top:10px"><button id="gChk">Проверить</button><button id="gAdd" class="primary">Добавить</button></div>${prov?"":'<div id="gDet" class="hint" style="margin-top:8px"></div>'}<div class="chk-res" id="gRes" style="margin-top:8px"></div></div>`;
@@ -1919,11 +1921,16 @@ function autoLim(){   // режим «Авто»: лимит по включён
   if(unk.length) return {n:3,why:"лимит "+unk.join(", ")+" неизвестен — 3 на всякий случай. Сторонний плейлист без лимита отметьте «без лимита устройств» в списке источников"};
   if(src.length) return {n:0,why:"все источники — сторонние без лимита устройств"};
   return R.sources.length||((ST&&ST.builtin_sources)||[]).length?{n:null,why:"включите источник",off:true}:{n:null,why:"добавьте источник"}}
+function addProvEpg(url,manual){if(!url) return false;   // телегид провайдера -> в R.epg_sources (у провайдера свои коды каналов)
+  if(R.epg_sources.includes(url)){if(manual)toast("Этот телегид уже в списке «Телегид»");return false}
+  if(R.epg_sources.length>=5){if(manual)toast("Телегидов уже 5 — уберите лишние в разделе «Телегид»");return false}
+  R.epg_sources.push(url); markDirty(); if(manual)toast("Телегид добавлен — он в разделе «Телегид». Сохраните, чтобы применить"); return true}
 function addSource(url,name,prov,auto){name=clean(name).slice(0,40); if(!name){toast("Введите название");return false}
   if(new Set([...allSources(),"Свой"]).has(name)){toast("Источник «"+name+"» уже есть — дайте другое название");return false}
   if(R.sources.length>=10){toast("Своих источников не больше 10");return false}
   R.sources.push({id:Math.random().toString(36).slice(2,10).replace(/[^a-z0-9]/g,"")||"s"+Date.now(),name,url,enabled:true,...(prov?{prov}:{}),...(prov&&auto?{pa:true}:{})}); galSel=null; galHosts=null;
   const p=PROV.find(x=>x.id===prov); let extra="";
+  if(p&&p.epg&&addProvEpg(p.epg)) extra+=" Телегид "+p.name+" добавлен в «Телегид» — у этого провайдера свои коды каналов.";
   if(CONF.mode==="hls"&&R.stream_limit_mode==="auto"){const a=autoLim(); if(a.n!=null) R.stream_limit=a.n;
     extra=" Лимит (авто): "+(a.n===0?"без лимита":a.n)+"."+(p?"":" Если это сторонний плейлист без лимита устройств — отметьте «без лимита устройств» у источника ниже.")}
   else if(p&&p.lim&&CONF.mode==="hls"&&(!R.stream_limit||R.stream_limit>p.lim)){R.stream_limit=p.lim; extra=" Лимит: не больше "+p.lim+" каналов одновременно, как у "+p.name+"."}
@@ -2347,6 +2354,7 @@ $("settings").addEventListener("click",e=>{if(mode!=="sources"||e.target.id!=="s
   R.stream_limit_mode="manual"; R.stream_limit=r.n; markDirty(); render(); toast("Лимит "+r.n+" — нажмите «Сохранить и применить»")});
 $("settings").addEventListener("click",async e=>{if(mode!=="sources") return; const t=e.target, pv=t.closest("[data-pv]");
   const lk=t.closest("[data-href]"); if(lk){e.preventDefault(); const h=lk.dataset.href; if(/^https:\/\//.test(h)) window.open(h,"_blank","noopener,noreferrer"); return}   // «Сайт ↗» / «Канал ↗» на плитке
+  if(t.dataset&&t.dataset.pepg){addProvEpg(t.dataset.pepg,true); renderSettings("sources"); return}   // «Добавить телегид провайдера»
   if(pv){const id=pv.dataset.pv; if(id.startsWith("b_")){toast("Этот источник уже подключён — включить/выключить можно в списке ниже");return} galSel=galSel===id?null:id; renderSettings("sources"); const f=$("gUrl")||$("xSrv")||$("fFile"); if(f) f.focus(); return}
   if(t.id==="gChk"){const u=galUrl(); if(!u||!URLRX.test(u)){toast(galSel==="xc"?"Заполните сервер, логин и пароль":"Вставьте ссылку http(s)://…");return}
     const rs=await checkUrls([u],$("gRes")); galHosts=(rs&&rs[0]&&rs[0].hosts)||[]; const d=provHint(u);
