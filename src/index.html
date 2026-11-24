@@ -1841,7 +1841,7 @@ const provSub=p=>[p.site?`<span class="plink" data-href="${esc(p.site)}" title="
   p.tg?`<span class="plink" data-href="${esc(p.tg)}" title="Telegram: ${esc(p.tg)}">${esc(p.tgl||"Канал")} ↗</span>`:"",
   !p.site&&!p.tg?"сайт не подтверждён":"", p.lim?"до "+p.lim+" устр.":"лимит неизвестен"].filter(Boolean).join(" · ");
 const provFav=p=>PROV_ICONS.has(p.id)?`<img class="sfav" src="/api/provicon/${p.id}" alt="" loading="lazy" onerror="this.remove()">`:"";
-const UNI=[{id:"m3u",name:"Любая M3U-ссылка",ab:"M3U",sub:"http(s)://…m3u"},{id:"xc",name:"Xtream Codes",ab:"XC",sub:"сервер + логин + пароль"},{id:"file",name:"Файл .m3u",ab:"📄",sub:"загрузить с компьютера"}];
+const UNI=[{id:"m3u",name:"Любая M3U-ссылка",ab:"M3U",sub:"http(s)://…m3u"},{id:"xc",name:"Xtream Codes",ab:"XC",sub:"сервер + логин + пароль"},{id:"keys",name:"Несколько ключей по шаблону",ab:"🔑",sub:"свои ключи одного провайдера"},{id:"file",name:"Файл .m3u",ab:"📄",sub:"загрузить с компьютера"}];
 // бесплатная подборка: сервер сам собирает её из открытых списков iptv-org и Free-TV, убирает дубли и нерабочие ссылки (lists.py, PRESETS)
 const FREE=[
  {id:"f_rumusic",ic:"rumusic",name:"Бесплатно: Россия + зарубежная музыка",url:"e4://ru-music",n:1270,
@@ -1888,6 +1888,13 @@ function renderGallery(bs){
     <div class="field" style="margin-top:8px"><span>Получится ссылка</span><input type="text" id="xUrl" readonly placeholder="заполните поля выше"></div>
     <div class="field" style="margin-top:8px"><span>Название в редакторе</span><input type="text" id="gName" value="${esc(uniqName("Xtream"))}" maxlength="40"></div>
     <div style="display:flex;gap:8px;margin-top:10px"><button id="gChk">Проверить</button><button id="gAdd" class="primary">Добавить</button></div><div class="chk-res" id="gRes" style="margin-top:8px"></div></div>`;
+  else if(galSel==="keys") form=`<div class="card" style="margin-top:14px;background:var(--panel2)"><h2>Несколько ключей по шаблону</h2>
+    <p class="hint">Если у вас <b>несколько своих ключей одного провайдера</b> (например, купленные подписки Edem) — не добавляйте по одному. Вставьте ссылку одного плейлиста как шаблон и замените сам ключ на <code>{KEY}</code>, а ключи впишите ниже по одному в строке. Сервер соберёт из них источники (всего не больше 30). Ключи остаются только на сервере.</p>
+    <div class="field"><span>Шаблон ссылки (вместо ключа — <code>{KEY}</code>)</span><input type="text" id="kTpl" spellcheck="false" value="http://ВАШ-ПОДДОМЕН.zatikov.net/playlists/uplist/{KEY}/playlist.m3u8"></div>
+    <div class="field" style="margin-top:8px"><span>Ваши ключи — по одному в строке</span><textarea id="kKeys" rows="6" spellcheck="false" placeholder="КЛЮЧ1&#10;КЛЮЧ2&#10;…" style="width:100%;font:13px Consolas,monospace"></textarea></div>
+    <div style="display:flex;gap:8px;align-items:center;margin-top:6px;flex-wrap:wrap"><button id="kLoad">Загрузить ключи из файла…</button><input type="file" id="kFile" accept=".txt,text/plain" hidden><span class="muted" id="kCnt"></span></div>
+    <div class="field" style="margin-top:8px"><span>Название (к нему добавится номер)</span><input type="text" id="kName" value="Edem" maxlength="30"></div>
+    <div style="display:flex;gap:8px;margin-top:10px"><button id="kAdd" class="primary">Добавить все</button></div><div class="chk-res" id="gRes" style="margin-top:8px"></div></div>`;
   else if(galSel==="file") form=`<div class="card" style="margin-top:14px;background:var(--panel2)"><h2>Файл .m3u с компьютера</h2>
     <p class="hint">Файл сохранится на сервере и сам обновляться не будет — когда провайдер пришлёт новый, загрузите его снова (старый источник можно удалить).</p>
     <div class="fgrid"><div class="field"><span>Файл</span><input type="file" id="fFile" accept=".m3u,.m3u8,audio/x-mpegurl,application/x-mpegURL,text/plain"></div>
@@ -1936,6 +1943,35 @@ function addSource(url,name,prov,auto){name=clean(name).slice(0,40); if(!name){t
   else if(p&&p.lim&&CONF.mode==="hls"&&(!R.stream_limit||R.stream_limit>p.lim)){R.stream_limit=p.lim; extra=" Лимит: не больше "+p.lim+" каналов одновременно, как у "+p.name+"."}
   if(p&&auto) extra=" Провайдер: "+p.name+" (определён автоматически)"+(p.lim?"":" — лимит неизвестен, впишите число устройств у источника")+"."+extra;
   render(); toast("Источник «"+name+"» добавлен — «Сохранить и применить», чтобы загрузить каналы."+extra); return true}
+// ключи из текста: строки-комментарии (#…) целиком убираем, затем режем по пробелам/запятым; без повторов
+function parseKeys(text){const lines=String(text||"").split(/\r?\n/).map(x=>x.trim()).filter(x=>x&&!x.startsWith("#"));
+  return [...new Set(lines.flatMap(l=>l.split(/[\s,;]+/)).map(x=>x.trim()).filter(Boolean))]}
+// «Несколько ключей по шаблону»: из своих ключей + шаблона собрать источники (у каждого ключа — своя ссылка). Всего не больше 30.
+function addKeysBulk(){
+  const tpl=(($("kTpl")||{}).value||"").trim();
+  if(!/\{KEY\}/.test(tpl)){toast("В шаблоне нужно место для ключа — {KEY}");return}
+  const keys=parseKeys(($("kKeys")||{}).value);
+  if(!keys.length){toast("Вставьте свои ключи — по одному в строке");return}
+  const room=30-R.sources.length;
+  if(room<=0){toast("Источников уже 30 — удалите лишние");return}
+  const nameBase=clean(($("kName")||{}).value||"").slice(0,26)||"Ключ";
+  const taken=new Set([...allSources(),"Свой"]);
+  let added=0, bad=0, prov=undefined, decided=false, i=0;
+  for(const key of keys){
+    if(added>=room) break;
+    const url=tpl.replace(/\{KEY\}/g,key);
+    if(!URLRX.test(url)){bad++; continue}
+    if(!decided){const d=detectProv(url,null); prov=d&&!d.weak?d.p:undefined; decided=true}
+    let nm; do{nm=nameBase+" "+(++i)}while(taken.has(nm)); taken.add(nm);
+    R.sources.push({id:Math.random().toString(36).slice(2,10).replace(/[^a-z0-9]/g,"")||"s"+Date.now(),name:nm,url,enabled:true,...(prov?{prov:prov.id,pa:true}:{})});
+    added++;
+  }
+  if(!added){toast(bad?"Ни одной верной ссылки — проверьте шаблон и ключи":"Нечего добавлять");return}
+  if(prov&&prov.epg) addProvEpg(prov.epg);
+  if(CONF.mode==="hls"&&R.stream_limit_mode==="auto"){const a=autoLim(); if(a.n!=null) R.stream_limit=a.n}
+  galSel=null; render();
+  toast("Добавлено источников: "+added+(prov?" ("+prov.name+")":"")+(keys.length>room?"; не влезло "+(keys.length-room)+" — лимит 30":"")+(bad?"; пропущено неверных: "+bad:"")+". Нажмите «Сохранить и применить».");
+}
 function renderSettings(page){
   const bs=(ST&&ST.builtin_sources)||[], info={}; ((ST&&ST.sources)||[]).forEach(x=>info[x.name]=x);
   const prim=R.primary_source||(ST&&ST.primary_source)||(R.sources[0]&&R.sources[0].name)||"";
@@ -2350,6 +2386,12 @@ $("settings").addEventListener("change",e=>{if(mode!=="sources"||e.target.name!=
   markDirty(); render(); toast((v==="auto"?"Авто":v==="off"?"Без лимита":"Лимит "+R.stream_limit)+" — нажмите «Сохранить и применить»")});
 $("settings").addEventListener("change",e=>{if(mode!=="sources"||e.target.id!=="sLim") return; const v=parseInt(e.target.value,10);
   R.stream_limit_mode="manual"; R.stream_limit=v>=1&&v<=50?v:null; if(!R.stream_limit) e.target.value=""; markDirty()});
+$("settings").addEventListener("change",e=>{if(mode!=="sources"||e.target.id!=="kFile") return; const f=e.target.files[0]; if(!f) return;   // «Загрузить ключи из файла»: текст -> в поле ключей
+  if(f.size>2*1024*1024){toast("Файл больше 2 МБ — это не список ключей");return}
+  const rd=new FileReader(); rd.onload=()=>{const ta=$("kKeys"); if(!ta) return; ta.value=((ta.value.trim()?ta.value.trim()+"\n":"")+String(rd.result||"")).trim();
+    const n=parseKeys(ta.value).length;
+    const c=$("kCnt"); if(c) c.textContent="ключей в поле: "+n+(n>30?" — добавятся первые 30":""); e.target.value=""};
+  rd.onerror=()=>toast("Не удалось прочитать файл"); rd.readAsText(f)});
 $("settings").addEventListener("click",e=>{if(mode!=="sources"||e.target.id!=="sLimRec") return; const r=limRec(); if(!r) return;
   R.stream_limit_mode="manual"; R.stream_limit=r.n; markDirty(); render(); toast("Лимит "+r.n+" — нажмите «Сохранить и применить»")});
 $("settings").addEventListener("click",async e=>{if(mode!=="sources") return; const t=e.target, pv=t.closest("[data-pv]");
@@ -2359,6 +2401,8 @@ $("settings").addEventListener("click",async e=>{if(mode!=="sources") return; co
   if(t.id==="gChk"){const u=galUrl(); if(!u||!URLRX.test(u)){toast(galSel==="xc"?"Заполните сервер, логин и пароль":"Вставьте ссылку http(s)://…");return}
     const rs=await checkUrls([u],$("gRes")); galHosts=(rs&&rs[0]&&rs[0].hosts)||[]; const d=provHint(u);
     const nm=$("gName"); if(d&&!d.weak&&nm&&/^(Мой плейлист|Xtream)( \d+)?$/.test(nm.value)) nm.value=uniqName(d.p.name); return}
+  if(t.id==="kLoad"){$("kFile").click(); return}
+  if(t.id==="kAdd"){addKeysBulk(); return}
   if(t.id==="gAdd"){const u=galUrl(); if(!u||!(URLRX.test(u)||u.startsWith("e4://"))){toast(galSel==="xc"?"Заполните сервер, логин и пароль":"Вставьте ссылку http(s)://…");return}
     const fr=FREE.find(f=>f.id===galSel);
     if(fr){const f=addFree(fr.url,$("gName").value,fr.ic); galSel=null; render(); toast("«"+f.name+"» добавлен отдельно. Откройте свой плейлист → «Откуда брать каналы» → выберите его"); return}
