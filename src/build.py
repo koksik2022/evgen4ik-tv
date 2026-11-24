@@ -346,6 +346,7 @@ def load_rules(log):
         out["group_order"] = [_clean(g) for g in (r.get("group_order") or [])[:3000] if isinstance(g, str) and g.strip()]
         sl = r.get("stream_limit")   # 0 = без лимита
         out["stream_limit"] = sl if isinstance(sl, int) and not isinstance(sl, bool) and 0 <= sl <= 50 else None
+        out["open_logos"] = r.get("open_logos") is True   # логотипы из открытых баз (iptv-org, tv-logos, it999) каналам без картинки
         log.append(f"Правила редактора: групп {len(out['groups'])}, каналов {len(out['channels'])}, шаблонов скрытия {len(out['hidden_patterns'])}, своих каналов {len(out['custom_channels'])}, замен ссылок {sum(1 for v in out['channels'].values() if v['urls'])}")
         return out
     except Exception as e:

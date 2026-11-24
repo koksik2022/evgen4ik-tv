@@ -170,6 +170,13 @@ class Domain(unittest.TestCase):
 
 
 class Build(unittest.TestCase):
+    def test_load_rules_keeps_open_logos(self):   # флаг «открытые базы» доходит до сборки (иначе логотипы не подставлялись)
+        import build
+        json.dump({"open_logos": True, "sources": []}, open(f"{TMP}/data/editor/rules.json", "w"))
+        self.assertTrue(build.load_rules([])["open_logos"])
+        json.dump({"open_logos": False, "sources": []}, open(f"{TMP}/data/editor/rules.json", "w"))
+        self.assertFalse(build.load_rules([])["open_logos"])
+
     def test_check_url_nonascii(self):   # кириллица в адресе -> понятная ошибка, без падения «ordinal not in range(256)»
         r = app.check_url("http://ВАШ-ПОДДОМЕН.zatikov.net/playlists/uplist/AAAAAAAAAAAAAA/playlist.m3u8")
         self.assertFalse(r["ok"]); self.assertIn("не-латинские", r["msg"])
