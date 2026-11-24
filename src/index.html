@@ -470,11 +470,11 @@ function norm(r){r=r||{};return{version:1,hidden_patterns:r.hidden_patterns||(ST
   group_order:r.group_order||[],custom_groups:r.custom_groups||[],custom_channels:r.custom_channels||[],lists:r.lists||[],
   sources:r.sources||[],disabled_sources:r.disabled_sources||[],primary_source:r.primary_source||null,stream_limit:r.stream_limit??null,stream_limit_mode:r.stream_limit_mode==="auto"?"auto":"manual",
   lists_only_sources:r.lists_only_sources||[],channel_order:r.channel_order||{},auto_rules:r.auto_rules||[],free_sources:r.free_sources||[],free_edits:r.free_edits||{},clients:r.clients||[],client_msg:r.client_msg||"",
-  link_mode:r.link_mode||"",logo_proxy:r.logo_proxy!==false,fallback:r.fallback!==false,stream_format:r.stream_format||"",open_logos:r.open_logos===true,epg_sources:Array.isArray(r.epg_sources)?r.epg_sources:[],epg_days:Number.isInteger(r.epg_days)?r.epg_days:null}}
+  link_mode:r.link_mode||"",logo_proxy:r.logo_proxy!==false,fallback:r.fallback!==false,stream_format:r.stream_format||"",open_logos:r.open_logos===true,epg_sources:Array.isArray(r.epg_sources)?r.epg_sources:[],epg_days:Number.isInteger(r.epg_days)?r.epg_days:null,key_template:typeof r.key_template==="string"?r.key_template:""}}
 function isDirty(){return JSON.stringify(R)!==saved}
 const DIRTY_NAMES={channels:"каналы",groups:"группы",group_order:"порядок групп",channel_order:"порядок каналов",hidden_patterns:"скрытие",custom_groups:"свои группы",custom_channels:"свои каналы",
   lists:"плейлисты",clients:"клиенты",client_msg:"сообщение клиентам",sources:"источники",disabled_sources:"источники",primary_source:"основной источник",lists_only_sources:"источники",
-  auto_rules:"правила",free_sources:"бесплатная подборка",free_edits:"бесплатная подборка",stream_limit:"лимит потоков",stream_limit_mode:"лимит потоков",link_mode:"ссылки провайдера",logo_proxy:"ссылки провайдера",fallback:"ссылки провайдера",stream_format:"формат потока",open_logos:"логотипы",epg_sources:"телегид",epg_days:"телегид"};
+  auto_rules:"правила",free_sources:"бесплатная подборка",free_edits:"бесплатная подборка",stream_limit:"лимит потоков",stream_limit_mode:"лимит потоков",link_mode:"ссылки провайдера",logo_proxy:"ссылки провайдера",fallback:"ссылки провайдера",stream_format:"формат потока",open_logos:"логотипы",epg_sources:"телегид",epg_days:"телегид",key_template:"шаблон ключей"};
 function dirtyWhat(){let s={}; try{s=JSON.parse(saved)||{}}catch(e){} const w=new Set();
   for(const k of new Set([...Object.keys(R),...Object.keys(s)])) if(JSON.stringify(R[k])!==JSON.stringify(s[k])) w.add(DIRTY_NAMES[k]||"настройки");
   return [...w]}
@@ -1890,7 +1890,7 @@ function renderGallery(bs){
     <div style="display:flex;gap:8px;margin-top:10px"><button id="gChk">Проверить</button><button id="gAdd" class="primary">Добавить</button></div><div class="chk-res" id="gRes" style="margin-top:8px"></div></div>`;
   else if(galSel==="keys") form=`<div class="card" style="margin-top:14px;background:var(--panel2)"><h2>Несколько ключей по шаблону</h2>
     <p class="hint">Если у вас <b>несколько своих ключей одного провайдера</b> (например, купленные подписки Edem) — не добавляйте по одному. Вставьте ссылку одного плейлиста как шаблон и замените сам ключ на <code>{KEY}</code>, а ключи впишите ниже по одному в строке. Сервер соберёт из них источники (всего не больше 30). Ключи остаются только на сервере.</p>
-    <div class="field"><span>Шаблон ссылки (вместо ключа — <code>{KEY}</code>)</span><input type="text" id="kTpl" spellcheck="false" value="http://ВАШ-ПОДДОМЕН.zatikov.net/playlists/uplist/{KEY}/playlist.m3u8"></div>
+    <div class="field"><span>Шаблон ссылки (вместо ключа — <code>{KEY}</code>) — сохраняется, поддомен меняете здесь</span><input type="text" id="kTpl" spellcheck="false" value="${esc(R.key_template||"http://ВАШ-ПОДДОМЕН.zatikov.net/playlists/uplist/{KEY}/playlist.m3u8")}"></div>
     <div class="field" style="margin-top:8px"><span>Ваши ключи — по одному в строке</span><textarea id="kKeys" rows="6" spellcheck="false" placeholder="КЛЮЧ1&#10;КЛЮЧ2&#10;…" style="width:100%;font:13px Consolas,monospace"></textarea></div>
     <div style="display:flex;gap:8px;align-items:center;margin-top:6px;flex-wrap:wrap"><button id="kLoad">Загрузить ключи из файла…</button><input type="file" id="kFile" accept=".txt,text/plain" hidden><span class="muted" id="kCnt"></span></div>
     <div class="field" style="margin-top:8px"><span>Название (к нему добавится номер)</span><input type="text" id="kName" value="Edem" maxlength="30"></div>
@@ -1970,6 +1970,7 @@ function addKeysBulk(){
   }
   if(!added){toast(bad?"Ни одной верной ссылки — проверьте шаблон и ключи":"Нечего добавлять");return}
   if(prov&&prov.epg) addProvEpg(prov.epg);
+  if(!/ВАШ-ПОДДОМЕН/i.test(tpl)) R.key_template=tpl;   // запомнить рабочий шаблон (с поддоменом) на следующий раз
   if(CONF.mode==="hls"&&R.stream_limit_mode==="auto"){const a=autoLim(); if(a.n!=null) R.stream_limit=a.n}
   galSel=null; render();
   toast("Добавлено источников: "+added+(prov?" ("+prov.name+")":"")+(keys.length>room?"; не влезло "+(keys.length-room)+" — лимит 30":"")+(bad?"; пропущено неверных: "+bad:"")+". Нажмите «Сохранить и применить».");
@@ -2452,6 +2453,7 @@ $("settings").addEventListener("change",e=>{const t=e.target, row=t.closest(".sr
   markDirty(); if(t.classList.contains("sNL")||t.classList.contains("sOn")||t.classList.contains("sDev")) render();   // пересчитать «Авто»
 });
 $("settings").addEventListener("input",e=>{if(mode==="sources"&&e.target.id==="gUrl"){galHosts=null; provHint(e.target.value.trim())}   // подсказка по ссылке сразу
+  if(mode==="sources"&&e.target.id==="kTpl"){const v=e.target.value.trim(); R.key_template=/\{KEY\}/.test(v)&&!/ВАШ-ПОДДОМЕН/i.test(v)?v:""; markDirty()}   // шаблон сохраняется (поддомен запоминается)
 });
 async function save(apply){
   // пустые пользовательские группы без каналов не храним

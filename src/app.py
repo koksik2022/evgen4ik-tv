@@ -301,6 +301,8 @@ def validate(r):
     out["epg_days"] = ed if isinstance(ed, int) and not isinstance(ed, bool) and 1 <= ed <= 14 else None
     out["open_logos"] = r.get("open_logos") is True   # логотипы из открытых баз (it999, iptv-org, tv-logos) каналам без картинки
     out["stream_format"] = r["stream_format"] if r.get("stream_format") in ("hls", "ts") else ""   # формат потока HLS Proxy для плееров; "" — как настроено в нём
+    kt = r.get("key_template")   # сохранённый шаблон для «Несколько ключей по шаблону» (с {KEY}); чтобы не вводить поддомен заново
+    out["key_template"] = re.sub(r'[\x00-\x1f"<>\s]', "", kt)[:300] if isinstance(kt, str) and "{KEY}" in kt else ""
     seen_slug = {L["token"] for L in out["lists"]} | {c["token"] for c in out.get("clients", [])}   # короткая не совпадает ни с чьей длинной
     for x in out["lists"] + out.get("clients", []):
         if x.get("slug") in seen_slug: x["slug"] = ""

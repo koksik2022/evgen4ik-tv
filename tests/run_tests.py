@@ -361,6 +361,12 @@ class GroupOrder(unittest.TestCase):
         out = rules(sources=srcs)
         self.assertEqual(len(out["sources"]), 30)
 
+    def test_key_template_saved(self):   # сохранённый шаблон «Несколько ключей по шаблону»
+        self.assertEqual(rules(key_template="http://ecc59434b8bc.zatikov.net/playlists/uplist/{KEY}/playlist.m3u8")["key_template"],
+                         "http://ecc59434b8bc.zatikov.net/playlists/uplist/{KEY}/playlist.m3u8")
+        self.assertEqual(rules(key_template="без плейсхолдера")["key_template"], "")   # нет {KEY} — не сохраняем
+        self.assertEqual(rules()["key_template"], "")
+
     def test_brand_adult_genres(self):   # кинозалы (регистр/кириллица), 18+ по имени, словарь genres.txt
         import build as B
         self.assertEqual(B.brand("минимакс-боевик"), "MiniMax")       # кириллица
