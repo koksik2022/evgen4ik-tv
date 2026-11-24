@@ -1950,6 +1950,8 @@ function parseKeys(text){const lines=String(text||"").split(/\r?\n/).map(x=>x.tr
 function addKeysBulk(){
   const tpl=(($("kTpl")||{}).value||"").trim();
   if(!/\{KEY\}/.test(tpl)){toast("В шаблоне нужно место для ключа — {KEY}");return}
+  if(/ВАШ-ПОДДОМЕН/i.test(tpl)){toast("Замените в шаблоне «ВАШ-ПОДДОМЕН» на ваш реальный поддомен Edem (латиницей)");return}
+  if(/[^\x00-\x7F]/.test(tpl.replace(/\{KEY\}/g,""))){toast("В шаблоне есть не-латинские символы — адрес должен быть на латинице");return}
   const keys=parseKeys(($("kKeys")||{}).value);
   if(!keys.length){toast("Вставьте свои ключи — по одному в строке");return}
   const room=30-R.sources.length;

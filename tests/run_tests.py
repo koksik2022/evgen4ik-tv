@@ -170,6 +170,10 @@ class Domain(unittest.TestCase):
 
 
 class Build(unittest.TestCase):
+    def test_check_url_nonascii(self):   # кириллица в адресе -> понятная ошибка, без падения «ordinal not in range(256)»
+        r = app.check_url("http://ВАШ-ПОДДОМЕН.zatikov.net/playlists/uplist/AAAAAAAAAAAAAA/playlist.m3u8")
+        self.assertFalse(r["ok"]); self.assertIn("не-латинские", r["msg"])
+
     def test_client_files(self):
         r = rules(); r["clients"][0]["link_mode"] = "direct"; r["clients"][1]["link_mode"] = "direct"
         out = build(r)

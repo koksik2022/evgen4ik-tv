@@ -638,6 +638,8 @@ def check_url(u):
         return {"ok": "count" in r, "msg": f"файл: {r['count']} каналов" if "count" in r else r.get("error", "ошибка")}
     if not isinstance(u, str) or not re.match(r"^https?://[^\s\"]{1,2000}$", u.strip()):
         return {"ok": False, "msg": "проверяются только http/https ссылки"}
+    if not u.strip().isascii():   # кириллица в адресе (например, незаменённый «ВАШ-ПОДДОМЕН») — иначе urllib падает с «ordinal not in range(256)»
+        return {"ok": False, "msg": "в ссылке есть не-латинские символы (кириллица?) — проверьте адрес"}
     ctx = ssl.create_default_context()
     t = time.time()
     try:
