@@ -265,6 +265,8 @@ main.three{grid-template-columns:270px minmax(0,1fr) minmax(300px,380px)}
 .addf input{flex:1 1 200px}
 .uhint{color:var(--muted);font-size:12.5px}
 .uorig{font:12px var(--mono);color:var(--muted);display:flex;flex-direction:column;gap:2px;word-break:break-all}
+.ures{margin:1px 0 3px 18px;color:var(--ink);opacity:.85}
+.ures:empty{display:none}
 .ubtns{display:flex;gap:6px;flex-wrap:wrap}
 .fixbox{margin:6px 0 4px}.fixrow td{background:transparent}.hecard .herow{flex-wrap:wrap}.hecard .herow .t{min-width:240px}
 .ufields{display:grid;grid-template-columns:130px 1fr;gap:6px 10px;align-items:center;max-width:900px}
@@ -892,7 +894,7 @@ function rowMain(c,opts){const r=chRule(c.k),h=chHidden(c),eg=effGroup(c),lg=log
     s+=`<div class="ued" data-k="${esc(c.k)}">
       <div class="uhint">Ссылки на поток — по одной в строке. Первая — основная, остальные — резерв: HLS Proxy переключится на них, если основная не отвечает. Изменение вступит в силу после «Сохранить и применить».</div>
       <textarea rows="${Math.min(8,Math.max(2,us.length+1))}" spellcheck="false">${esc(us.join("\n"))}</textarea>
-      ${!c.custom?`<div class="uorig"><span>Исходные ссылки:</span>${c.u.map(([s,u])=>`<span><span class="tag">${esc(s)}</span> ${esc(u)}</span>`).join("")}</div>`:""}
+      ${!c.custom?`<div class="uorig"><span>Исходные ссылки: <button class="sm" data-u="res" title="Открыть каждую исходную ссылку на сервере и показать, куда она ведёт на самом деле: переадресации провайдера и адрес внутри плейлиста (как в VLC). Поток не качается — только начало ответа">Куда ведут ↗</button></span>${c.u.map(([s,u],i)=>`<span><span class="tag">${esc(s)}</span> ${esc(u)}<div class="ures" data-ru="${i}">${resHtml(u)}</div></span>`).join("")}</div>`:""}
       <div class="chk-res" id="chkRes"></div>
       <div class="ufields">
         <label for="uEpg">Программа (EPG)</label><input type="text" id="uEpg" list="epgl" spellcheck="false" placeholder="${esc(c.id?"сейчас: "+c.id+" — начните вводить название канала":"начните вводить название канала")}" value="${esc(c.custom?(R.custom_channels[c.ci].tvg_id||""):(r.tvg_id||""))}">
@@ -1073,6 +1075,7 @@ $("clist").addEventListener("click",e=>{
     if(a==="cancel"){openU=null;renderPane();return}
     if(a==="nologo"){setCh(c.k,{logo:chRule(c.k).logo==="none"?null:"none"});render();return}
     if(a==="orig"){setCh(c.k,{urls:null,tvg_id:null,logo:null,shift:null,primary:null});openU=null;render();return}
+    if(a==="res"){resolveAll(c);return}
     if(a==="check"){checkUrls(ued.querySelector("textarea").value.split(/\n+/).map(x=>x.trim()).filter(Boolean),$("chkRes"));return}
     if(a==="del"){if(delChannels([c.k])) render(); return}
     if(a==="ok"){const us=ued.querySelector("textarea").value.split(/\n+/).map(x=>x.trim()).filter(Boolean);
@@ -1143,6 +1146,19 @@ let epgLoaded=false;
 async function loadEpg(){if(epgLoaded)return;epgLoaded=true;
   try{const l=await (await fetch("/api/epg")).json();
     $("epgl").innerHTML=l.map(([i,n])=>`<option value="${esc(i)}">${esc(n)}</option>`).join("")}catch(e){epgLoaded=false}}
+// «Куда ведут»: конечные адреса исходных ссылок (после переадресаций провайдера), кэш до перезагрузки страницы
+const resCache={};
+function resHtml(u){const r=resCache[u]; if(!r) return ""; if(r==="…") return "⏳ открываю…";
+  if(!r.final) return `<span class="st-bad">✖</span> ${esc(r.msg||"не открылась")}${(r.chain||[]).map(([k,x])=>`<div>↳ ${k} → ${esc(x)}</div>`).join("")}`;
+  const ch=(r.chain||[]).map(([k,x])=>`<div>↳ переадресация ${k} → ${esc(x)}</div>`).join("");
+  return `${ch||`<div>↳ без переадресации (ответ ${r.code})</div>`}${r.inner?`<div>↳ внутри плейлиста → ${esc(r.inner)}</div>`:""}${r.kind||r.type?`<div class="muted">${esc(r.kind||r.type)}</div>`:""}`}
+// обновляем только строки результата — набранное в поле ссылок не сбрасывается
+function resPaint(c){const box=document.querySelector(`.ued[data-k="${CSS.escape(c.k)}"]`); if(!box) return;
+  c.u.forEach(([,u],i)=>{const el=box.querySelector(`.ures[data-ru="${i}"]`); if(el) el.innerHTML=resHtml(u)})}
+async function resolveAll(c){const us=[...new Set(c.u.map(x=>x[1]))];
+  for(const u of us){resCache[u]="…"; resPaint(c);
+    let r; try{r=await (await fetch("/api/resolve",{method:"POST",headers:{"Content-Type":"application/json","X-M3U-Editor":"1"},body:JSON.stringify({url:u})})).json()}catch(e){r={ok:false,msg:String(e)}}
+    resCache[u]=r; resPaint(c)}}
 async function checkUrls(us,box){if(!box)return; if(!us.length){box.textContent="Нет ссылок";return}
   box.innerHTML=us.map((u,i)=>`<span id="cr${i}">⏳ ${esc(u.slice(0,90))}</span>`).join("");
   const out=[];

@@ -665,6 +665,48 @@ def check_url(u):
         return {"ok": False, "msg": str(getattr(e, "reason", e))[:200]}
 
 
+class _RedirLog(urllib.request.HTTPRedirectHandler):
+    """Запоминает цепочку переадресаций (301/302/303/307/308)."""
+    max_redirections = 8
+
+    def __init__(self):
+        self.chain = []
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        self.chain.append([code, newurl])
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+def resolve_url(u):
+    """Куда на самом деле ведёт исходная ссылка: переадресации провайдера и, если это плейлист HLS из одной ссылки,
+    адрес внутри него. Тело потока не качаем (максимум 64 КБ, чтобы заглянуть в m3u8); соединение сразу закрываем."""
+    if not isinstance(u, str) or not re.match(r"^https?://[^\s\"]{1,2000}$", u.strip()):
+        return {"ok": False, "msg": "только http/https ссылки"}
+    u = u.strip()
+    if not u.isascii(): return {"ok": False, "msg": "в ссылке есть не-латинские символы"}
+    log = _RedirLog()
+    op = urllib.request.build_opener(log, urllib.request.HTTPSHandler(context=ssl.create_default_context()))
+    try:
+        with op.open(urllib.request.Request(u, headers={"User-Agent": "VLC/3.0.20 LibVLC/3.0.20"}), timeout=10) as r:
+            final, code, ct = r.geturl(), r.status, r.headers.get("Content-Type", "")
+            b = r.read(65536)
+    except urllib.error.HTTPError as e:
+        return {"ok": False, "msg": f"ошибка {e.code}", "chain": log.chain}
+    except Exception as e:
+        return {"ok": False, "msg": str(getattr(e, "reason", e))[:200], "chain": log.chain}
+    out = {"ok": code < 400, "code": code, "final": final, "chain": log.chain, "type": ct.split(";")[0].strip()}
+    txt = b.decode("utf-8", "replace") if b[:1] != b"\x47" else ""
+    if "#EXTM3U" in txt[:1024]:
+        inner = [l.strip() for l in txt.replace("\r", "").split("\n") if l.strip() and not l.startswith("#")]
+        if "#EXT-X-STREAM-INF" in txt: out["kind"] = f"HLS, качеств: {txt.count('#EXT-X-STREAM-INF')}"
+        elif "#EXTINF" in txt: out["kind"] = f"HLS, сегментов: {txt.count('#EXTINF')}"
+        if inner and (len(inner) == 1 or "#EXT-X-STREAM-INF" in txt):   # одна ссылка (или первое качество) — покажем, куда она ведёт
+            out["inner"] = urllib.parse.urljoin(final, inner[0])
+    elif b[:1] == b"\x47" or "mp2t" in ct or "video" in ct or "mpeg" in ct:
+        out["kind"] = "сплошной поток MPEG-TS" if b[:1] == b"\x47" or "mp2t" in ct or "mpeg" in ct else "видеопоток"
+    return out
+
+
 # ---------- автопроверка потоков (autocheck.py, служба e4tv-check) ----------
 def ac_conf():
     n = read_json(AC_CONF, {}) or {}
@@ -1478,6 +1520,8 @@ class H(BaseHTTPRequestHandler):
             return self._send(200, {"ok": True})
         if self.path == "/api/check":
             return self._send(200, check_url(body.get("url")))
+        if self.path == "/api/resolve":   # «Куда ведут»: конечный адрес исходной ссылки после переадресаций
+            return self._send(200, resolve_url(body.get("url")))
         if self.path == "/api/rebuild":   # кнопка «Пересобрать» в боковой панели: сборка без сохранения правил
             with open(TRIGGER, "w") as f: f.write(str(time.time()))
             return self._send(200, {"ok": True})

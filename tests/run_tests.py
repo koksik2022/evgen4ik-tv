@@ -936,6 +936,39 @@ class ProvDetect(unittest.TestCase):
             self.assertIn(s, h)
 
 
+class Resolve(unittest.TestCase):   # «Куда ведут»: переадресация провайдера и ссылка внутри m3u8
+    @classmethod
+    def setUpClass(cls):
+        from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
+        class P(BaseHTTPRequestHandler):
+            def log_message(self, *a): pass
+            def do_GET(self):
+                if self.path.startswith("/iptv/"):
+                    self.send_response(302); self.send_header("Location", "/channel/abc/index.mpeg?q=tok"); self.end_headers(); return
+                if self.path.startswith("/hls/"):
+                    b = b"#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=1\nlow/index.m3u8\n"
+                    self.send_response(200); self.send_header("Content-Type", "application/vnd.apple.mpegurl"); self.end_headers(); self.wfile.write(b); return
+                self.send_response(200); self.send_header("Content-Type", "video/mp2t"); self.end_headers(); self.wfile.write(b"\x47" + b"\0" * 1000)
+        cls.srv = ThreadingHTTPServer(("127.0.0.1", 0), P)
+        threading.Thread(target=cls.srv.serve_forever, daemon=True).start()
+        cls.base = f"http://127.0.0.1:{cls.srv.server_address[1]}"
+
+    @classmethod
+    def tearDownClass(cls): cls.srv.shutdown()
+
+    def test_redirect(self):
+        r = app.resolve_url(self.base + "/iptv/KEY/17007/index.m3u8")
+        self.assertTrue(r["ok"]); self.assertEqual(r["final"], self.base + "/channel/abc/index.mpeg?q=tok")
+        self.assertEqual(r["chain"][0][0], 302); self.assertIn("MPEG-TS", r["kind"])
+
+    def test_inner_playlist(self):
+        r = app.resolve_url(self.base + "/hls/master.m3u8")
+        self.assertEqual(r["chain"], []); self.assertEqual(r["inner"], self.base + "/hls/low/index.m3u8")
+
+    def test_bad(self):
+        self.assertFalse(app.resolve_url("ftp://x")["ok"]); self.assertFalse(app.resolve_url("http://ВАШ.test/a")["ok"])
+
+
 class Misc(unittest.TestCase):
     def test_activity_parser(self):
         log = f"{TMP}/pl.log"
