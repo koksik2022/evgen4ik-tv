@@ -1045,7 +1045,7 @@ def vtuple(v):
 
 def version_info(force=False):
     age = time.time() - VER_CACHE["t"]
-    if (force and age > 30) or age > 6 * 3600:   # GitHub спрашиваем раз в 6 часов; по кнопке «проверить» — не чаще раза в 30 секунд
+    if (force and age > 30) or age > 3600:   # GitHub спрашиваем раз в час (было 6 ч — новая версия долго не показывалась); по кнопке «проверить» — не чаще раза в 30 секунд
         try:
             rq = urllib.request.Request(UPD_URL, headers={"User-Agent": "Evgen4ik-TV"})
             txt = urllib.request.urlopen(rq, timeout=10).read(20000).decode("utf-8", "replace")

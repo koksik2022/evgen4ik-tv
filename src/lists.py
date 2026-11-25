@@ -44,6 +44,23 @@ def with_quality_aliases(fmap):
     return out
 
 
+def quality_variants(fmap):
+    """Короткое имя -> все записи final.json, которые HLS Proxy склеивает под ним («Oasis Anime HD» из Sharavoz и «Oasis Anime»
+    из другого источника становятся одним каналом «Oasis Anime»). Нужны, чтобы канал не терялся, если по точному имени
+    находится тёзка из невыбранного источника или невыбранный вариант (найдено на рабочем сервере 25.11.2026:
+    «Телефон» с источником Sharavoz — 984 канала в редакторе, 877 в файле, без 49 из 55 каналов Oasis)."""
+    out = {}
+    for name, v in fmap.items():
+        out.setdefault(QUAL_RX.sub("", name), []).append(v)
+    return out
+
+
+def candidates(fmap, var, name):
+    """Записи final.json для канала из плейлиста HLS Proxy: сначала точное имя, затем остальные варианты HD/UHD/4K."""
+    n = name.lower(); ex = fmap.get(n)
+    return ([ex] if ex else []) + [v for v in var.get(QUAL_RX.sub("", n), []) if v is not ex]
+
+
 SLUG = re.compile(r"^[a-z0-9][a-z0-9-]{2,31}$")
 PASS = re.compile(r"^[A-Za-z0-9_-]{4,64}$")
 ADULT_GROUPS = {"18+"}
@@ -709,10 +726,11 @@ def build_clients(active, LOUT, head, keep, wgid, st, items=None, fmap=None, LK=
     В режиме hls ссылки — под логином клиента (кроме своих ссылок и отдельных плейлистов: они идут напрямую)."""
     st["clients"], st["clients_err"] = {}, {}
     kmap = {}   # ключ канала основного плейлиста -> (строки, группа)
+    qv = quality_variants(fmap or {})
     for it in items or []:
-        m = (fmap or {}).get(it["name"].lower())
         if EX_RX.search(it["name"]): continue
-        if m and (m[0] not in kmap or NM_RX.search(kmap[m[0]][0]["name"])): kmap[m[0]] = (it, m[1])   # как в основном: без «не склеивать»
+        for m in candidates(fmap or {}, qv, it["name"]):   # и тёзки HD/без HD, которых HLS Proxy склеил в этот канал
+            if m[0] not in kmap or NM_RX.search(kmap[m[0]][0]["name"]): kmap[m[0]] = (it, m[1])   # как в основном: без «не склеивать»
     for x in active:
         cid = str(x["id"])
         OFF, URLS = set(x.get("off") or []), x.get("urls") if isinstance(x.get("urls"), dict) else {}
@@ -993,6 +1011,7 @@ def main():
     AUTH = f"{OUTDIR}/auth"
     fmap = rj(FINAL, {}) or {}
     nfin = len(fmap)   # каналов в основном (для ожидания HLS Proxy) — до запасных ключей
+    QV = quality_variants(fmap)
     fmap = with_quality_aliases(fmap)
     os.makedirs(OUTDIR, exist_ok=True)
     try: wgid = grp.getgrnam("www-data").gr_gid
@@ -1042,20 +1061,25 @@ def main():
                 out, miss, groups, sel_items = [head], 0, set(), []
                 kpos, kpos_src = {}, {}
                 lmode, lfb, llp, via = L.get("link_mode") or GMODE, rules.get("fallback") is not False, rules.get("logo_proxy") is not False, {}
-                for it in items:
-                    if EX_RX.search(it["name"]): continue   # свои каналы «через сервер» — служебные, в выбор не входят
-                    m = fmap.get(it["name"].lower())
-                    if not m: miss += 1; continue
+                def take(m, name):   # подходит ли запись final.json этому плейлисту
                     k, g = m[0], m[1]
                     srcs = set(m[2]) if len(m) > 2 else set()
-                    if NM_RX.search(it["name"]) and not (SRCS & srcs): continue   # «не склеивать» — только где источник выбран явно (и не по ручной отметке)
+                    if NM_RX.search(name) and not (SRCS & srcs): return False   # «не склеивать» — только где источник выбран явно (и не по ручной отметке)
                     if k in C and k not in X: pass   # канал выбран вручную — берём из любого источника
                     elif SRCS:
-                        if srcs and not (SRCS & srcs): continue
-                    elif srcs and LO and srcs <= LO: continue   # канал есть только в источниках «только для плейлистов»
-                    if L.get("no_adult") and g in ADULT_GROUPS: continue   # детский профиль: 18+ никогда
+                        if srcs and not (SRCS & srcs): return False
+                    elif srcs and LO and srcs <= LO: return False   # канал есть только в источниках «только для плейлистов»
+                    if L.get("no_adult") and g in ADULT_GROUPS: return False   # детский профиль: 18+ никогда
                     ing = (g not in XG) if ALLG else (g in G)
-                    if not ((ing and k not in X) or k in C): continue
+                    return (ing and k not in X) or k in C
+                for it in items:
+                    if EX_RX.search(it["name"]): continue   # свои каналы «через сервер» — служебные, в выбор не входят
+                    cs = candidates(fmap, QV, it["name"])
+                    if not cs: miss += 1; continue
+                    m = next((x for x in cs if take(x, it["name"])), None)   # HLS Proxy склеил тёзок HD/без HD — подходит любой из них
+                    if m is None: continue
+                    k = m[0]
+                    srcs = set(m[2]) if len(m) > 2 else set()
                     j = kpos.get(k)   # один канал «не склеивать» и его тёзка: в плейлисте — только один
                     if j is None: kpos[k] = len(sel_items); sel_items.append((k, it))
                     elif (SRCS and (SRCS & srcs) and not (SRCS & kpos_src[k])) or \

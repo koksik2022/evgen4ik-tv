@@ -694,7 +694,14 @@ function viaLine(st){const v=st&&st.via; if(!v) return ""; const n=k=>v[k]||0, p
   if(n("drop")) p.push(`<span class="st-bad" title="Свои ссылки, которые не удалось пустить через сервер (например, udp или rtmp). Включите «Не вышло через сервер — отдать «только в файле»» в общей настройке">убрано ${n("drop")}</span>`);
   return p.length?`<div class="muted" style="margin-top:8px">В последней сборке каналов: ${p.join(" · ")}</div>`:""}
 const member=(L,c)=>visMain(c)&&!L.exclude.includes(c.k)&&!(L.no_adult&&effGroup(c)==="18+")&&(L.channels.includes(c.k)||(srcOk(L,c)&&gIn(L,effGroup(c))));
-const listCount=L=>ALL.filter(c=>member(L,c)).length+(typeof freeItems==="function"?freeItems(L).length:0);
+// HLS Proxy отрезает HD/FHD/UHD/4K в конце названия и склеивает тёзок («Первый канал HD» + «Первый канал» = один канал),
+// поэтому в режиме hls считаем по короткому имени — как окажется в файле плейлиста
+const qName=c=>dispName(c).toLowerCase().replace(/\s+(?:hd|fhd|uhd|4k)$/i,"");
+// исключение: канал берётся из источника «не склеивать», выбранного у плейлиста, — у него своё имя с меткой, HLS Proxy его не склеивает
+const listCount=L=>{const m=ALL.filter(c=>member(L,c)); let n=m.length;
+  if(CONF.mode==="hls"){const nm=new Set(R.sources.filter(x=>x.nomerge&&(L.sources||[]).includes(x.name)).map(x=>x.name));
+    n=new Set(m.map(c=>(c.src||[]).some(x=>nm.has(x))?"~"+c.k:qName(c))).size}
+  return n+(typeof freeItems==="function"?freeItems(L).length:0)};
 function allSources(){const n=[...((ST&&ST.builtin_sources)||[]),...R.sources.map(x=>x.name)]; if(R.custom_channels.length) n.push("Свой"); return n}
 const MAX_LISTS=300, MAX_CLIENTS=1000;   // как в app.py validate()
 function freeName(base,used){let i=1; while(used.has(base+" "+i)) i++; return base+" "+i}

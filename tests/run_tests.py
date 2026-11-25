@@ -936,6 +936,33 @@ class ProvDetect(unittest.TestCase):
             self.assertIn(s, h)
 
 
+class HlsQualityMerge(unittest.TestCase):
+    """HLS Proxy склеивает «Oasis Anime HD» (Sharavoz) и «Oasis Anime» (другой источник) в один канал «Oasis Anime».
+    Плейлист с источником Sharavoz должен его получить (раньше по точному имени находился тёзка из другого источника — канал терялся)."""
+    def test_list_keeps_merged_variant(self):
+        fin = f"{TMP}/data/editor/final.json"; old = open(fin, encoding="utf-8").read(); om = lists.master
+        json.dump({"oasis anime hd": ["oasis anime hd", "Кинозал", ["Sharavoz"]], "oasis anime": ["oasis anime", "Кинозал", ["Edem"]],
+                   "первый канал hd": ["первый канал hd", "Эфир", ["Sharavoz"]], "первый канал": ["первый канал", "Эфир", ["Sharavoz", "Edem"]],
+                   "только edem": ["только edem", "Кинозал", ["Edem"]]}, open(fin, "w"), ensure_ascii=False)
+        lists.master = lambda *a, **k: ('#EXTM3U\n#EXTINF:-1 group-title="Кинозал",Oasis Anime\nhttp://h/1\n'
+                                        '#EXTINF:-1 group-title="Эфир",Первый канал\nhttp://h/2\n#EXTINF:-1 group-title="Кинозал",Только Edem\nhttp://h/3\n')
+        try:
+            r = rules(lists=[{"id": "t1", "name": "Телефон", "all": True, "sources": ["Sharavoz"]},
+                             {"id": "t2", "name": "Выбран HD", "channels": ["первый канал hd"]}], clients=[])
+            build(r)
+            t1 = open(f"{TMP}/pl/{r['lists'][0]['token']}.m3u8", encoding="utf-8").read()
+            self.assertIn("Oasis Anime", t1, "склеенный HD-вариант из выбранного источника")
+            self.assertIn("Первый канал", t1); self.assertNotIn("Только Edem", t1, "чужой источник не берём")
+            t2 = open(f"{TMP}/pl/{r['lists'][1]['token']}.m3u8", encoding="utf-8").read()
+            self.assertIn("Первый канал", t2, "отмечен вручную HD-вариант — канал есть, хотя HLS Proxy назвал его без HD")
+            r = rules(lists=[{"id": "t1", "name": "Пусто", "groups": []}],
+                      clients=[{"id": "aa1", "name": "A", "lists": ["t1"], "add": ["oasis anime hd"], "link_mode": "direct"}])
+            out = build(r)
+            self.assertIn("Oasis Anime", out["A"] or "", "добавленный клиенту HD-вариант, склеенный HLS Proxy")
+        finally:
+            open(fin, "w", encoding="utf-8").write(old); lists.master = om
+
+
 class Limits(unittest.TestCase):   # раньше листы сверх 50 и клиенты сверх 200 молча пропадали при сохранении
     def test_more_than_50_lists_kept(self):
         r = app.validate({"lists": [{"id": f"l{i}", "name": f"Л{i}"} for i in range(120)],
