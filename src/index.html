@@ -446,20 +446,30 @@ let STATUS=null;   // последний ответ /api/status (сборка, H
 const PAGES={home:"Обзор",check:"Проверка потоков",journal:"Журнал",clients:"Клиенты",client:"Клиент",plist:"Объединённые плейлисты",lists:"Объединённые плейлисты",main:"Группы и каналы",sources:"Источники",filters:"Автоскрытие групп",history:"История и резервные копии",rules:"Постоянные правила",help:"Справка",links:"Ссылки и логотипы",epg:"Телегид",notify:"Уведомления"};
 // ---------- версия и обновление по кнопке ----------
 let VER={}, verPoll=null, verShown=false;
+// журнал изменений (CHANGES.md рядом с get.sh): что нового в версиях новее установленной / в только что установленной
+const newsHtml=list=>(list||[]).map(x=>`<div style="margin:10px 0 4px"><b>${esc(x.v)}</b>${x.date?` <span class="muted">· ${esc(x.date)}</span>`:""}</div><ul style="margin:0;padding-left:20px;line-height:1.5">${x.items.map(i=>`<li>${esc(i)}</li>`).join("")}</ul>`).join("");
+function showNews(title,list,upd){if(!list||!list.length) return; closeNews();
+  document.body.insertAdjacentHTML("beforeend",`<div id="newsBox" class="plbox"><div class="plwin" role="dialog" aria-label="${esc(title)}" style="width:min(640px,100%)"><div class="plhead"><b>${esc(title)}</b>${upd?'<button class="primary" id="newsUpd">Обновить</button>':""}<button id="newsX" class="icon" title="Закрыть (Esc)">✕</button></div>${newsHtml(list)}</div></div>`)}
+function closeNews(){const b=$("newsBox"); if(b) b.remove()}
+document.addEventListener("click",e=>{const id=e.target.id; if(id==="newsX"||id==="newsBox"){closeNews();return} if(id==="newsUpd"){closeNews(); const b=$("verUpd"); if(b) b.click()}});
+document.addEventListener("keydown",e=>{if(e.key==="Escape"&&$("newsBox")) closeNews()});
 async function checkVersion(force){try{VER=await (await fetch("/api/version"+(force?"?force=1":""))).json()}catch(e){return} showVer(); if(mode==="home"&&R) renderHome();
+  try{const seen=localStorage.getItem("e4seenVer"), cur=VER.current||"";   // после обновления — один раз показать, что поменялось
+    if(cur&&seen!==cur){localStorage.setItem("e4seenVer",cur); if(seen&&VER.this) showNews("Обновлено до "+cur,[VER.this])}}catch(e){}
   if(VER.newer&&!verShown){verShown=true; toast("Доступна новая версия "+VER.latest+" — кнопка «Обновить» внизу слева")}}
 const PLAIN_HTTP=location.protocol==="http:"&&!/^(localhost|127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|\[?::1)/.test(location.hostname);
 function showVer(){const el=$("verbox"); if(!el) return;
   const hw="";   // предупреждение про http теперь заметной плашкой над страницей (#httpbar), а не мелким текстом здесь
   if(VER.newer) renderSide();
   if(VER.updating){el.innerHTML='⏳ Обновляется… редактор перезапустится сам'+hw; return}
-  el.innerHTML=`Версия ${esc(VER.current||CONF.version||"?")}${VER.newer?` · <b style="color:var(--accent)">есть ${esc(VER.latest)}</b> <button class="sm primary" id="verUpd">Обновить</button>`:VER.latest?' · последняя · <a href="#" id="verChk" title="Спросить GitHub сейчас">проверить</a>':' · <a href="#" id="verChk">проверить обновления</a>'}`+
+  el.innerHTML=`Версия ${esc(VER.current||CONF.version||"?")}${VER.newer?` · <b style="color:var(--accent)">есть ${esc(VER.latest)}</b> <button class="sm primary" id="verUpd">Обновить</button>${(VER.changes||[]).length?' <a href="#" id="verNews">что нового</a>':""}`:VER.latest?' · последняя · <a href="#" id="verChk" title="Спросить GitHub сейчас">проверить</a>':' · <a href="#" id="verChk">проверить обновления</a>'}`+
     (VER.last_result&&VER.last_result!=="success"?' · <span class="st-bad" title="Подробности на сервере: /var/log/e4tv-update.log">прошлое обновление не удалось</span>':"")+hw}
 $("sidefoot").addEventListener("click",async e=>{
+  if(e.target.id==="verNews"){e.preventDefault(); showNews("Что нового в "+VER.latest,VER.changes,true); return}
   if(e.target.id==="verChk"){e.preventDefault(); e.target.textContent="проверяю…"; await checkVersion(true); if(!VER.newer) toast(VER.error?"Не удалось проверить: "+VER.error:"Установлена последняя версия "+(VER.current||"")); return}
   if(e.target.id!=="verUpd") return;
   if(!VER.can_update){copyText("sudo e4tv update","Команда «sudo e4tv update» скопирована — выполните её на сервере");return}
-  if(!confirm("Обновить Evgen4ik TV до "+VER.latest+"?\nНастройки, плейлисты, клиенты и ссылки сохранятся. Редактор перезапустится, просмотр через HLS Proxy прервётся на несколько секунд.")) return;
+  if(!confirm("Обновить Evgen4ik TV до "+VER.latest+"?"+((VER.changes||[]).length?"\n\nЧто нового:\n"+VER.changes.flatMap(x=>x.items.map(t=>"• "+t)).slice(0,10).join("\n"):"")+"\n\nНастройки, плейлисты, клиенты и ссылки сохранятся. Редактор перезапустится, просмотр через HLS Proxy прервётся на несколько секунд.")) return;
   const r=await fetch("/api/update",{method:"POST",headers:{"Content-Type":"application/json","X-M3U-Editor":"1"},body:"{}"}); const j=await r.json().catch(()=>({}));
   if(!r.ok){toast(j.error||"Не удалось запустить обновление");return}
   VER.updating=true; showVer(); const was=VER.current, t0=Date.now(); clearInterval(verPoll);
@@ -560,6 +570,8 @@ function setGroupIn(L,g,on){const ks=chansOf(g).map(c=>c.k);
   if(L.all){L.xgroups=L.xgroups||[]; if(on) pull(L.xgroups,g); else push(L.xgroups,g)}
   else if(on) push(L.groups,g); else pull(L.groups,g)}
 // источники: отмеченные в плейлисте; если не отмечены — все, кроме «только для плейлистов»
+// ручные отметки, которые ничего не добавляют: канал и так попадает через «Все группы»/группу и выбранные источники
+function redundantPicks(L){const M=new Map(ALL.map(c=>[c.k,c])); return (L.channels||[]).filter(k=>{const c=M.get(k); return c&&!c.custom&&visMain(c)&&srcOk(L,c)&&gIn(L,effGroup(c))&&!(L.exclude||[]).includes(k)&&!(L.no_adult&&effGroup(c)==="18+")})}
 const srcOk=(L,c)=>(L.sources&&L.sources.length)?c.src.some(x=>L.sources.includes(x)):!(R.lists_only_sources.length&&c.src.length&&c.src.every(x=>R.lists_only_sources.includes(x)));
 // в плейлисте: выбран вручную (из любого источника) или входит группой с учётом источников
 // «Ссылки на каналы»: через сервер (HLS Proxy) / перенаправление (ссылка сервера -> провайдер) / напрямую
@@ -613,7 +625,7 @@ function olCard(){return `<div class="card"><h2>Логотипы</h2><p class="h
 const EPG_DEF="http://epg.it999.ru/edem.xml.gz";
 // ---------- уведомления в Telegram (notify.py на сервере, раз в 5 минут) ----------
 let TGI=null, TGC=null;
-const TGEV=[["expire","Заканчивается срок у клиента — за 3 дня, один раз"],["build","Сборка плейлиста завершилась с ошибкой (и когда снова в порядке)"],["source","Источник перестал отдавать каналы (и когда снова работает)"],["newip","Клиент зашёл с нового IP"]];
+const TGEV=[["expire","Заканчивается срок у клиента — за 3 дня, один раз"],["build","Сборка плейлиста завершилась с ошибкой (и когда снова в порядке)"],["source","Источник перестал отдавать каналы (и когда снова работает)"],["newip","Клиент зашёл с нового IP"],["lost","В плейлист попали не все выбранные каналы (сверка после каждой сборки)"]];
 async function tgApi(path,body){const r=await fetch(path,body?{method:"POST",headers:{"Content-Type":"application/json","X-M3U-Editor":"1"},body:JSON.stringify(body)}:{}); const j=await r.json().catch(()=>({}));
   if(!r.ok) throw new Error(j.error||("ошибка "+r.status)); return j}
 async function renderNotify(){if(!TGI){$("settings").innerHTML='<div class="card"><p class="hint">Загружаю…</p></div>'; try{TGI=await tgApi("/api/tg")}catch(e){$("settings").innerHTML=`<div class="card"><p class="hint">Не удалось: ${esc(e.message)}</p></div>`; return} if(mode!=="notify") return}
@@ -759,7 +771,9 @@ function renderStats(){renderWarn();
   if(!ST){$("stats").textContent="нет данных";return}
   const vis=ALL.filter(visMain).length;
   const gs=groupsOrdered(), gv=gs.filter(g=>!groupHidden(g)&&chansOf(g).some(c=>!chHidden(c))).length;
-  $("stats").innerHTML=`В плейлисте <b>${vis}</b> из ${ALL.length} каналов · групп <b>${gv}</b> из ${gs.length} · сборка ${esc(ST.built_at||"—")}`;
+  const pm=LST&&LST.main&&LST.main.channels;   // столько каналов в основном плейлисте, который отдаёт HLS Proxy
+  const pl=CONF.mode==="hls"&&pm&&pm!==vis?` → в плеере <b title="HLS Proxy склеивает тёзок «Канал HD» и «Канал» в один, а каналы источников «не склеивать» в основной плейлист не идут — только в свои плейлисты. Поэтому в плеере каналов меньше, чем в редакторе">${pm}</b> <span class="muted" style="cursor:help" title="HLS Proxy склеивает тёзок «Канал HD» и «Канал» в один, а каналы источников «не склеивать» в основной плейлист не идут — только в свои плейлисты">ⓘ</span>`:"";
+  $("stats").innerHTML=`В плейлисте <b>${vis}</b> из ${ALL.length} каналов${pl} · групп <b>${gv}</b> из ${gs.length} · сборка ${esc(ST.built_at||"—")}`;
 }
 function renderLbar(){
   const b=$("lbar"); b.hidden=mode!=="lists"; if(b.hidden) return;
@@ -774,7 +788,9 @@ function renderLbar(){
           :`<label class="switch" title="Своя ссылка плейлиста"><input type="checkbox" id="lEn" ${L.enabled!==false?"checked":""}><i></i>Включён</label><label class="switch" title="Можно отмечать у клиентов в разделе «Клиенты»"><input type="checkbox" id="lCl" ${L.no_clients?"":"checked"}><i></i>Клиентам${usedBy(L)?" ("+usedBy(L)+")":""}</label>`}
         <label class="switch" title="Все группы основного плейлиста, в том числе новые; ненужные снимите слева"><input type="checkbox" id="lAll" ${L.all?"checked":""}><i></i>Все группы</label>
         <label class="switch" title="Группа 18+ никогда не попадёт в этот плейлист"><input type="checkbox" id="lKids" ${L.no_adult?"checked":""}><i></i>Детский (без 18+)</label>
-        <span class="muted">в плейлисте <b style="color:var(--ink)">${listCount(L)}</b> каналов${st?` · в файле ${st.channels}, групп ${st.groups??"—"}`:""}</span></div></div>
+        <span class="muted">в плейлисте <b style="color:var(--ink)">${listCount(L)}</b> каналов${st?` · в файле ${st.channels}, групп ${st.groups??"—"}`:""}</span></div>
+      ${st&&st.lost?`<div class="hint" style="margin-top:10px;color:var(--warn)">⚠ При последней сборке (${esc(LST.at||"")}) в файл не попало каналов: <b>${st.lost}</b>${(st.lost_sample||[]).length?" — "+esc(st.lost_sample.join(", "))+(st.lost>st.lost_sample.length?"…":""):""}. Обычно это каналы, которых нет в HLS Proxy (источник их не отдал) — проверьте их в «Группах и каналах».</div>`:""}
+      ${(n=>n?`<div class="hint" style="margin-top:10px">Каналов отмечено вручную, хотя их группа и так выбрана: <b>${n}</b>. Ручная отметка берёт канал из любого источника, мимо выбранных справа. <button id="lClean" class="sm" title="Снять ручные отметки у каналов, которые и так попадают в плейлист через свои группы и источники. Состав плейлиста не изменится">Очистить лишние отметки</button></div>`:"")(redundantPicks(L).length)}</div>
     <div class="card"><h2>Источники</h2><p class="hint">Брать каналы только из отмеченных. Ничего не отмечено — из всех${R.lists_only_sources.length?", кроме «только для плейлистов» ("+esc(R.lists_only_sources.join(", "))+")":""}.</p>
       <div class="srcs">${srcs.map(n=>`<label><input type="checkbox" class="lSrc" value="${esc(n)}" ${(L.sources||[]).includes(n)?"checked":""}> ${esc(n)}</label>`).join("")}</div>
       <div class="linkrow" style="margin-top:12px"><input type="text" id="lUrl" placeholder="Вставьте ссылку на любой M3U-плейлист" spellcheck="false"><button id="lUrlAdd" class="primary">Загрузить</button><button id="lFileBtn" title="Файл .m3u / .m3u8 с компьютера, до 30 МБ">Из файла…</button><input type="file" id="lFile" accept=".m3u,.m3u8,.txt,audio/x-mpegurl,application/vnd.apple.mpegurl" hidden></div>
@@ -987,6 +1003,8 @@ $("lbar").addEventListener("click",e=>{const id=e.target.id, L=LL(); if(!L) retu
   if(id==="lQrP"){showQr(credLink(L),L.name+" — с паролем");return}
   if(id==="lCopyP"){copyText(credLink(L),"Ссылка с паролем скопирована");return}
   if(id==="lSlugGen"){L.slug=slugify(L.name); render(); return}
+  if(id==="lClean"){const before=listCount(L), rp=new Set(redundantPicks(L)); L.channels=L.channels.filter(k=>!rp.has(k)); render();
+    toast(`Снято лишних отметок: ${rp.size}. Каналов в плейлисте: ${listCount(L)}${listCount(L)!==before?" (было "+before+")":""} — нажмите «Сохранить»`); return}
   if(id==="lPassGen"){const a="abcdefghjkmnpqrstuvwxyz23456789"; L.password=Array.from(crypto.getRandomValues(new Uint8Array(8)),x=>a[x%a.length]).join(""); render(); return}
   if(id==="lExpClr"){L.expires=""; render(); return}
   if(id==="lRegen"){if(!confirm("Сделать новую ссылку для «"+L.name+"»? Старая перестанет работать после сохранения.")) return; L.token=""; render(); toast("Сохраните — появится новая ссылка"); return}
@@ -1817,7 +1835,8 @@ function renderPlist(){
       <td><button class="name" data-act="edit">${esc(L.name)}</button>${usedBy(L)?` <span class="badge" title="У скольких клиентов отмечен">клиентов: ${usedBy(L)}</span>`:""}${L.no_clients?' <span class="badge">не для клиентов</span>':""}${L.password?' <span title="Ссылка с паролем">🔒</span>':""}${L.no_adult?' <span class="badge">детский</span>':""}${(b=>b?" "+b:"")(lmBadge(lmList(L),!!(L.link_mode&&LMK[L.link_mode])))}${L.expires?` <span class="badge" title="Действует до">до ${esc(L.expires.split("-").reverse().join("."))}</span>`:""}${L.slug?`<div class="muted">/${esc(L.slug)}</div>`:""}</td>
       <td>${(L.sources&&L.sources.length?L.sources:["все"]).map(x=>`<span class="badge">${esc(x)}</span>`).join(" ")}</td>
       <td class="num">${st&&en?(st.groups??"—"):"—"}</td>
-      <td class="num">${listCount(L)}</td>
+      <td class="num">${(()=>{const n=listCount(L), same=sv&&JSON.stringify(sv)===JSON.stringify(L);   // сверка с файлом — только для сохранённого без правок
+        return n+(same&&en&&st&&typeof st.channels==="number"&&st.channels!==n?` <span class="badge warn" title="В редакторе ${n}, а в собранном файле ${st.channels} (сборка ${esc(LST.at||"")}). Если вы только что сохранили — подождите пересборку несколько секунд. Если не проходит — часть каналов не нашлась в HLS Proxy: откройте плейлист, там подробнее">в файле ${st.channels}</span>`:"")})()}</td>
       <td>${L.chno?"с "+L.chno:"—"}</td>
       <td>${badge}</td>
       <td class="muted nw">${st&&en?esc(LST.at||""):"—"}</td>
@@ -2020,7 +2039,10 @@ function renderSettings(page){
       <label title="Каналы источника попадут только в объединённые плейлисты, где он отмечен"><input type="checkbox" class="sLO" ${R.lists_only_sources.includes(x.name)?"checked":""}> только для плейлистов</label>
       <button class="sCh primary" title="${info[x.name]&&info[x.name].count?"Открыть каналы источника в «Группах и каналах»":"Посмотреть, что внутри (источник ещё не применён)"}">Каналы${info[x.name]&&info[x.name].count?" ("+info[x.name].count+")":""} ›</button><button class="sChk" title="Проверить, что ссылка отдаёт плейлист">Проверить</button><button class="sDel danger">Удалить</button>
       <span class="st" style="grid-column:2/-1">${st(x.name)}${(()=>{const pi=provInfo(x), L=srcLim(x);
-        return (pi?` · <span class="badge" title="${pi.auto?"Определён автоматически по "+esc(pi.by)+". Не тот — впишите своё число устройств или удалите и добавьте источник через нужный шаблон":"Выбран при добавлении"}">${provFav(pi.p)}${esc(pi.p.name)}${pi.auto?" · авто":""}</span>`:"")
+        const wk=!pi&&x.url&&!x.url.startsWith("file:")?detectProv(x.url,hostsOf(x.name)):null;   // догадка по виду ссылки — шаблон сам не ставится
+        return (pi?` · <span class="badge" title="${pi.auto?"Определён автоматически по "+esc(pi.by)+". Не тот — впишите своё число устройств или удалите и добавьте источник через нужный шаблон":"Выбран при добавлении"}">${provFav(pi.p)}${esc(pi.p.name)}${pi.auto?" · авто":""}</span>`
+            +(pi.auto&&!x.prov?` <button class="sm sBind" data-p="${esc(pi.p.id)}" title="Запомнить шаблон за источником: лимит и подсказки провайдера не будут зависеть от того, узнаётся ли он по ссылке и потокам">закрепить</button>`:""):"")
+          +(wk&&wk.p?` · <button class="sm sBind" data-p="${esc(wk.p.id)}" title="Ссылка похожа на ${esc(wk.p.name)} (по ${esc(wk.by)}), но у похожих сервисов ссылки одного вида — сам шаблон не ставлю. Если это он — привяжите">Возможно, ${esc(wk.p.name)} — привязать</button>`:"")
           +` · лимит: ${x.nolim&&!L?"без лимита":L?L+" устр.":`<span class="st-bad">неизвестен</span>`}`
           +` <label title="Сколько устройств разрешает ваш тариф — важнее шаблона провайдера. Пусто — по шаблону">устр.: <input type="number" class="sDev" min="1" max="20" step="1" value="${x.lim||""}" placeholder="${(pi&&pi.p.lim)||"?"}" style="width:56px"></label>`
           +(L?"":` · <label title="Сторонний (бесплатный) плейлист без ограничения устройств — режим «Авто» не будет ставить из-за него лимит"><input type="checkbox" class="sNL" ${x.nolim?"checked":""}> без лимита устройств</label>`)})()} · <label title="Одноимённые каналы не склеиваются с другими источниками: в плейлистах, где отмечен этот источник, канал играет с его ссылки. Ссылки по-прежнему скрыты HLS Proxy. В основной плейлист каналы источника не попадают"><input type="checkbox" class="sNM" ${x.nomerge?"checked":""}> не склеивать с другими</label></span></div>`).join("");
@@ -2389,7 +2411,7 @@ function renderJournal(){const s=STATUS||{}, run=s.ActiveState==="activating"||s
       ${Object.keys(L.clients_err||{}).length?`<br><span class="st-bad">Ошибки у клиентов: ${esc(Object.keys(L.clients_err).map(id=>(R.clients.find(c=>c.id===id)||{}).name||id).join(", "))}</span>`:""}</p></div>
     ${heCard(true)}
     <div class="card"><h2>Проверка потоков</h2><p class="hint" style="margin:0">${ac.total!=null?`Последняя: ${esc(ac.at||"")} · проверено ${ac.total}, не отвечают ${(ac.bad||[]).length}`:ac.error?esc(ac.error):"Ещё не запускалась"} · <button class="sm" data-go2="check">Подробнее ›</button></p></div>
-    <div class="card"><h2>Обновление программы</h2><p class="hint" style="margin:0">Версия ${esc(VER.current||CONF.version||"?")}${VER.newer?` · <b style="color:var(--accent)">есть ${esc(VER.latest)}</b>`:VER.latest?" · последняя":""}${VER.last_result?` · прошлое обновление: ${VER.last_result==="success"?'<span class="st-ok">успешно</span>':'<span class="st-bad">'+esc(VER.last_result)+"</span> (подробности на сервере: /var/log/e4tv-update.log)"}`:""}</p></div>`}
+    <div class="card"><h2>Обновление программы</h2><p class="hint" style="margin:0">Версия ${esc(VER.current||CONF.version||"?")}${VER.newer?` · <b style="color:var(--accent)">есть ${esc(VER.latest)}</b>`:VER.latest?" · последняя":""}${VER.last_result?` · прошлое обновление: ${VER.last_result==="success"?'<span class="st-ok">успешно</span>':'<span class="st-bad">'+esc(VER.last_result)+"</span> (подробности на сервере: /var/log/e4tv-update.log)"}`:""}</p>${VER.newer&&(VER.changes||[]).length?`<div style="margin-top:6px">${newsHtml(VER.changes)}</div>`:""}</div>`}
 $("settings").addEventListener("click",async e=>{if(mode!=="journal") return; const t=e.target;
   if(t.id==="jRefresh"){await pollNowSafe(); await loadAC(); renderJournal(); toast("Обновлено"); return}
   if(t.id==="jRebuild") $("qRebuild").click()});
@@ -2469,6 +2491,8 @@ $("settings").addEventListener("click",e=>{const t=e.target, row=t.closest(".sro
   if(t.classList.contains("sDel")){const x=R.sources[+row.dataset.i]; if(!confirm("Удалить источник «"+x.name+"»? Его каналы пропадут после применения.")) return; R.sources.splice(+row.dataset.i,1); render(); return}
   if(t.classList.contains("sCh")){openSourceChannels(R.sources[+row.dataset.i]); return}
   if(t.classList.contains("sChB")){openSourceChannels({name:row.dataset.b}); return}
+  if(t.classList.contains("sBind")){const x=R.sources[+row.dataset.i], p=PROV.find(p=>p.id===t.dataset.p); if(!x||!p) return;
+    x.prov=p.id; delete x.pa; render(); toast(`«${x.name}»: шаблон ${p.name} привязан${p.lim?" (лимит "+p.lim+" устр.)":""} — нажмите «Сохранить»`); return}
   if(t.classList.contains("sChk")){checkUrls([R.sources[+row.dataset.i].url],$("srcChk")); return}
 });
 $("settings").addEventListener("change",e=>{const t=e.target, row=t.closest(".srow");

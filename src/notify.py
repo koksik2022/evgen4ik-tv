@@ -6,7 +6,8 @@
   expire — у клиента заканчивается срок (за 3 дня, один раз на каждую дату срока);
   build  — сборка общего плейлиста или листов завершилась с ошибкой (и когда снова в порядке);
   source — источник перестал отдавать каналы (и когда снова отдаёт);
-  newip  — клиент зашёл с IP, которого у него раньше не было.
+  newip  — клиент зашёл с IP, которого у него раньше не было;
+  lost   — в собранный плейлист попали не все каналы, которые в нём выбраны (и когда снова все).
 Что уже отправлено — в <data>/editor/notify-state.json (без токенов и ссылок).
   notify.py          — проверить события и отправить
   notify.py --test   — отправить пробное сообщение
@@ -26,7 +27,7 @@ LSTATUS = f"{DATA}/lists-status.json"
 ACT = f"{DATA}/activity.json"
 XC_ACT = f"{DATA}/xc-activity.json"
 UPLOADS = E4["uploads"]
-EVENTS = ("expire", "build", "source", "newip")
+EVENTS = ("expire", "build", "source", "newip", "lost")
 BK_MAGIC = b"E4TVBK1\n"   # начало файла резервной копии (дальше — вывод openssl enc)
 UP_RX = re.compile(r"^[a-z0-9]{4,16}\.m3u$")
 TOKEN_RX = re.compile(r"^\d{5,15}:[A-Za-z0-9_-]{30,64}$")
@@ -190,7 +191,22 @@ def collect(rules, st, first):
         if first or prev is None: continue
         if bad and prev != "bad": msgs.append(("source", f"s:{n}:{snap.get('built_at')}", f"⚠ Источник «{n}» не отдал каналы при сборке {snap.get('built_at', '')}.\n{status[:200]}"))
         if not bad and prev == "bad": msgs.append(("source", f"sok:{n}:{snap.get('built_at')}", f"✅ Источник «{n}» снова работает: {s.get('count')} каналов."))
-    # 4) новый IP клиента (по журналу заходов и входам Xtream)
+    # 4) плейлисты, в которые попали не все выбранные каналы (сверка lists.py после каждой сборки)
+    ls = rj(LSTATUS, {}) or {}
+    names = {str(L.get("id")): L.get("name") for L in (rules.get("lists") or []) if isinstance(L, dict)}
+    for lid, x in (ls.get("lists") or {}).items():
+        if not isinstance(x, dict) or lid not in names: continue
+        n = int(x.get("lost") or 0)
+        prev = st.setdefault("lost", {}).get(lid)
+        st["lost"][lid] = n
+        if first or prev is None: continue
+        if n and not prev:
+            smp = ", ".join(str(v) for v in (x.get("lost_sample") or [])[:8])
+            msgs.append(("lost", f"l:{lid}:{ls.get('at')}", f"⚠ Плейлист «{names[lid]}»: не попало {plural(n, 'канал', 'канала', 'каналов')} из выбранных"
+                         + (f" — {smp}" + ("…" if n > 8 else "") if smp else "") + ".\nПодробности: редактор → «Объединённые плейлисты» → «" + str(names[lid]) + "»."))
+        if not n and prev: msgs.append(("lost", f"lok:{lid}:{ls.get('at')}", f"✅ Плейлист «{names[lid]}»: снова все выбранные каналы ({x.get('channels')})."))
+    for lid in [k for k in st.get("lost", {}) if k not in names]: del st["lost"][lid]
+    # 5) новый IP клиента (по журналу заходов и входам Xtream)
     act, xca = rj(ACT, {}) or {}, rj(XC_ACT, {}) or {}
     known = st.setdefault("ips", {})
     for c in clients:

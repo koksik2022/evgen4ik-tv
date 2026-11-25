@@ -55,6 +55,11 @@ def quality_variants(fmap):
     return out
 
 
+def short_name(name):
+    """Имя для сверки: без меток «не склеивать»/«свой канал» и без HD/FHD/UHD/4K в конце (их отрезает HLS Proxy)."""
+    return QUAL_RX.sub("", MARK_RX.sub("", name.lower().strip()))
+
+
 def candidates(fmap, var, name):
     """Записи final.json для канала из плейлиста HLS Proxy: сначала точное имя, затем остальные варианты HD/UHD/4K."""
     n = name.lower(); ex = fmap.get(n)
@@ -1012,6 +1017,7 @@ def main():
     fmap = rj(FINAL, {}) or {}
     nfin = len(fmap)   # каналов в основном (для ожидания HLS Proxy) — до запасных ключей
     QV = quality_variants(fmap)
+    FRAW = fmap   # без запасных коротких имён — для сверки «что должно было попасть»
     fmap = with_quality_aliases(fmap)
     os.makedirs(OUTDIR, exist_ok=True)
     try: wgid = grp.getgrnam("www-data").gr_gid
@@ -1086,6 +1092,14 @@ def main():
                          (not SRCS and NM_RX.search(sel_items[j][1]["name"]) and not NM_RX.search(it["name"])): sel_items[j] = (k, it)
                     else: continue
                     kpos_src[k] = srcs
+                # сверка: каналы основного плейлиста, которые этот плейлист должен взять, но которых нет среди собранных
+                # (как 25.11.2026: HLS Proxy склеил тёзок HD/без HD, и 62 канала «Телефона» молча пропали). Сравниваем по короткому
+                # имени — HLS Proxy сам отрезает HD/UHD/4K; канал, которого нет в HLS Proxy вообще, тоже считается пропавшим
+                got = {short_name(it["name"]) for _, it in sel_items}
+                exp = {}
+                for nm0, v in FRAW.items():
+                    if isinstance(v, list) and len(v) >= 2 and not EX_RX.search(nm0) and take(v, nm0): exp.setdefault(short_name(nm0), nm0)
+                lost = sorted(exp[x] for x in exp if x not in got)
                 FG = set(L.get("fgroups") or [])   # «<id>:<группа>» отдельных плейлистов целиком
                 fids = {x.split(":", 2)[1] for x in C | X if x.startswith("f:")} | {x.split(":", 1)[0] for x in FG}
                 for fs in [f for f in FREE if f["id"] in fids]:
@@ -1135,7 +1149,7 @@ def main():
                     os.chown(tmp, 0, wgid); os.chmod(tmp, 0o640); os.replace(tmp, fn)
                     keep.add(fn)
                 st["lists"][str(L.get("id"))] = {"channels": sum(1 for x in out if x.startswith("#EXTINF")), "groups": len(groups), "unmatched": miss,
-                                                 "via": via, "mode": LK.mode(lmode)}
+                                                 "via": via, "mode": LK.mode(lmode), "lost": len(lost), "lost_sample": [MARK_RX.sub("", x) for x in lost[:12]]}
     if items is not None:
         build_clients(active, LOUT, head, keep, wgid, st, items, fmap, LK)
         global RERUN
@@ -1165,7 +1179,7 @@ def main():
     tmp = STATUS + ".tmp"
     with open(tmp, "w", encoding="utf-8") as f: json.dump(st, f, ensure_ascii=False)
     os.chmod(tmp, 0o644); os.replace(tmp, STATUS)
-    print(f"листов: {len(lists)}; " + ("; ".join(f"{k}: {v['channels']}" for k, v in st["lists"].items()) or "—") + (f"; ОШИБКА: {st['error']}" if st["error"] else ""))
+    print(f"листов: {len(lists)}; " + ("; ".join(f"{k}: {v['channels']}" + (f" (не попало {v['lost']}: {', '.join(v.get('lost_sample') or [])[:200]})" if v.get("lost") else "") for k, v in st["lists"].items()) or "—") + (f"; ОШИБКА: {st['error']}" if st["error"] else ""))
     return 1 if st["error"] else 0
 
 

@@ -724,7 +724,7 @@ def ac_conf():
 # ---------- уведомления в Telegram (notify.py, таймер e4tv-notify) ----------
 TG_FILE = f"{DATA}/telegram.json"          # токен бота и чат: права 600, не в rules.json и не в резервных копиях
 NOTIFY_STATE = f"{DATA}/notify-state.json"
-TG_EVENTS = ("expire", "build", "source", "newip")
+TG_EVENTS = ("expire", "build", "source", "newip", "lost")
 
 
 def tg_info():
@@ -1035,7 +1035,21 @@ def he_hide(items, unhide=False):
 # ---------- обновления: есть ли новая версия на GitHub, обновление по кнопке (делает root-служба e4tv-update) ----------
 UPD_URL = E4.get("update_url") or "https://raw.githubusercontent.com/koksik2022/evgen4ik-tv/main/get.sh"
 UTRIGGER = f"{DATA}/update.trigger"
-VER_CACHE = {"t": 0.0, "latest": None, "err": None}
+VER_CACHE = {"t": 0.0, "latest": None, "err": None, "changes": []}
+CHANGES_URL = UPD_URL.rsplit("/", 1)[0] + "/CHANGES.md"   # журнал изменений рядом с get.sh
+
+
+def parse_changes(txt):
+    """CHANGES.md: «## <версия> — <дата>» и пункты «- …» -> [{v, date, items}] (не больше 30 версий и 12 пунктов в каждой)."""
+    out = []
+    for l in txt.replace("\r", "").split("\n"):
+        m = re.match(r"^##\s+([0-9]+(?:\.[0-9]+){1,3})\s*(?:[—-]\s*(.{0,40}))?$", l.strip())
+        if m:
+            if len(out) >= 30: break
+            out.append({"v": m.group(1), "date": (m.group(2) or "").strip(), "items": []})
+        elif out and l.startswith("- ") and len(out[-1]["items"]) < 12:
+            out[-1]["items"].append(l[2:].strip()[:300])
+    return out
 
 
 def vtuple(v):
@@ -1053,6 +1067,11 @@ def version_info(force=False):
             VER_CACHE.update(latest=m.group(1) if m else None, err=None if m else "не нашёл версию в get.sh")
         except Exception as e:
             VER_CACHE["err"] = str(getattr(e, "reason", e))[:150]
+        try:   # журнал изменений — необязателен: нет файла или связи — просто без списка
+            rq = urllib.request.Request(CHANGES_URL, headers={"User-Agent": "Evgen4ik-TV"})
+            VER_CACHE["changes"] = parse_changes(urllib.request.urlopen(rq, timeout=10).read(60000).decode("utf-8", "replace"))
+        except Exception:
+            pass
         VER_CACHE["t"] = time.time()
     try:
         out = subprocess.run(["systemctl", "show", "e4tv-update.service", "-p", "ActiveState", "-p", "Result", "-p", "ExecMainExitTimestamp"],
@@ -1061,7 +1080,9 @@ def version_info(force=False):
     except Exception:
         u = {}
     cur = E4.get("version") or ""
+    ch = VER_CACHE.get("changes") or []
     return {"current": cur, "latest": VER_CACHE["latest"], "error": VER_CACHE["err"],
+            "changes": [x for x in ch if vtuple(x["v"]) > vtuple(cur)][:6], "this": next((x for x in ch if x["v"] == cur), None),
             "newer": bool(VER_CACHE["latest"]) and vtuple(VER_CACHE["latest"]) > vtuple(cur),
             "updating": u.get("ActiveState") in ("activating", "active"), "last_result": u.get("Result") or "",
             "last_at": u.get("ExecMainExitTimestamp") or "", "can_update": os.path.exists(UTRIGGER)}

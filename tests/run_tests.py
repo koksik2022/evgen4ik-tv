@@ -107,6 +107,20 @@ class Notify(unittest.TestCase):
         self.assertIn("2.2.2.2", txt); self.assertIn("Пров", txt); self.assertIn("с ошибкой", txt)
         n = len(sent); notify.main(); self.assertEqual(len(sent), n, "о той же ошибке второй раз не пишет")
 
+    def test_lost_channels(self):   # плейлист собрался не целиком — сообщение один раз, и когда снова всё на месте
+        import notify
+        sent = []; notify.send = lambda c, text: sent.append(text); notify.unit_result = lambda u: ("success", "t1")
+        json.dump({"token": "123456:" + "A" * 35, "chat_id": "42"}, open(notify.TG, "w"))
+        json.dump({"lists": [{"id": "t1", "name": "Телефон"}]}, open(notify.RULES, "w"), ensure_ascii=False)
+        json.dump({}, open(notify.ACT, "w")); json.dump({"sources": []}, open(notify.SNAP, "w"))
+        ls = lambda lost, at: json.dump({"at": at, "lists": {"t1": {"channels": 877, "lost": lost, "lost_sample": ["Oasis Anime", "RT"] if lost else []}}},
+                                        open(notify.LSTATUS, "w"), ensure_ascii=False)
+        if os.path.exists(notify.STATE): os.remove(notify.STATE)
+        ls(0, "a1"); notify.main(); self.assertEqual(sent, [], "первый запуск — только запомнить")
+        ls(62, "a2"); notify.main(); self.assertEqual(len(sent), 1); self.assertIn("не попало 62 канала", sent[0]); self.assertIn("Oasis Anime", sent[0])
+        ls(62, "a3"); notify.main(); self.assertEqual(len(sent), 1, "о том же не повторяет")
+        ls(0, "a4"); notify.main(); self.assertEqual(len(sent), 2); self.assertIn("снова все", sent[1])
+
 
 class Backup(unittest.TestCase):
     def test_roundtrip_and_restore(self):
@@ -959,8 +973,29 @@ class HlsQualityMerge(unittest.TestCase):
                       clients=[{"id": "aa1", "name": "A", "lists": ["t1"], "add": ["oasis anime hd"], "link_mode": "direct"}])
             out = build(r)
             self.assertIn("Oasis Anime", out["A"] or "", "добавленный клиенту HD-вариант, склеенный HLS Proxy")
+            # сверка после сборки: канал есть в основном (final.json), выбран, но HLS Proxy его не отдал — «не попало»
+            json.dump({"oasis anime hd": ["oasis anime hd", "Кинозал", ["Sharavoz"]], "пропавший hd": ["пропавший hd", "Кинозал", ["Sharavoz"]]},
+                      open(fin, "w"), ensure_ascii=False)
+            r = rules(lists=[{"id": "t1", "name": "Телефон", "all": True, "sources": ["Sharavoz"]}], clients=[])
+            build(r)
+            st = json.load(open(f"{TMP}/data/editor/lists-status.json", encoding="utf-8"))["lists"]["t1"]
+            self.assertEqual((st["channels"], st["lost"], st["lost_sample"]), (1, 1, ["пропавший hd"]))
         finally:
             open(fin, "w", encoding="utf-8").write(old); lists.master = om
+
+
+class Changes(unittest.TestCase):   # журнал изменений: файл в репозитории разбирается, новые версии отбираются
+    def test_changes_md(self):
+        ch = app.parse_changes(open(os.path.join(ROOT, "CHANGES.md"), encoding="utf-8").read())
+        self.assertTrue(ch and all(x["items"] for x in ch), "у каждой версии есть пункты")
+        ver = re.search(r'^E4_VER="([0-9.]+)"', open(os.path.join(ROOT, "install.sh"), encoding="utf-8").read(), re.M).group(1)
+        self.assertEqual(ch[0]["v"], ver, "в CHANGES.md первой идёт текущая версия установщика")
+        old = dict(app.VER_CACHE); app.VER_CACHE.update(t=time.time(), latest=ch[0]["v"], err=None, changes=ch)
+        try:
+            app.E4["version"] = ch[2]["v"]; v = app.version_info()
+            self.assertEqual([x["v"] for x in v["changes"]], [ch[0]["v"], ch[1]["v"]]); self.assertEqual(v["this"]["v"], ch[2]["v"])
+        finally:
+            app.VER_CACHE.clear(); app.VER_CACHE.update(old); app.E4["version"] = "9.9"
 
 
 class Limits(unittest.TestCase):   # раньше листы сверх 50 и клиенты сверх 200 молча пропадали при сохранении
