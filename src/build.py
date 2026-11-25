@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # Evgen4ik TV: сборка общего плейлиста из источников редактора — единые группы, tvg-id (из EPG it999), правила редактора
-import re, os, sys, gzip, zlib, urllib.request, collections, json, time
+import re, os, sys, zlib, urllib.request, collections, json, time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from e4conf import C as CONF
 

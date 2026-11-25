@@ -936,6 +936,21 @@ class ProvDetect(unittest.TestCase):
             self.assertIn(s, h)
 
 
+class Limits(unittest.TestCase):   # раньше листы сверх 50 и клиенты сверх 200 молча пропадали при сохранении
+    def test_more_than_50_lists_kept(self):
+        r = app.validate({"lists": [{"id": f"l{i}", "name": f"Л{i}"} for i in range(120)],
+                          "clients": [{"id": f"c{i}", "name": f"К{i}", "lists": [f"l{j}" for j in range(60)]} for i in range(250)]})
+        self.assertEqual(len(r["lists"]), 120); self.assertEqual(len(r["clients"]), 250); self.assertEqual(len(r["clients"][0]["lists"]), 60)
+
+    def test_over_limit_is_error(self):
+        with self.assertRaises(ValueError): app.validate({"lists": [{"id": f"l{i}", "name": "x"} for i in range(app.MAX_LISTS + 1)]})
+        with self.assertRaises(ValueError): app.validate({"clients": [{"name": "x"} for _ in range(app.MAX_CLIENTS + 1)]})
+
+    def test_page_limits_match(self):
+        h = open(os.path.join(SRC, "index.html"), encoding="utf-8").read()
+        self.assertIn(f"MAX_LISTS={app.MAX_LISTS}, MAX_CLIENTS={app.MAX_CLIENTS}", h)
+
+
 class Resolve(unittest.TestCase):   # «Куда ведут»: переадресация провайдера и ссылка внутри m3u8
     @classmethod
     def setUpClass(cls):

@@ -468,10 +468,15 @@ $("sidefoot").addEventListener("click",async e=>{
       if(!v.updating&&Date.now()-t0>20000){clearInterval(verPoll); VER=v; showVer(); toast(v.last_result==="success"?"Готово":"Обновление не удалось — подробности на сервере в /var/log/e4tv-update.log")}}
     catch(e){/* редактор перезапускается */}},5000)});
 function toast(t){const e=$("toast");e.textContent=t;e.classList.add("on");clearTimeout(e._t);e._t=setTimeout(()=>e.classList.remove("on"),3200)}
+// недостающие поля листа/клиента (старый или вручную правленный rules.json) — иначе страницы падают на .includes
+const LDEF={token:"",groups:[],channels:[],exclude:[],enabled:true,sources:[],chno:null,all:false,xgroups:[],order:[],fgroups:[]};
+const CDEF={lists:[],off:[],add:[],urls:{},extra:[],ips:[],order:[],enabled:true};
+function normL(L){L=Object.assign({},LDEF,L||{}); for(const k of ["groups","channels","exclude","sources","xgroups","order","fgroups"]) if(!Array.isArray(L[k])) L[k]=[]; return L}
+function normC(c){c=Object.assign({},CDEF,c||{}); for(const k of ["lists","off","add","extra","ips","order"]) if(!Array.isArray(c[k])) c[k]=[]; if(!c.urls||typeof c.urls!=="object") c.urls={}; return c}
 function norm(r){r=r||{};return{version:1,hidden_patterns:r.hidden_patterns||(ST&&ST.default_hidden)||[],groups:r.groups||{},channels:r.channels||{},
-  group_order:r.group_order||[],custom_groups:r.custom_groups||[],custom_channels:r.custom_channels||[],lists:r.lists||[],
+  group_order:r.group_order||[],custom_groups:r.custom_groups||[],custom_channels:r.custom_channels||[],lists:(r.lists||[]).map(normL),
   sources:r.sources||[],disabled_sources:r.disabled_sources||[],primary_source:r.primary_source||null,stream_limit:r.stream_limit??null,stream_limit_mode:r.stream_limit_mode==="auto"?"auto":"manual",
-  lists_only_sources:r.lists_only_sources||[],channel_order:r.channel_order||{},auto_rules:r.auto_rules||[],free_sources:r.free_sources||[],free_edits:r.free_edits||{},clients:r.clients||[],client_msg:r.client_msg||"",
+  lists_only_sources:r.lists_only_sources||[],channel_order:r.channel_order||{},auto_rules:r.auto_rules||[],free_sources:r.free_sources||[],free_edits:r.free_edits||{},clients:(r.clients||[]).map(normC),client_msg:r.client_msg||"",
   link_mode:r.link_mode||"",logo_proxy:r.logo_proxy!==false,fallback:r.fallback!==false,stream_format:r.stream_format||"",open_logos:r.open_logos===true,epg_sources:Array.isArray(r.epg_sources)?r.epg_sources:[],epg_days:Number.isInteger(r.epg_days)?r.epg_days:null,key_template:typeof r.key_template==="string"?r.key_template:""}}
 function isDirty(){return JSON.stringify(R)!==saved}
 const DIRTY_NAMES={channels:"каналы",groups:"группы",group_order:"порядок групп",channel_order:"порядок каналов",hidden_patterns:"скрытие",custom_groups:"свои группы",custom_channels:"свои каналы",
@@ -691,8 +696,11 @@ function viaLine(st){const v=st&&st.via; if(!v) return ""; const n=k=>v[k]||0, p
 const member=(L,c)=>visMain(c)&&!L.exclude.includes(c.k)&&!(L.no_adult&&effGroup(c)==="18+")&&(L.channels.includes(c.k)||(srcOk(L,c)&&gIn(L,effGroup(c))));
 const listCount=L=>ALL.filter(c=>member(L,c)).length+(typeof freeItems==="function"?freeItems(L).length:0);
 function allSources(){const n=[...((ST&&ST.builtin_sources)||[]),...R.sources.map(x=>x.name)]; if(R.custom_channels.length) n.push("Свой"); return n}
-function newList(){const lid=Math.random().toString(36).slice(2,10).replace(/[^a-z0-9]/g,"")||"l"+Date.now();
-  R.lists.push({id:lid,name:"Новый плейлист "+(R.lists.length+1),token:"",groups:[],channels:[],exclude:[],enabled:true,sources:[],chno:null,all:false,xgroups:[],order:[]});
+const MAX_LISTS=300, MAX_CLIENTS=1000;   // как в app.py validate()
+function freeName(base,used){let i=1; while(used.has(base+" "+i)) i++; return base+" "+i}
+function newList(){if(R.lists.length>=MAX_LISTS){toast("Плейлистов не больше "+MAX_LISTS+" (вместе с личными) — удалите ненужные");return}
+  const lid=newId();
+  R.lists.push({id:lid,name:freeName("Новый плейлист",new Set(R.lists.map(l=>l.name))),token:"",groups:[],channels:[],exclude:[],enabled:true,sources:[],chno:null,all:false,xgroups:[],order:[]});
   curL=lid; go("lists"); toast("Отметьте группы слева и каналы справа, затем «Сохранить» — появится ссылка")}
 function go(m){if(m==="notify"){TGI=null;TGC=null}if(m!=="lists"&&m!=="client") cBack=null; if((m==="clients"||m==="client")&&m!==mode) setTimeout(pollNow,50); mode=m; try{localStorage.setItem("m3uePage",m==="lists"?"plist":m==="client"?"clients":m)}catch(e){} checked.clear(); openU=null; addOpen=false; render(); const c=$("settings"); if(c) c.scrollTop=0}
 function moreMenu(items){return `<div class="more"><button class="sm" data-more aria-haspopup="menu" aria-expanded="false" aria-label="Ещё действия" title="Ещё действия">⋯</button><div class="menu" role="menu" hidden>${items.filter(Boolean).join("")}</div></div>`}
@@ -1140,7 +1148,9 @@ $("btnAddGroup").onclick=()=>{const v=clean($("newGroup").value); if(!v) return;
 $("newGroup").onkeydown=e=>{if(e.key==="Enter")$("btnAddGroup").click()};
 $("btnUndo").onclick=undo;
 $("btnReset").onclick=()=>{if(!isDirty())return; R=JSON.parse(saved); checked.clear(); openU=null; addOpen=false;
-  if(curL&&!R.lists.some(l=>l.id===curL)) curL=R.lists[0]?R.lists[0].id:null; render(); toast("Изменения отменены")};
+  if(curL&&!R.lists.some(l=>l.id===curL)){curL=R.lists[0]?R.lists[0].id:null; if(mode==="lists") mode="plist"}   // сброшенный новый лист — назад к списку, а не в чужой лист
+  if(curC&&!R.clients.some(c=>c.id===curC)&&mode==="client") mode="clients";
+  render(); toast("Изменения отменены")};
 /* ---------- EPG, проверка ссылок ---------- */
 let epgLoaded=false;
 async function loadEpg(){if(epgLoaded)return;epgLoaded=true;
@@ -1406,9 +1416,9 @@ function cMsg(c){return (R.client_msg||DEF_MSG()).replace(/\{ИМЯ\}/g,c.name).
   .replace(/\{ССЫЛКА\}/g,cSaved(c)?cShare(c):"(ссылка появится после сохранения)").replace(/\{EPG\}/g,EPG_URL||"—")
   .replace(/\{ПОТОКИ\}/g,c.streams?plural(c.streams,"канал","канала","каналов"):"сколько угодно каналов")
   .replace(/\{СТРАНИЦА\}/g,cSaved(c)?cPage(c):"(после сохранения)").replace(/\{СЕРВЕР\}/g,XC_SERVER()).replace(/\{ЛОГИН\}/g,c.xc_user||"(после сохранения)").replace(/\{ПАРОЛЬ\}/g,c.xc_pw||"(после сохранения)")}
-function newPersonal(c){const lid=newId(); R.lists.push({id:lid,name:("Личный — "+c.name).slice(0,80),token:"",groups:[],channels:[],exclude:[],enabled:false,sources:[],chno:null,all:false,xgroups:[],order:[],owner:c.id});
+function newPersonal(c){if(R.lists.length>=MAX_LISTS){toast("Плейлистов не больше "+MAX_LISTS+" (вместе с личными) — удалите ненужные");return} const lid=newId(); R.lists.push({id:lid,name:("Личный — "+c.name).slice(0,80),token:"",groups:[],channels:[],exclude:[],enabled:false,sources:[],chno:null,all:false,xgroups:[],order:[],owner:c.id});
   c.lists.push(lid); cBack=c.id; curC=c.id; curL=lid; go("lists"); toast("Личный плейлист «"+c.name+"»: отметьте группы и каналы, затем «Сохранить»")}
-function newClient(){const c={id:newId(),name:"Новый клиент",contact:"",note:"",enabled:true,expires:"",lists:R.lists.length===1?[R.lists[0].id]:[],
+function newClient(){if(R.clients.length>=MAX_CLIENTS){toast("Клиентов не больше "+MAX_CLIENTS);return} const c={id:newId(),name:"Новый клиент",contact:"",note:"",enabled:true,expires:"",lists:R.lists.length===1?[R.lists[0].id]:[],
   streams:1,no_adult:false,token:"",hls_pw:"",created:todayISO(),off:[],add:[],urls:{},extra:[],ips:[],order:[],xc_user:"",xc_pw:""}; R.clients.push(c); curC=c.id; cChQ=""; cPanel=""; go("client")}
 function csvClients(){const q=v=>'"'+String(v??"").replace(/"/g,'""')+'"', ln=id=>(R.lists.find(x=>x.id===id)||{}).name||"";
   const rows=[["Имя","Связь","Заметка","Плейлисты","Каналов одновременно","Действует до","Включён","Ссылка","Последний заход","Плеер"]]

@@ -120,6 +120,9 @@ def lst(v):
     return v if isinstance(v, list) else []
 
 
+MAX_LISTS, MAX_CLIENTS = 300, 1000   # было 50/200 — лишнее молча отбрасывалось; теперь ошибка при сохранении (такие же числа в index.html)
+
+
 def validate(r):
     if not isinstance(r, dict):
         raise ValueError("ожидается объект")
@@ -212,7 +215,9 @@ def validate(r):
             v = keys(ks, 5000)
             if v: out["channel_order"][s(g)] = v
     ids = set()
-    for L in (r.get("lists") or [])[:50]:
+    if len(r.get("lists") or []) > MAX_LISTS: raise ValueError(f"плейлистов больше {MAX_LISTS} (вместе с личными) — удалите ненужные")
+    if len(lst(r.get("clients"))) > MAX_CLIENTS: raise ValueError(f"клиентов больше {MAX_CLIENTS}")
+    for L in (r.get("lists") or [])[:MAX_LISTS]:
         if not isinstance(L, dict): continue
         lid = str(L.get("id") or "")
         if not re.fullmatch(r"[a-z0-9]{1,16}", lid) or lid in ids: lid = secrets.token_hex(4)
@@ -239,7 +244,7 @@ def validate(r):
     # клиенты: люди со своей личной ссылкой, сроком и лимитом; файл плейлиста собирает lists.py
     lids = {L["id"] for L in out["lists"]}
     out["clients"], cids, ctoks = [], set(), {L["token"] for L in out["lists"]}
-    for c in lst(r.get("clients"))[:200]:
+    for c in lst(r.get("clients"))[:MAX_CLIENTS]:
         if not isinstance(c, dict) or not s(c.get("name"), 80): continue
         cid = str(c.get("id") or "")
         if not re.fullmatch(r"[a-z0-9]{1,16}", cid) or cid in cids: cid = secrets.token_hex(4)
@@ -251,7 +256,7 @@ def validate(r):
         out["clients"].append({"id": cid, "name": s(c["name"], 80), "contact": s(c.get("contact"), 80) or "",
                                "note": s(c.get("note"), 300) or "", "enabled": c.get("enabled") is not False,
                                "expires": c["expires"] if isinstance(c.get("expires"), str) and re.fullmatch(r"\d{4}-\d{2}-\d{2}", c["expires"]) else "",
-                               "lists": [x for x in dict.fromkeys(str(x) for x in lst(c.get("lists"))[:50]) if x in lids],
+                               "lists": [x for x in dict.fromkeys(str(x) for x in lst(c.get("lists"))[:MAX_LISTS]) if x in lids],
                                "streams": st if isinstance(st, int) and not isinstance(st, bool) and 0 <= st <= 50 else 1,
                                "no_adult": c.get("no_adult") is True, "token": tok, "hls_pw": hp,
                                # короткая ссылка /pl/<slug>.m3u8 (вторая, к длинной); уникальность — ниже, вместе с плейлистами
@@ -277,7 +282,7 @@ def validate(r):
     for c in out["clients"]:
         c["lists"] = [x for x in c["lists"] if x in own and own[x] in ("", c["id"])]
     xu = set()
-    for c, src in zip(out["clients"], [x for x in lst(r.get("clients"))[:200] if isinstance(x, dict) and s(x.get("name"), 80)]):
+    for c, src in zip(out["clients"], [x for x in lst(r.get("clients"))[:MAX_CLIENTS] if isinstance(x, dict) and s(x.get("name"), 80)]):
         u = str(src.get("xc_user") or "").lower()
         if not re.fullmatch(r"[a-z0-9_]{3,32}", u) or u in xu: u = "tv" + c["id"]
         xu.add(u); c["xc_user"] = u
