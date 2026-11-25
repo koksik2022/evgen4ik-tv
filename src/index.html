@@ -2528,13 +2528,26 @@ async function openPlayer(o){closePlayer();
       const p=M.createPlayer({type:"mpegts",isLive:true,url:location.origin+src},{enableStashBuffer:false}); PLR.ts=p; p.attachMediaElement(v); p.load(); v.play().catch(()=>{});
       p.on(M.Events.ERROR,()=>plStatus("Браузер не смог показать этот поток — нажмите «Открыть в VLC».",true)); plStatus("")}
     catch(e){plStatus("Браузер не смог показать этот поток — нажмите «Открыть в VLC».",true)}};
+  // Заглядываем в начало ответа: плейлист HLS или сплошной поток MPEG-TS (как index.mpeg у tvclub после переадресации).
+  // Сплошной поток hls.js не распознаёт — он ждёт конец «плейлиста», которого нет, и висит на «Подключаюсь…».
+  const kind=await (async()=>{const ac=new AbortController(), tm=setTimeout(()=>ac.abort(),15000);
+    try{const r=await fetch(src,{signal:ac.signal});
+      if(!r.ok){let m=""; try{m=(await r.json()).error||""}catch(e){} return {err:m||("ошибка "+r.status)}}
+      const ct=(r.headers.get("Content-Type")||"").toLowerCase(), rd=r.body.getReader(); let b=new Uint8Array(0);
+      while(b.length<1024){const x=await rd.read(); if(x.done) break; const n=new Uint8Array(b.length+x.value.length); n.set(b); n.set(x.value,b.length); b=n}
+      const head=new TextDecoder().decode(b.slice(0,1024));
+      return head.includes("#EXTM3U")||ct.includes("mpegurl")?{hls:true}:(b[0]===0x47||/mp2t|mpeg|video|octet/.test(ct))?{ts:true}:{hls:true}}
+    catch(e){return {}} finally{clearTimeout(tm); try{ac.abort()}catch(e){}}})();
+  if(!PLR) return;
+  if(kind.err){plStatus("Не открылся: "+kind.err+". Можно попробовать «Открыть в VLC».",true); return}
+  if(kind.ts) return tryTs();
   try{const Hls=await loadLib("hls.min.js","Hls"); if(!PLR) return;
     if(Hls.isSupported()){const h=new Hls({maxBufferLength:20,manifestLoadingMaxRetry:1}); PLR.h=h; h.loadSource(src); h.attachMedia(v);
       h.on(Hls.Events.MANIFEST_PARSED,()=>{v.play().catch(()=>{}); plStatus("")});
       h.on(Hls.Events.ERROR,(_,d)=>{if(!d.fatal) return; let msg=""; try{msg=JSON.parse((d.networkDetails&&d.networkDetails.responseText)||"{}").error||""}catch(e){}
         h.destroy(); if(PLR) PLR.h=null;
         if(msg) plStatus("Не открылся: "+msg+". Можно попробовать «Открыть в VLC».",true);
-        else if(d.details==="manifestParsingError") tryTs();   // не HLS — пробуем как поток TS
+        else if(d.details==="manifestParsingError"||d.details==="manifestLoadTimeOut") tryTs();   // не HLS — пробуем как поток TS
         else plStatus("Поток прервался ("+d.details+") — попробуйте ещё раз или «Открыть в VLC».",true)});
       return}
     if(v.canPlayType("application/vnd.apple.mpegurl")){v.src=src; v.play().catch(()=>{}); plStatus(""); return}
